@@ -1,0 +1,2193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DVD / Blu-ray Cover Template Maker</title>
+  <style id="dynamicPageStyle">
+    @page { size: 11in 8.5in; margin: 0; }
+  </style>
+  <style>
+    :root {
+      --bg: #f4f5f7;
+      --panel: #ffffff;
+      --ink: #111827;
+      --muted: #6b7280;
+      --line: #d1d5db;
+      --accent: #2563eb;
+      --warn: #dc2626;
+      --ok: #15803d;
+      --shadow: 0 18px 50px rgba(15, 23, 42, .12);
+
+      --sheet-w: 10.0in;
+      --sheet-h: 7.5in;
+      --panel-w: 5in;
+      --trim-h: 7in;
+      --spine-w: .5in;
+      --bleed: .125in;
+      --safe: .125in;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button, input, select {
+      font: inherit;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(320px, 390px) 1fr;
+      min-height: 100vh;
+    }
+
+    aside {
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      padding: 22px;
+      overflow-y: auto;
+      max-height: 100vh;
+      position: sticky;
+      top: 0;
+    }
+
+    main {
+      min-width: 0;
+      padding: 26px;
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      line-height: 1.2;
+      margin: 0 0 6px;
+    }
+
+    .subhead {
+      color: var(--muted);
+      font-size: .9rem;
+      line-height: 1.4;
+      margin: 0 0 18px;
+    }
+
+    fieldset {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      margin: 0 0 16px;
+      padding: 14px;
+      background: #fff;
+    }
+
+    legend {
+      padding: 0 6px;
+      font-weight: 750;
+      font-size: .9rem;
+    }
+
+    label {
+      display: block;
+      font-size: .8rem;
+      color: #374151;
+      margin: 11px 0 5px;
+      font-weight: 650;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    input[type="number"], input[type="text"], select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 10px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    input[type="range"] {
+      width: 100%;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      font-size: .82rem;
+      color: var(--muted);
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: .75rem;
+      line-height: 1.35;
+      margin-top: 7px;
+    }
+
+    .buttonRow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 9px 13px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+      font-weight: 700;
+      font-size: .86rem;
+    }
+
+    button.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    button.danger {
+      color: var(--warn);
+      border-color: #fecaca;
+      background: #fffafa;
+    }
+
+    button:hover { filter: brightness(.98); }
+
+    .layoutTabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .layoutTab {
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .layoutTab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .toggles {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: .85rem;
+      color: #374151;
+      font-weight: 600;
+    }
+
+    .toggle input { margin: 0; }
+
+    details {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px 12px;
+      margin-top: 10px;
+      background: #fafafa;
+    }
+
+    summary {
+      cursor: pointer;
+      font-weight: 800;
+      font-size: .86rem;
+    }
+
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      color: var(--muted);
+      font-size: .86rem;
+    }
+
+    .pill {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 7px 10px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    }
+
+    .previewShell {
+      background: #e5e7eb;
+      border: 1px solid #cbd5e1;
+      border-radius: 24px;
+      padding: 24px;
+      overflow: auto;
+      min-height: calc(100vh - 112px);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.7);
+    }
+
+    .sheetWrap {
+      transform-origin: top left;
+      transition: transform .12s ease;
+    }
+
+    .sheet {
+      position: relative;
+      width: var(--sheet-w);
+      height: var(--sheet-h);
+      background: #fff;
+      box-shadow: var(--shadow);
+      overflow: visible;
+      isolation: isolate;
+    }
+
+    .trimArea {
+      position: absolute;
+      left: var(--bleed);
+      top: var(--bleed);
+      width: calc((var(--panel-w) * 2) + var(--spine-w));
+      height: var(--trim-h);
+      outline: 1px solid rgba(220, 38, 38, .75);
+      pointer-events: none;
+      z-index: 20;
+    }
+
+    .slot {
+      position: absolute;
+      top: var(--bleed);
+      height: var(--trim-h);
+      overflow: hidden;
+      background: #f8fafc;
+      border: 1px solid rgba(17, 24, 39, .14);
+      z-index: 3;
+    }
+
+    .slot.back {
+      left: var(--bleed);
+      width: var(--panel-w);
+    }
+
+    .slot.spine {
+      left: calc(var(--bleed) + var(--panel-w));
+      width: var(--spine-w);
+    }
+
+    .slot.front {
+      left: calc(var(--bleed) + var(--panel-w) + var(--spine-w));
+      width: var(--panel-w);
+    }
+
+    .slot::before {
+      content: "";
+      position: absolute;
+      inset: var(--safe);
+      border: 1px dashed rgba(37, 99, 235, .85);
+      z-index: 12;
+      pointer-events: none;
+      display: var(--safe-display, block);
+    }
+
+    .slot::after {
+      content: attr(data-label);
+      position: absolute;
+      left: 8px;
+      top: 7px;
+      background: rgba(255,255,255,.85);
+      border: 1px solid rgba(17,24,39,.13);
+      border-radius: 999px;
+      padding: 3px 7px;
+      font-size: 10px;
+      color: #334155;
+      font-weight: 800;
+      z-index: 13;
+      display: var(--label-display, block);
+    }
+
+    .placeholder {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 12px;
+      text-align: center;
+      color: #94a3b8;
+      font-weight: 800;
+      font-size: 13px;
+      line-height: 1.2;
+      background-image:
+        linear-gradient(45deg, rgba(148,163,184,.16) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(148,163,184,.16) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(148,163,184,.16) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(148,163,184,.16) 75%);
+      background-size: 18px 18px;
+      background-position: 0 0, 0 9px, 9px -9px, -9px 0px;
+    }
+
+    .art {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center center;
+      transform-origin: center center;
+      z-index: 5;
+      user-select: none;
+      pointer-events: none;
+    }
+
+    .combinedLayer {
+      position: absolute;
+      z-index: 4;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    .combinedArt {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center center;
+      transform-origin: center center;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .combinedPlaceholder {
+      position: absolute;
+      inset: 0;
+      z-index: 6;
+    }
+
+    body.mode-separate .combinedLayer {
+      display: none;
+    }
+
+    body.mode-combined .combinedLayer {
+      display: block;
+    }
+
+    body.mode-combined .slot .art,
+    body.mode-combined .slot .placeholder {
+      display: none !important;
+    }
+
+    body.mode-combined .slot {
+      background: transparent;
+    }
+
+    .diskLayer {
+      position: absolute;
+      inset: 0;
+      display: none;
+      z-index: 10;
+    }
+
+    body.template-disc .diskLayer {
+      display: block;
+    }
+
+    body.template-disc .coverOnly,
+    body.template-disc #coverSizeFieldset,
+    body.template-disc #coverArtworkFieldset {
+      display: none !important;
+    }
+
+    body.template-cover #discArtworkFieldset {
+      display: none !important;
+    }
+
+    .discSlot {
+      position: absolute;
+      overflow: hidden;
+      border-radius: 50%;
+      background: #f8fafc;
+      border: 1px solid rgba(17, 24, 39, .18);
+      z-index: 10;
+    }
+
+    .discSlot::before {
+      content: attr(data-label);
+      position: absolute;
+      left: 50%;
+      top: 12px;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,.85);
+      border: 1px solid rgba(17,24,39,.13);
+      border-radius: 999px;
+      padding: 3px 7px;
+      font-size: 10px;
+      color: #334155;
+      font-weight: 800;
+      z-index: 14;
+      display: var(--label-display, block);
+    }
+
+    .discHole {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: .69in;
+      height: .69in;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      background: #fff;
+      border: 1px solid rgba(17, 24, 39, .28);
+      z-index: 12;
+      pointer-events: none;
+    }
+
+    body.hide-guides .discHole {
+      border-color: transparent;
+    }
+
+    .discSpineStrip {
+      position: absolute;
+      border: 1px solid rgba(17, 24, 39, .28);
+      border-radius: .08in;
+      background: transparent;
+      z-index: 11;
+      pointer-events: none;
+      display: var(--guide-display, block);
+    }
+
+    .layerOverlay {
+      position: absolute;
+      inset: 0;
+      z-index: 18;
+      pointer-events: none;
+    }
+
+    .freeLayer {
+      position: absolute;
+      min-width: .25in;
+      min-height: .18in;
+      transform-origin: center center;
+      pointer-events: auto;
+      cursor: move;
+      user-select: none;
+    }
+
+    .freeLayer.selected {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .freeLayer img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+      pointer-events: none;
+    }
+
+    .textLayer {
+      width: 100%;
+      height: 100%;
+      padding: .04in;
+      white-space: pre-wrap;
+      overflow: hidden;
+      cursor: text;
+      user-select: text;
+    }
+
+    .textLayer:focus {
+      outline: none;
+    }
+
+    .layerList {
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .layerItem {
+      width: 100%;
+      border-radius: 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      text-align: left;
+    }
+
+    .layerItem.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: #eff6ff;
+    }
+
+    .textTools {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .textTools button {
+      width: 38px;
+      padding: 8px 0;
+      border-radius: 10px;
+    }
+
+    body.dragging-layer {
+      cursor: move;
+    }
+
+    .bleedFill {
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(45deg, rgba(220,38,38,.055) 0 8px, transparent 8px 16px);
+      z-index: 1;
+      pointer-events: none;
+      display: var(--bleed-display, block);
+    }
+
+    .spineText {
+      position: absolute;
+      left: calc(var(--bleed) + var(--panel-w));
+      top: var(--bleed);
+      width: var(--spine-w);
+      height: var(--trim-h);
+      z-index: 14;
+      pointer-events: none;
+      display: grid;
+      place-items: center;
+      color: rgba(15, 23, 42, .48);
+      font-weight: 900;
+      font-size: 10px;
+      letter-spacing: .08em;
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      display: var(--label-display, grid);
+    }
+
+    .foldLine {
+      position: absolute;
+      top: var(--bleed);
+      height: var(--trim-h);
+      width: 0;
+      border-left: 1px dashed rgba(17, 24, 39, .42);
+      z-index: 16;
+      pointer-events: none;
+      display: var(--guide-display, block);
+    }
+
+    .foldLine.left { left: calc(var(--bleed) + var(--panel-w)); }
+    .foldLine.right { left: calc(var(--bleed) + var(--panel-w) + var(--spine-w)); }
+
+    .cropMarks {
+      display: var(--crop-display, block);
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      pointer-events: none;
+    }
+
+    .cropMarks span {
+      position: absolute;
+      background: #111827;
+      opacity: .85;
+    }
+
+    .cm-h { height: 1px; width: .18in; }
+    .cm-v { width: 1px; height: .18in; }
+
+    .cm-tl-h { left: calc(var(--bleed) - .24in); top: var(--bleed); }
+    .cm-tl-v { left: var(--bleed); top: calc(var(--bleed) - .24in); }
+    .cm-tr-h { left: calc(var(--bleed) + (var(--panel-w) * 2) + var(--spine-w) + .06in); top: var(--bleed); }
+    .cm-tr-v { left: calc(var(--bleed) + (var(--panel-w) * 2) + var(--spine-w)); top: calc(var(--bleed) - .24in); }
+    .cm-bl-h { left: calc(var(--bleed) - .24in); top: calc(var(--bleed) + var(--trim-h)); }
+    .cm-bl-v { left: var(--bleed); top: calc(var(--bleed) + var(--trim-h) + .06in); }
+    .cm-br-h { left: calc(var(--bleed) + (var(--panel-w) * 2) + var(--spine-w) + .06in); top: calc(var(--bleed) + var(--trim-h)); }
+    .cm-br-v { left: calc(var(--bleed) + (var(--panel-w) * 2) + var(--spine-w)); top: calc(var(--bleed) + var(--trim-h) + .06in); }
+
+    body.hide-guides .sheet { --guide-display: none; --safe-display: none; --label-display: none; }
+    body.hide-bleed .sheet { --bleed-display: none; }
+    body.hide-crops .sheet { --crop-display: none; }
+
+    .miniReadout {
+      margin-top: 8px;
+      padding: 10px;
+      border-radius: 12px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      color: #475569;
+      font-size: .78rem;
+      line-height: 1.45;
+    }
+
+    .slotGrid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .rangeLine {
+      display: grid;
+      grid-template-columns: 1fr 48px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .rangeLine output {
+      font-size: .74rem;
+      color: var(--muted);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .kbd {
+      display: inline-block;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      border-bottom-width: 2px;
+      border-radius: 6px;
+      padding: 0 5px;
+      font-size: .72rem;
+      font-weight: 800;
+      color: #475569;
+    }
+
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; }
+      aside { position: relative; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); }
+      main { padding: 16px; }
+      .previewShell { min-height: 420px; }
+    }
+
+    @media print {
+      html, body {
+        width: var(--sheet-w) !important;
+        height: var(--sheet-h) !important;
+        background: #fff !important;
+        overflow: hidden !important;
+      }
+
+      aside, .topbar, .printHelp {
+        display: none !important;
+      }
+
+      .app, main, .previewShell {
+        display: block !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        background: #fff !important;
+        overflow: hidden !important;
+        transform: none !important;
+        width: var(--sheet-w) !important;
+        height: var(--sheet-h) !important;
+        min-height: 0 !important;
+      }
+
+      .sheetWrap {
+        display: block !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        background: #fff !important;
+        overflow: hidden !important;
+        transform: none !important;
+        width: var(--sheet-w) !important;
+        height: var(--sheet-h) !important;
+        min-height: 0 !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+      }
+
+      .sheet {
+        box-shadow: none !important;
+        overflow: hidden !important;
+        width: var(--sheet-w) !important;
+        height: var(--sheet-h) !important;
+        page-break-before: avoid !important;
+        page-break-after: avoid;
+        break-after: avoid;
+      }
+
+      .slot, .discSlot {
+        border-color: transparent !important;
+      }
+
+      .placeholder, .slot::after, .slot::before, .discSlot::before, .foldLine, .trimArea, .bleedFill, .spineText, .discSpineStrip {
+        display: none !important;
+      }
+
+      .freeLayer.selected {
+        outline: none !important;
+      }
+
+      body.print-guides .slot::before,
+      body.print-guides .foldLine,
+      body.print-guides .trimArea,
+      body.print-guides .discSpineStrip {
+        display: block !important;
+      }
+
+      body.print-guides .discSlot {
+        border-color: rgba(17, 24, 39, .6) !important;
+      }
+
+      body.print-guides .discHole {
+        border-color: rgba(17, 24, 39, .6) !important;
+      }
+
+      body:not(.print-guides) .discHole {
+        border-color: transparent !important;
+      }
+
+      body.print-guides .spineText {
+        display: grid !important;
+      }
+
+      body.print-crops .cropMarks {
+        display: block !important;
+      }
+
+      body:not(.print-crops) .cropMarks {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <h1>DVD / Blu-ray Cover Template Maker</h1>
+      <p class="subhead">Upload front, back, and spine art; adjust the case dimensions; then export with your browser’s “Save as PDF” print flow.</p>
+
+      <fieldset>
+        <legend>Layout</legend>
+        <div class="layoutTabs" role="tablist" aria-label="Template layout">
+          <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover</button>
+          <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels</button>
+        </div>
+        <p class="hint">Disc labels use Avery 8960 / 8944 Letter stock geometry and should print at 100% scale.</p>
+      </fieldset>
+
+      <fieldset id="coverSizeFieldset">
+        <legend>Template size</legend>
+        <label for="preset">Preset</label>
+        <select id="preset">
+          <option value="dvd">DVD case wrap — 10.80 × 7.50 in with bleed</option>
+          <option value="bluray">Blu-ray case wrap — 10.18 × 6.08 in with bleed</option>
+          <option value="custom">Custom</option>
+        </select>
+
+        <div class="row">
+          <div>
+            <label for="panelW">Front/back width, in</label>
+            <input id="panelW" type="number" min="1" max="12" step="0.001" />
+          </div>
+          <div>
+            <label for="trimH">Trim height, in</label>
+            <input id="trimH" type="number" min="1" max="12" step="0.001" />
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <label for="spineW">Spine width, in</label>
+            <input id="spineW" type="number" min="0.1" max="2" step="0.001" />
+          </div>
+          <div>
+            <label for="bleed">Bleed, in</label>
+            <input id="bleed" type="number" min="0" max="0.5" step="0.001" />
+          </div>
+        </div>
+
+        <div>
+          <label for="safe">Safe margin guide, in</label>
+          <input id="safe" type="number" min="0" max="0.5" step="0.001" />
+        </div>
+
+        <div class="miniReadout" id="sizeReadout"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>View / export</legend>
+        <label for="zoom">Preview zoom</label>
+        <div class="rangeLine">
+          <input id="zoom" type="range" min="20" max="125" step="1" value="60" />
+          <output id="zoomOut">60%</output>
+        </div>
+
+        <div class="toggles">
+          <label class="toggle"><input id="showGuides" type="checkbox" checked /> Show fold/safe/trim guides on screen</label>
+          <label class="toggle"><input id="showBleed" type="checkbox" checked /> Show bleed shading on screen</label>
+          <label class="toggle"><input id="showCrops" type="checkbox" checked /> Show crop marks on screen</label>
+          <label class="toggle"><input id="printGuides" type="checkbox" /> Include guides in PDF</label>
+          <label class="toggle"><input id="printCrops" type="checkbox" checked /> Include crop marks in PDF</label>
+        </div>
+
+        <div class="buttonRow">
+          <button class="primary" id="printBtn">Export PDF</button>
+          <button id="saveProjectBtn">Save project</button>
+          <button id="loadProjectBtn">Load project</button>
+          <input id="projectFile" type="file" accept="application/json,.json" hidden />
+        </div>
+
+        <p class="hint">Export PDF opens your print dialog. Choose <b>Save as PDF</b>, use <b>100% scale</b>, and disable browser headers/footers.</p>
+      </fieldset>
+
+      <fieldset id="coverArtworkFieldset">
+        <legend>Artwork</legend>
+
+        <label for="artworkMode">Artwork mode</label>
+        <select id="artworkMode">
+          <option value="separate">Separate front / spine / back images</option>
+          <option value="combined">One combined wrap image</option>
+        </select>
+
+        <details id="combinedControls">
+          <summary>Combined wrap image</summary>
+
+          <label for="file-combined">Image file</label>
+          <input id="file-combined" type="file" accept="image/*" />
+
+          <label for="area-combined">Span area</label>
+          <select id="area-combined">
+            <option value="trim">Trim area only (back + spine + front)</option>
+            <option value="page">Full page including bleed</option>
+          </select>
+
+          <label for="fit-combined">Fit</label>
+          <select id="fit-combined">
+            <option value="cover">Cover / crop to fill</option>
+            <option value="contain">Contain / no crop</option>
+            <option value="fill">Stretch to fit</option>
+            <option value="none">Natural size</option>
+          </select>
+
+          <label for="zoom-combined">Image zoom</label>
+          <div class="rangeLine">
+            <input id="zoom-combined" type="range" min="0.1" max="4" step="0.01" />
+            <output id="zoom-combined-out"></output>
+          </div>
+
+          <label for="x-combined">Move X</label>
+          <div class="rangeLine">
+            <input id="x-combined" type="range" min="-100" max="100" step="1" />
+            <output id="x-combined-out"></output>
+          </div>
+
+          <label for="y-combined">Move Y</label>
+          <div class="rangeLine">
+            <input id="y-combined" type="range" min="-100" max="100" step="1" />
+            <output id="y-combined-out"></output>
+          </div>
+
+          <label for="rotate-combined">Rotate</label>
+          <div class="rangeLine">
+            <input id="rotate-combined" type="range" min="-180" max="180" step="1" />
+            <output id="rotate-combined-out"></output>
+          </div>
+
+          <div class="buttonRow">
+            <button type="button" id="reset-combined">Reset combined image</button>
+            <button type="button" class="danger" id="clear-combined">Clear combined image</button>
+          </div>
+
+          <p class="hint">
+            Use this when you already have one full wrap image. "Trim area only" spans the visible case wrap.
+            "Full page including bleed" spans the printable page.
+          </p>
+        </details>
+
+        <div id="slotControls" class="slotGrid"></div>
+
+        <div class="buttonRow">
+          <button class="danger" id="clearBtn">Clear all images</button>
+        </div>
+
+        <p class="hint">
+          Tip: you can switch between separate-image mode and combined-image mode without losing what you uploaded.
+        </p>
+      </fieldset>
+
+      <fieldset id="discArtworkFieldset">
+        <legend>Disc artwork</legend>
+        <div class="miniReadout" id="discSizeReadout"></div>
+        <div id="discControls" class="slotGrid"></div>
+        <div class="buttonRow">
+          <button type="button" class="danger" id="clearDiscBtn">Clear disc images</button>
+        </div>
+        <p class="hint">Avery 8960 uses two 4.625 in full-face disc labels on Letter paper. The center holes are kept clear in the preview and PDF.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Layers</legend>
+
+        <label for="layerTarget">New layer target</label>
+        <select id="layerTarget">
+          <option value="page">Whole page</option>
+          <option value="cover-trim">Cover trim area</option>
+          <option value="back">Back cover</option>
+          <option value="spine">Spine</option>
+          <option value="front">Front cover</option>
+          <option value="disc-top">Disc 1</option>
+          <option value="disc-bottom">Disc 2</option>
+        </select>
+
+        <div class="buttonRow">
+          <button type="button" id="addImageLayerBtn">Add image layer</button>
+          <button type="button" id="addTextLayerBtn">Add text layer</button>
+          <input id="layerImageFile" type="file" accept="image/*" hidden />
+        </div>
+
+        <div class="layerList" id="layerList"></div>
+
+        <details id="layerControls">
+          <summary>Selected layer</summary>
+
+          <label for="layerName">Name</label>
+          <input id="layerName" type="text" />
+
+          <div class="row">
+            <div>
+              <label for="layerX">X, in</label>
+              <input id="layerX" type="number" step="0.01" />
+            </div>
+            <div>
+              <label for="layerY">Y, in</label>
+              <input id="layerY" type="number" step="0.01" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label for="layerW">Width, in</label>
+              <input id="layerW" type="number" min="0.1" step="0.01" />
+            </div>
+            <div>
+              <label for="layerH">Height, in</label>
+              <input id="layerH" type="number" min="0.1" step="0.01" />
+            </div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label for="layerRotate">Rotate</label>
+              <input id="layerRotate" type="number" step="1" />
+            </div>
+            <div>
+              <label for="layerOpacity">Opacity</label>
+              <input id="layerOpacity" type="number" min="0" max="1" step="0.05" />
+            </div>
+          </div>
+
+          <div id="textLayerControls">
+            <label for="textFontSize">Text size, pt</label>
+            <input id="textFontSize" type="number" min="4" max="200" step="1" />
+
+            <label for="textColor">Text color</label>
+            <input id="textColor" type="color" />
+
+            <label for="textAlign">Text alignment</label>
+            <select id="textAlign">
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
+            </select>
+
+            <div class="textTools">
+              <button type="button" id="textBold" title="Bold"><b>B</b></button>
+              <button type="button" id="textItalic" title="Italic"><i>I</i></button>
+            </div>
+          </div>
+
+          <div class="buttonRow">
+            <button type="button" id="layerForward">Move forward</button>
+            <button type="button" id="layerBackward">Move back</button>
+            <button type="button" class="danger" id="deleteLayer">Delete layer</button>
+          </div>
+        </details>
+
+        <p class="hint">Click a layer on the preview to select it. Drag selected image or text layers directly on the page. Text layers are editable in place.</p>
+      </fieldset>
+
+      <details>
+        <summary>Deployment notes</summary>
+        <p class="hint">Save this file as <span class="kbd">index.html</span> and host it anywhere static: Netlify, GitHub Pages, S3, Nginx, or just open it locally. Images stay in your browser unless you save a project JSON.</p>
+      </details>
+    </aside>
+
+    <main>
+      <div class="topbar">
+        <div>
+          <h1 id="projectTitle">Cover preview</h1>
+          <p class="subhead printHelp">Left-to-right layout is back cover, spine, front cover.</p>
+        </div>
+        <div class="status">
+          <span class="pill" id="trimReadout"></span>
+          <span class="pill" id="sheetReadout"></span>
+        </div>
+      </div>
+
+      <div class="previewShell" id="previewShell">
+        <div class="sheetWrap" id="sheetWrap">
+          <section class="sheet" id="sheet" aria-label="Printable case cover layout">
+            <div class="bleedFill coverOnly" aria-hidden="true"></div>
+            <div class="combinedLayer coverOnly" id="combinedLayer">
+              <div class="placeholder combinedPlaceholder">Upload one combined wrap image</div>
+              <img class="art combinedArt" id="art-combined" alt="Combined wrap art" hidden />
+            </div>
+            <div class="slot back coverOnly" data-label="BACK" id="slot-back">
+              <div class="placeholder">Upload back image</div>
+              <img class="art" id="art-back" alt="Back cover art" hidden />
+            </div>
+            <div class="slot spine coverOnly" data-label="SPINE" id="slot-spine">
+              <div class="placeholder">Upload spine</div>
+              <img class="art" id="art-spine" alt="Spine art" hidden />
+            </div>
+            <div class="slot front coverOnly" data-label="FRONT" id="slot-front">
+              <div class="placeholder">Upload front image</div>
+              <img class="art" id="art-front" alt="Front cover art" hidden />
+            </div>
+            <div class="spineText coverOnly">SPINE</div>
+            <div class="foldLine left coverOnly" aria-hidden="true"></div>
+            <div class="foldLine right coverOnly" aria-hidden="true"></div>
+            <div class="trimArea coverOnly" aria-hidden="true"></div>
+            <div class="cropMarks coverOnly" aria-hidden="true">
+              <span class="cm-h cm-tl-h"></span><span class="cm-v cm-tl-v"></span>
+              <span class="cm-h cm-tr-h"></span><span class="cm-v cm-tr-v"></span>
+              <span class="cm-h cm-bl-h"></span><span class="cm-v cm-bl-v"></span>
+              <span class="cm-h cm-br-h"></span><span class="cm-v cm-br-v"></span>
+            </div>
+            <div class="diskLayer" id="diskLayer" aria-hidden="true">
+              <div class="discSlot" data-label="DISC 1" id="disc-top">
+                <div class="placeholder">Upload disc 1 image</div>
+                <img class="art" id="art-disc-top" alt="Disc 1 art" hidden />
+                <div class="discHole" aria-hidden="true"></div>
+              </div>
+              <div class="discSlot" data-label="DISC 2" id="disc-bottom">
+                <div class="placeholder">Upload disc 2 image</div>
+                <img class="art" id="art-disc-bottom" alt="Disc 2 art" hidden />
+                <div class="discHole" aria-hidden="true"></div>
+              </div>
+              <div class="discSpineStrip" id="disc-spine-1" aria-hidden="true"></div>
+              <div class="discSpineStrip" id="disc-spine-2" aria-hidden="true"></div>
+              <div class="discSpineStrip" id="disc-spine-3" aria-hidden="true"></div>
+              <div class="discSpineStrip" id="disc-spine-4" aria-hidden="true"></div>
+            </div>
+            <div class="layerOverlay" id="layerOverlay"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    const presets = {
+      dvd: {
+        name: 'DVD case wrap',
+        panelW: 5.125,
+        trimH: 7.25,
+        spineW: 0.55,
+        bleed: 0.125,
+        safe: 0.125
+      },
+      bluray: {
+        name: 'Blu-ray case wrap',
+        panelW: 4.961,
+        trimH: 5.827,
+        spineW: 0.472,
+        bleed: 0.125,
+        safe: 0.125
+      }
+    };
+
+    const slotNames = [
+      { key: 'back', label: 'Back cover' },
+      { key: 'spine', label: 'Spine' },
+      { key: 'front', label: 'Front cover' }
+    ];
+
+    const discTemplate = {
+      sheetW: 8.5,
+      sheetH: 11,
+      discD: 4.625,
+      holeD: 0.69,
+      slots: [
+        { key: 'top', label: 'Disc 1', centerX: 4.25, centerY: 3 },
+        { key: 'bottom', label: 'Disc 2', centerX: 4.25, centerY: 8 }
+      ],
+      spineStrips: [
+        { x: 0.49375, y: 0.733, w: 0.2188, h: 4.5875 },
+        { x: 0.9632, y: 0.733, w: 0.2188, h: 4.5875 },
+        { x: 0.49375, y: 5.5785, w: 0.2188, h: 4.5875 },
+        { x: 0.9632, y: 5.5785, w: 0.2188, h: 4.5875 }
+      ]
+    };
+
+    const state = {
+      templateMode: 'cover',
+      preset: 'dvd',
+      panelW: presets.dvd.panelW,
+      trimH: presets.dvd.trimH,
+      spineW: presets.dvd.spineW,
+      bleed: presets.dvd.bleed,
+      safe: presets.dvd.safe,
+      zoom: 60,
+      showGuides: true,
+      showBleed: true,
+      showCrops: true,
+      printGuides: false,
+      printCrops: true,
+      artworkMode: 'separate',
+      combined: {
+        src: '',
+        area: 'trim',
+        fit: 'cover',
+        zoom: 1,
+        x: 0,
+        y: 0,
+        rotate: 0
+      },
+      slots: {
+        back: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
+        spine: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
+        front: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }
+      },
+      discs: {
+        top: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
+        bottom: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }
+      },
+      layers: [],
+      selectedLayerId: ''
+    };
+
+    function inches(n) {
+      return `${Number(n).toFixed(3)}in`;
+    }
+
+    function mm(n) {
+      return n * 25.4;
+    }
+
+    function fmt(n, digits = 3) {
+      return Number(n).toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+    }
+
+    function totalTrimW() {
+      return state.panelW * 2 + state.spineW;
+    }
+
+    function sheetW() {
+      if (state.templateMode === 'disc') return discTemplate.sheetW;
+      return totalTrimW() + state.bleed * 2;
+    }
+
+    function sheetH() {
+      if (state.templateMode === 'disc') return discTemplate.sheetH;
+      return state.trimH + state.bleed * 2;
+    }
+
+    function setCustomWhenEdited() {
+      if ($('preset').value !== 'custom') {
+        $('preset').value = 'custom';
+        state.preset = 'custom';
+      }
+    }
+
+    function applyPreset(name) {
+      state.preset = name;
+      if (presets[name]) {
+        Object.assign(state, presets[name]);
+      }
+      syncInputs();
+      render();
+    }
+
+    function syncInputs() {
+      for (const mode of ['cover', 'disc']) {
+        const button = $(`mode-${mode}`);
+        const active = state.templateMode === mode;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-selected', active ? 'true' : 'false');
+      }
+      $('preset').value = state.preset;
+      $('panelW').value = state.panelW;
+      $('trimH').value = state.trimH;
+      $('spineW').value = state.spineW;
+      $('bleed').value = state.bleed;
+      $('safe').value = state.safe;
+      $('zoom').value = state.zoom;
+      $('zoomOut').textContent = `${state.zoom}%`;
+      $('artworkMode').value = state.artworkMode;
+      $('showGuides').checked = state.showGuides;
+      $('showBleed').checked = state.showBleed;
+      $('showCrops').checked = state.showCrops;
+      $('printGuides').checked = state.printGuides;
+      $('printCrops').checked = state.printCrops;
+    }
+
+    function updateBodyClasses() {
+      document.body.classList.toggle('template-cover', state.templateMode === 'cover');
+      document.body.classList.toggle('template-disc', state.templateMode === 'disc');
+      document.body.classList.toggle('hide-guides', !state.showGuides);
+      document.body.classList.toggle('hide-bleed', !state.showBleed);
+      document.body.classList.toggle('hide-crops', !state.showCrops);
+      document.body.classList.toggle('print-guides', state.printGuides);
+      document.body.classList.toggle('print-crops', state.printCrops);
+    }
+
+    function renderDimensions() {
+      const root = document.documentElement;
+      root.style.setProperty('--sheet-w', inches(sheetW()));
+      root.style.setProperty('--sheet-h', inches(sheetH()));
+      root.style.setProperty('--panel-w', inches(state.panelW));
+      root.style.setProperty('--trim-h', inches(state.trimH));
+      root.style.setProperty('--spine-w', inches(state.spineW));
+      root.style.setProperty('--bleed', inches(state.bleed));
+      root.style.setProperty('--safe', inches(state.safe));
+
+      $('dynamicPageStyle').textContent = `@page { size: ${fmt(sheetW())}in ${fmt(sheetH())}in; margin: 0; }`;
+
+      if (state.templateMode === 'disc') {
+        $('projectTitle').textContent = 'Disc label preview';
+        document.querySelector('.printHelp').textContent = 'Avery 8960 / 8944 layout: two full-face disc labels on Letter paper.';
+        $('trimReadout').textContent = `Disc: ${fmt(discTemplate.discD)} in diameter`;
+        $('sheetReadout').textContent = `Letter: ${fmt(sheetW())} × ${fmt(sheetH())} in`;
+        $('discSizeReadout').innerHTML = `
+          <b>Avery 8960 / 8944:</b> 2 disc labels per Letter sheet<br>
+          <b>Disc diameter:</b> ${fmt(discTemplate.discD)} in (${fmt(mm(discTemplate.discD), 1)} mm)<br>
+          <b>Disc centers:</b> X ${fmt(4.25)} in; Y ${fmt(3)} in and ${fmt(8)} in from top<br>
+          <b>Center hole:</b> ${fmt(discTemplate.holeD)} in (${fmt(mm(discTemplate.holeD), 1)} mm)
+        `;
+      } else {
+        $('projectTitle').textContent = 'Cover preview';
+        document.querySelector('.printHelp').textContent = 'Left-to-right layout is back cover, spine, front cover.';
+        $('trimReadout').textContent = `Trim: ${fmt(totalTrimW())} × ${fmt(state.trimH)} in`;
+        $('sheetReadout').textContent = `PDF page: ${fmt(sheetW())} × ${fmt(sheetH())} in`;
+        $('sizeReadout').innerHTML = `
+          <b>Trim:</b> ${fmt(totalTrimW())} × ${fmt(state.trimH)} in<br>
+          <b>With bleed/PDF page:</b> ${fmt(sheetW())} × ${fmt(sheetH())} in<br>
+          <b>Metric trim:</b> ${fmt(mm(totalTrimW()), 1)} × ${fmt(mm(state.trimH), 1)} mm<br>
+          <b>Metric PDF page:</b> ${fmt(mm(sheetW()), 1)} × ${fmt(mm(sheetH()), 1)} mm
+        `;
+      }
+
+      const scale = state.zoom / 100;
+      $('sheetWrap').style.transform = `scale(${scale})`;
+      $('sheetWrap').style.width = `${sheetW() * 96 * scale}px`;
+      $('sheetWrap').style.height = `${sheetH() * 96 * scale}px`;
+    }
+
+    function renderSlots() {
+      for (const { key } of slotNames) {
+        const slot = state.slots[key];
+        const img = $(`art-${key}`);
+        const placeholder = $(`slot-${key}`).querySelector('.placeholder');
+
+        if (slot.src) {
+          img.src = slot.src;
+          img.hidden = false;
+          placeholder.style.display = 'none';
+        } else {
+          img.removeAttribute('src');
+          img.hidden = true;
+          placeholder.style.display = 'grid';
+        }
+
+        img.style.objectFit = slot.fit;
+        img.style.transform = `translate(-50%, -50%) translate(${slot.x}%, ${slot.y}%) rotate(${slot.rotate}deg) scale(${slot.zoom})`;
+      }
+    }
+
+    function render() {
+      renderDimensions();
+      renderSlots();
+      renderDiscSlots();
+      renderCombined();
+      renderLayers();
+      syncLayerInputs();
+      updateBodyClasses();
+      localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify(state));
+    }
+
+    function buildSlotControls() {
+      const wrap = $('slotControls');
+      wrap.innerHTML = '';
+
+      for (const { key, label } of slotNames) {
+        const details = document.createElement('details');
+        details.open = false;
+        details.innerHTML = `
+          <summary>${label}</summary>
+          <label for="file-${key}">Image file</label>
+          <input id="file-${key}" type="file" accept="image/*" />
+
+          <label for="fit-${key}">Fit</label>
+          <select id="fit-${key}">
+            <option value="cover">Cover / crop to fill</option>
+            <option value="contain">Contain / no crop</option>
+            <option value="fill">Stretch to fit</option>
+            <option value="none">Natural size</option>
+          </select>
+
+          <label for="zoom-${key}">Image zoom</label>
+          <div class="rangeLine">
+            <input id="zoom-${key}" type="range" min="0.1" max="4" step="0.01" />
+            <output id="zoom-${key}-out"></output>
+          </div>
+
+          <label for="x-${key}">Move X</label>
+          <div class="rangeLine">
+            <input id="x-${key}" type="range" min="-100" max="100" step="1" />
+            <output id="x-${key}-out"></output>
+          </div>
+
+          <label for="y-${key}">Move Y</label>
+          <div class="rangeLine">
+            <input id="y-${key}" type="range" min="-100" max="100" step="1" />
+            <output id="y-${key}-out"></output>
+          </div>
+
+          <label for="rotate-${key}">Rotate</label>
+          <div class="rangeLine">
+            <input id="rotate-${key}" type="range" min="-180" max="180" step="1" />
+            <output id="rotate-${key}-out"></output>
+          </div>
+
+          <div class="buttonRow">
+            <button type="button" id="reset-${key}">Reset ${label.toLowerCase()}</button>
+            <button type="button" class="danger" id="clear-${key}">Clear image</button>
+          </div>
+        `;
+        wrap.appendChild(details);
+
+        $(`file-${key}`).addEventListener('change', (event) => {
+          const file = event.target.files && event.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            state.templateMode = 'cover';
+            state.artworkMode = 'separate';
+            state.slots[key].src = String(reader.result);
+            syncInputs();
+            render();
+          };
+          reader.readAsDataURL(file);
+        });
+
+        $(`fit-${key}`).addEventListener('change', (event) => {
+          state.slots[key].fit = event.target.value;
+          render();
+        });
+
+        for (const prop of ['zoom', 'x', 'y', 'rotate']) {
+          $(`${prop}-${key}`).addEventListener('input', (event) => {
+            state.slots[key][prop] = Number(event.target.value);
+            syncSlotInputs(key);
+            render();
+          });
+        }
+
+        $(`reset-${key}`).addEventListener('click', () => {
+          Object.assign(state.slots[key], { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
+          syncSlotInputs(key);
+          render();
+        });
+
+        $(`clear-${key}`).addEventListener('click', () => {
+          state.slots[key].src = '';
+          $(`file-${key}`).value = '';
+          render();
+        });
+      }
+      syncAllSlotInputs();
+    }
+
+    function buildDiscControls() {
+      const wrap = $('discControls');
+      wrap.innerHTML = '';
+
+      for (const { key, label } of discTemplate.slots) {
+        const details = document.createElement('details');
+        details.open = false;
+        details.innerHTML = `
+          <summary>${label}</summary>
+          <label for="file-disc-${key}">Image file</label>
+          <input id="file-disc-${key}" type="file" accept="image/*" />
+
+          <label for="fit-disc-${key}">Fit</label>
+          <select id="fit-disc-${key}">
+            <option value="cover">Cover / crop to fill</option>
+            <option value="contain">Contain / no crop</option>
+            <option value="fill">Stretch to fit</option>
+            <option value="none">Natural size</option>
+          </select>
+
+          <label for="zoom-disc-${key}">Image zoom</label>
+          <div class="rangeLine">
+            <input id="zoom-disc-${key}" type="range" min="0.1" max="4" step="0.01" />
+            <output id="zoom-disc-${key}-out"></output>
+          </div>
+
+          <label for="x-disc-${key}">Move X</label>
+          <div class="rangeLine">
+            <input id="x-disc-${key}" type="range" min="-100" max="100" step="1" />
+            <output id="x-disc-${key}-out"></output>
+          </div>
+
+          <label for="y-disc-${key}">Move Y</label>
+          <div class="rangeLine">
+            <input id="y-disc-${key}" type="range" min="-100" max="100" step="1" />
+            <output id="y-disc-${key}-out"></output>
+          </div>
+
+          <label for="rotate-disc-${key}">Rotate</label>
+          <div class="rangeLine">
+            <input id="rotate-disc-${key}" type="range" min="-180" max="180" step="1" />
+            <output id="rotate-disc-${key}-out"></output>
+          </div>
+
+          <div class="buttonRow">
+            <button type="button" id="reset-disc-${key}">Reset ${label.toLowerCase()}</button>
+            <button type="button" class="danger" id="clear-disc-${key}">Clear image</button>
+          </div>
+        `;
+        wrap.appendChild(details);
+
+        $(`file-disc-${key}`).addEventListener('change', (event) => {
+          const file = event.target.files && event.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            state.templateMode = 'disc';
+            state.discs[key].src = String(reader.result);
+            syncInputs();
+            render();
+          };
+          reader.readAsDataURL(file);
+        });
+
+        $(`fit-disc-${key}`).addEventListener('change', (event) => {
+          state.discs[key].fit = event.target.value;
+          render();
+        });
+
+        for (const prop of ['zoom', 'x', 'y', 'rotate']) {
+          $(`${prop}-disc-${key}`).addEventListener('input', (event) => {
+            state.discs[key][prop] = Number(event.target.value);
+            syncDiscInputs(key);
+            render();
+          });
+        }
+
+        $(`reset-disc-${key}`).addEventListener('click', () => {
+          Object.assign(state.discs[key], { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
+          syncDiscInputs(key);
+          render();
+        });
+
+        $(`clear-disc-${key}`).addEventListener('click', () => {
+          state.discs[key].src = '';
+          $(`file-disc-${key}`).value = '';
+          render();
+        });
+      }
+
+      syncAllDiscInputs();
+    }
+
+    function syncSlotInputs(key) {
+      const slot = state.slots[key];
+      $(`fit-${key}`).value = slot.fit;
+      $(`zoom-${key}`).value = slot.zoom;
+      $(`zoom-${key}-out`).textContent = `${Math.round(slot.zoom * 100)}%`;
+      $(`x-${key}`).value = slot.x;
+      $(`x-${key}-out`).textContent = `${slot.x}%`;
+      $(`y-${key}`).value = slot.y;
+      $(`y-${key}-out`).textContent = `${slot.y}%`;
+      $(`rotate-${key}`).value = slot.rotate;
+      $(`rotate-${key}-out`).textContent = `${slot.rotate}°`;
+    }
+
+    function syncAllSlotInputs() {
+      for (const { key } of slotNames) syncSlotInputs(key);
+    }
+
+    function syncDiscInputs(key) {
+      const disc = state.discs[key];
+      $(`fit-disc-${key}`).value = disc.fit;
+      $(`zoom-disc-${key}`).value = disc.zoom;
+      $(`zoom-disc-${key}-out`).textContent = `${Math.round(disc.zoom * 100)}%`;
+      $(`x-disc-${key}`).value = disc.x;
+      $(`x-disc-${key}-out`).textContent = `${disc.x}%`;
+      $(`y-disc-${key}`).value = disc.y;
+      $(`y-disc-${key}-out`).textContent = `${disc.y}%`;
+      $(`rotate-disc-${key}`).value = disc.rotate;
+      $(`rotate-disc-${key}-out`).textContent = `${disc.rotate}°`;
+    }
+
+    function syncAllDiscInputs() {
+      for (const { key } of discTemplate.slots) syncDiscInputs(key);
+    }
+
+    function syncCombinedInputs() {
+      const c = state.combined;
+      $('artworkMode').value = state.artworkMode;
+      $('area-combined').value = c.area;
+      $('fit-combined').value = c.fit;
+      $('zoom-combined').value = c.zoom;
+      $('zoom-combined-out').textContent = `${Math.round(c.zoom * 100)}%`;
+      $('x-combined').value = c.x;
+      $('x-combined-out').textContent = `${c.x}%`;
+      $('y-combined').value = c.y;
+      $('y-combined-out').textContent = `${c.y}%`;
+      $('rotate-combined').value = c.rotate;
+      $('rotate-combined-out').textContent = `${c.rotate}°`;
+    }
+
+    function renderCombined() {
+      const layer = $('combinedLayer');
+      const img = $('art-combined');
+      const placeholder = layer.querySelector('.combinedPlaceholder');
+      const c = state.combined;
+      const usePage = c.area === 'page';
+
+      layer.style.left = usePage ? '0in' : inches(state.bleed);
+      layer.style.top = usePage ? '0in' : inches(state.bleed);
+      layer.style.width = usePage ? inches(sheetW()) : inches(totalTrimW());
+      layer.style.height = usePage ? inches(sheetH()) : inches(state.trimH);
+
+      if (c.src) {
+        img.src = c.src;
+        img.hidden = false;
+        placeholder.style.display = 'none';
+      } else {
+        img.removeAttribute('src');
+        img.hidden = true;
+        placeholder.style.display = state.artworkMode === 'combined' ? 'grid' : 'none';
+      }
+
+      img.style.objectFit = c.fit;
+      img.style.transform =
+        `translate(-50%, -50%) translate(${c.x}%, ${c.y}%) rotate(${c.rotate}deg) scale(${c.zoom})`;
+
+      document.body.classList.toggle('mode-combined', state.artworkMode === 'combined');
+      document.body.classList.toggle('mode-separate', state.artworkMode !== 'combined');
+
+      $('combinedControls').open = state.artworkMode === 'combined';
+    }
+
+    function renderDiscSlots() {
+      for (const slotDef of discTemplate.slots) {
+        const disc = state.discs[slotDef.key];
+        const slot = $(`disc-${slotDef.key}`);
+        const img = $(`art-disc-${slotDef.key}`);
+        const placeholder = slot.querySelector('.placeholder');
+        const left = slotDef.centerX - discTemplate.discD / 2;
+        const top = slotDef.centerY - discTemplate.discD / 2;
+
+        slot.style.left = inches(left);
+        slot.style.top = inches(top);
+        slot.style.width = inches(discTemplate.discD);
+        slot.style.height = inches(discTemplate.discD);
+
+        if (disc.src) {
+          img.src = disc.src;
+          img.hidden = false;
+          placeholder.style.display = 'none';
+        } else {
+          img.removeAttribute('src');
+          img.hidden = true;
+          placeholder.style.display = state.templateMode === 'disc' ? 'grid' : 'none';
+        }
+
+        img.style.objectFit = disc.fit;
+        img.style.transform =
+          `translate(-50%, -50%) translate(${disc.x}%, ${disc.y}%) rotate(${disc.rotate}deg) scale(${disc.zoom})`;
+      }
+
+      discTemplate.spineStrips.forEach((strip, index) => {
+        const el = $(`disc-spine-${index + 1}`);
+        el.style.left = inches(strip.x);
+        el.style.top = inches(strip.y);
+        el.style.width = inches(strip.w);
+        el.style.height = inches(strip.h);
+      });
+    }
+
+    function getLayer(id) {
+      return state.layers.find((layer) => layer.id === id) || null;
+    }
+
+    function nextLayerZ() {
+      return state.layers.reduce((max, layer) => Math.max(max, layer.z || 0), 0) + 1;
+    }
+
+    function makeLayerId() {
+      return `layer-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    }
+
+    function targetBounds(target) {
+      const disc = (key) => {
+        const slot = discTemplate.slots.find((item) => item.key === key);
+        return {
+          x: slot.centerX - discTemplate.discD / 2,
+          y: slot.centerY - discTemplate.discD / 2,
+          w: discTemplate.discD,
+          h: discTemplate.discD
+        };
+      };
+
+      switch (target) {
+        case 'cover-trim':
+          return { x: state.bleed, y: state.bleed, w: totalTrimW(), h: state.trimH };
+        case 'back':
+          return { x: state.bleed, y: state.bleed, w: state.panelW, h: state.trimH };
+        case 'spine':
+          return { x: state.bleed + state.panelW, y: state.bleed, w: state.spineW, h: state.trimH };
+        case 'front':
+          return { x: state.bleed + state.panelW + state.spineW, y: state.bleed, w: state.panelW, h: state.trimH };
+        case 'disc-top':
+          return disc('top');
+        case 'disc-bottom':
+          return disc('bottom');
+        default:
+          return { x: 0, y: 0, w: sheetW(), h: sheetH() };
+      }
+    }
+
+    function applyTargetMode(target) {
+      if (target.startsWith('disc')) {
+        state.templateMode = 'disc';
+      } else if (target !== 'page') {
+        state.templateMode = 'cover';
+      }
+      syncInputs();
+    }
+
+    function addLayer(layer) {
+      state.layers.push(layer);
+      state.selectedLayerId = layer.id;
+      render();
+    }
+
+    function addImageLayer(src, name) {
+      const target = $('layerTarget').value;
+      const bounds = targetBounds(target);
+      applyTargetMode(target);
+      addLayer({
+        id: makeLayerId(),
+        type: 'image',
+        name,
+        src,
+        target,
+        x: bounds.x + bounds.w * 0.15,
+        y: bounds.y + bounds.h * 0.15,
+        w: bounds.w * 0.7,
+        h: bounds.h * 0.7,
+        rotate: 0,
+        opacity: 1,
+        z: nextLayerZ()
+      });
+    }
+
+    function addTextLayer() {
+      const target = $('layerTarget').value;
+      const bounds = targetBounds(target);
+      applyTargetMode(target);
+      addLayer({
+        id: makeLayerId(),
+        type: 'text',
+        name: 'Text layer',
+        target,
+        html: 'Text',
+        x: bounds.x + bounds.w * 0.18,
+        y: bounds.y + bounds.h * 0.18,
+        w: Math.min(2.5, bounds.w * 0.65),
+        h: Math.min(0.75, bounds.h * 0.25),
+        rotate: 0,
+        opacity: 1,
+        z: nextLayerZ(),
+        fontSize: 24,
+        color: '#111827',
+        align: 'center',
+        bold: false,
+        italic: false
+      });
+    }
+
+    function renderLayers() {
+      const overlay = $('layerOverlay');
+      overlay.innerHTML = '';
+      const ordered = [...state.layers].sort((a, b) => (a.z || 0) - (b.z || 0));
+
+      for (const layer of ordered) {
+        const el = document.createElement('div');
+        el.className = `freeLayer${layer.id === state.selectedLayerId ? ' selected' : ''}`;
+        el.dataset.layerId = layer.id;
+        el.style.left = inches(layer.x);
+        el.style.top = inches(layer.y);
+        el.style.width = inches(layer.w);
+        el.style.height = inches(layer.h);
+        el.style.opacity = layer.opacity;
+        el.style.zIndex = layer.z || 1;
+        el.style.transform = `rotate(${layer.rotate || 0}deg)`;
+
+        if (layer.type === 'image') {
+          const img = document.createElement('img');
+          img.src = layer.src;
+          img.alt = layer.name || 'Image layer';
+          el.appendChild(img);
+        } else {
+          const text = document.createElement('div');
+          text.className = 'textLayer';
+          text.contentEditable = 'true';
+          text.spellcheck = false;
+          text.innerHTML = layer.html || '';
+          text.style.fontSize = `${layer.fontSize || 24}pt`;
+          text.style.color = layer.color || '#111827';
+          text.style.textAlign = layer.align || 'left';
+          text.style.fontWeight = layer.bold ? '800' : '400';
+          text.style.fontStyle = layer.italic ? 'italic' : 'normal';
+          text.addEventListener('input', (event) => {
+            layer.html = event.currentTarget.innerHTML;
+            localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify(state));
+          });
+          el.appendChild(text);
+        }
+
+        el.addEventListener('pointerdown', startLayerDrag);
+        el.addEventListener('click', (event) => {
+          event.stopPropagation();
+          state.selectedLayerId = layer.id;
+          if (event.target.closest('.textLayer')) {
+            renderLayerList();
+            syncLayerInputs();
+            return;
+          }
+          render();
+        });
+        overlay.appendChild(el);
+      }
+      renderLayerList();
+    }
+
+    function renderLayerList() {
+      const list = $('layerList');
+      list.innerHTML = '';
+      if (!state.layers.length) {
+        const empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.textContent = 'No extra layers yet.';
+        list.appendChild(empty);
+        return;
+      }
+
+      const ordered = [...state.layers].sort((a, b) => (b.z || 0) - (a.z || 0));
+      for (const layer of ordered) {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = `layerItem${layer.id === state.selectedLayerId ? ' active' : ''}`;
+        item.innerHTML = `<span>${layer.name || layer.type}</span><span>${layer.type}</span>`;
+        item.addEventListener('click', () => {
+          state.selectedLayerId = layer.id;
+          render();
+        });
+        list.appendChild(item);
+      }
+    }
+
+    function selectedLayer() {
+      return getLayer(state.selectedLayerId);
+    }
+
+    function syncLayerInputs() {
+      const layer = selectedLayer();
+      $('layerControls').open = Boolean(layer);
+      $('textLayerControls').style.display = layer && layer.type === 'text' ? 'block' : 'none';
+      for (const id of ['layerName', 'layerX', 'layerY', 'layerW', 'layerH', 'layerRotate', 'layerOpacity']) {
+        $(id).disabled = !layer;
+      }
+      for (const id of ['textFontSize', 'textColor', 'textAlign', 'textBold', 'textItalic']) {
+        $(id).disabled = !layer || layer.type !== 'text';
+      }
+      for (const id of ['layerForward', 'layerBackward', 'deleteLayer']) {
+        $(id).disabled = !layer;
+      }
+      if (!layer) return;
+
+      $('layerName').value = layer.name || '';
+      $('layerX').value = fmt(layer.x, 3);
+      $('layerY').value = fmt(layer.y, 3);
+      $('layerW').value = fmt(layer.w, 3);
+      $('layerH').value = fmt(layer.h, 3);
+      $('layerRotate').value = layer.rotate || 0;
+      $('layerOpacity').value = layer.opacity ?? 1;
+
+      if (layer.type === 'text') {
+        $('textFontSize').value = layer.fontSize || 24;
+        $('textColor').value = layer.color || '#111827';
+        $('textAlign').value = layer.align || 'left';
+      }
+    }
+
+    function updateSelectedLayer(prop, value) {
+      const layer = selectedLayer();
+      if (!layer) return;
+      layer[prop] = value;
+      render();
+    }
+
+    function startLayerDrag(event) {
+      const el = event.currentTarget;
+      const layer = getLayer(el.dataset.layerId);
+      if (!layer) return;
+      state.selectedLayerId = layer.id;
+
+      const textTarget = event.target.closest('.textLayer');
+      if (textTarget && (document.activeElement === textTarget || event.detail > 1)) {
+        renderLayerList();
+        syncLayerInputs();
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      const sheetRect = $('sheet').getBoundingClientRect();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const originX = layer.x;
+      const originY = layer.y;
+      document.body.classList.add('dragging-layer');
+      el.setPointerCapture(event.pointerId);
+
+      const move = (moveEvent) => {
+        const dx = (moveEvent.clientX - startX) / sheetRect.width * sheetW();
+        const dy = (moveEvent.clientY - startY) / sheetRect.height * sheetH();
+        layer.x = originX + dx;
+        layer.y = originY + dy;
+        el.style.left = inches(layer.x);
+        el.style.top = inches(layer.y);
+        syncLayerInputs();
+      };
+
+      const stop = () => {
+        document.body.classList.remove('dragging-layer');
+        el.removeEventListener('pointermove', move);
+        el.removeEventListener('pointerup', stop);
+        el.removeEventListener('pointercancel', stop);
+        localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify(state));
+      };
+
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', stop);
+      el.addEventListener('pointercancel', stop);
+      renderLayerList();
+      syncLayerInputs();
+    }
+
+    function readDimensionInputs() {
+      state.panelW = Number($('panelW').value) || state.panelW;
+      state.trimH = Number($('trimH').value) || state.trimH;
+      state.spineW = Number($('spineW').value) || state.spineW;
+      state.bleed = Number($('bleed').value) || 0;
+      state.safe = Number($('safe').value) || 0;
+      render();
+    }
+
+    function downloadProject() {
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const date = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `case-cover-project-${date}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function loadProjectFromText(text) {
+      const parsed = JSON.parse(text);
+      const next = { ...state, ...parsed };
+      next.slots = { ...state.slots, ...(parsed.slots || {}) };
+      next.combined = { ...state.combined, ...(parsed.combined || {}) };
+      next.discs = { ...state.discs, ...(parsed.discs || {}) };
+      next.layers = Array.isArray(parsed.layers) ? parsed.layers : [];
+      next.selectedLayerId = '';
+      Object.assign(state, next);
+      syncInputs();
+      syncAllSlotInputs();
+      syncAllDiscInputs();
+      syncCombinedInputs();
+      render();
+    }
+
+    function attachEvents() {
+      for (const mode of ['cover', 'disc']) {
+        $(`mode-${mode}`).addEventListener('click', () => {
+          state.templateMode = mode;
+          syncInputs();
+          render();
+        });
+      }
+
+      $('preset').addEventListener('change', (event) => applyPreset(event.target.value));
+
+      for (const id of ['panelW', 'trimH', 'spineW', 'bleed', 'safe']) {
+        $(id).addEventListener('input', () => {
+          setCustomWhenEdited();
+          readDimensionInputs();
+        });
+      }
+
+      $('zoom').addEventListener('input', (event) => {
+        state.zoom = Number(event.target.value);
+        $('zoomOut').textContent = `${state.zoom}%`;
+        render();
+      });
+
+      for (const id of ['showGuides', 'showBleed', 'showCrops', 'printGuides', 'printCrops']) {
+        $(id).addEventListener('change', (event) => {
+          state[id] = event.target.checked;
+          render();
+        });
+      }
+
+      $('printBtn').addEventListener('click', () => {
+        render();
+        window.print();
+      });
+
+      $('saveProjectBtn').addEventListener('click', downloadProject);
+      $('loadProjectBtn').addEventListener('click', () => $('projectFile').click());
+      $('projectFile').addEventListener('change', (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            loadProjectFromText(String(reader.result));
+          } catch (error) {
+            alert('Could not load that project JSON.');
+            console.error(error);
+          }
+        };
+        reader.readAsText(file);
+      });
+
+      $('artworkMode').addEventListener('change', (event) => {
+        state.artworkMode = event.target.value;
+        render();
+      });
+
+      $('file-combined').addEventListener('change', (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          state.templateMode = 'cover';
+          state.artworkMode = 'combined';
+          state.combined.src = String(reader.result);
+          syncInputs();
+          syncCombinedInputs();
+          render();
+        };
+        reader.readAsDataURL(file);
+      });
+
+      $('area-combined').addEventListener('change', (event) => {
+        state.combined.area = event.target.value;
+        render();
+      });
+
+      $('fit-combined').addEventListener('change', (event) => {
+        state.combined.fit = event.target.value;
+        render();
+      });
+
+      for (const prop of ['zoom', 'x', 'y', 'rotate']) {
+        $(`${prop}-combined`).addEventListener('input', (event) => {
+          state.combined[prop] = Number(event.target.value);
+          syncCombinedInputs();
+          render();
+        });
+      }
+
+      $('reset-combined').addEventListener('click', () => {
+        Object.assign(state.combined, {
+          area: 'trim',
+          fit: 'cover',
+          zoom: 1,
+          x: 0,
+          y: 0,
+          rotate: 0
+        });
+        syncCombinedInputs();
+        render();
+      });
+
+      $('clear-combined').addEventListener('click', () => {
+        state.combined.src = '';
+        $('file-combined').value = '';
+        render();
+      });
+
+      $('clearBtn').addEventListener('click', () => {
+        for (const { key } of slotNames) {
+          state.slots[key].src = '';
+          const input = $(`file-${key}`);
+          if (input) input.value = '';
+        }
+
+        state.combined.src = '';
+        if ($('file-combined')) $('file-combined').value = '';
+
+        render();
+      });
+
+      $('clearDiscBtn').addEventListener('click', () => {
+        for (const { key } of discTemplate.slots) {
+          state.discs[key].src = '';
+          const input = $(`file-disc-${key}`);
+          if (input) input.value = '';
+        }
+
+        render();
+      });
+
+      $('addImageLayerBtn').addEventListener('click', () => $('layerImageFile').click());
+      $('layerImageFile').addEventListener('change', (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          addImageLayer(String(reader.result), file.name || 'Image layer');
+          $('layerImageFile').value = '';
+        };
+        reader.readAsDataURL(file);
+      });
+
+      $('addTextLayerBtn').addEventListener('click', addTextLayer);
+
+      $('sheet').addEventListener('click', () => {
+        state.selectedLayerId = '';
+        render();
+      });
+
+      $('layerName').addEventListener('input', (event) => updateSelectedLayer('name', event.target.value));
+      for (const [id, prop] of [
+        ['layerX', 'x'],
+        ['layerY', 'y'],
+        ['layerW', 'w'],
+        ['layerH', 'h'],
+        ['layerRotate', 'rotate'],
+        ['layerOpacity', 'opacity']
+      ]) {
+        $(id).addEventListener('input', (event) => updateSelectedLayer(prop, Number(event.target.value)));
+      }
+
+      $('textFontSize').addEventListener('input', (event) => updateSelectedLayer('fontSize', Number(event.target.value)));
+      $('textColor').addEventListener('input', (event) => updateSelectedLayer('color', event.target.value));
+      $('textAlign').addEventListener('change', (event) => updateSelectedLayer('align', event.target.value));
+
+      $('textBold').addEventListener('click', () => {
+        const layer = selectedLayer();
+        if (!layer || layer.type !== 'text') return;
+        layer.bold = !layer.bold;
+        render();
+      });
+
+      $('textItalic').addEventListener('click', () => {
+        const layer = selectedLayer();
+        if (!layer || layer.type !== 'text') return;
+        layer.italic = !layer.italic;
+        render();
+      });
+
+      $('layerForward').addEventListener('click', () => {
+        const layer = selectedLayer();
+        if (!layer) return;
+        layer.z = nextLayerZ();
+        render();
+      });
+
+      $('layerBackward').addEventListener('click', () => {
+        const layer = selectedLayer();
+        if (!layer) return;
+        const minZ = state.layers.reduce((min, item) => Math.min(min, item.z || 0), layer.z || 0);
+        layer.z = minZ - 1;
+        render();
+      });
+
+      $('deleteLayer').addEventListener('click', () => {
+        if (!state.selectedLayerId) return;
+        state.layers = state.layers.filter((layer) => layer.id !== state.selectedLayerId);
+        state.selectedLayerId = '';
+        render();
+      });
+
+      window.addEventListener('keydown', (event) => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
+          render();
+        }
+      });
+    }
+
+    function restoreAutosave() {
+      const saved = localStorage.getItem('case-cover-template-maker-autosave');
+      if (!saved) return;
+      try {
+        const parsed = JSON.parse(saved);
+        Object.assign(state, parsed, {
+          slots: { ...state.slots, ...(parsed.slots || {}) },
+          combined: { ...state.combined, ...(parsed.combined || {}) },
+          discs: { ...state.discs, ...(parsed.discs || {}) },
+          layers: Array.isArray(parsed.layers) ? parsed.layers : [],
+          selectedLayerId: ''
+        });
+      } catch (error) {
+        console.warn('Autosave restore failed', error);
+      }
+    }
+
+    function init() {
+      restoreAutosave();
+      buildSlotControls();
+      buildDiscControls();
+      attachEvents();
+      syncInputs();
+      syncAllSlotInputs();
+      syncAllDiscInputs();
+      syncCombinedInputs();
+      render();
+    }
+
+    init();
+  </script>
+</body>
+</html>
