@@ -294,12 +294,100 @@
     #coverSizeFieldset { order: 20; }
     #coverArtworkFieldset,
     #discArtworkFieldset { order: 30; }
+    #designerFieldset { order: 15; }
     #layersFieldset { order: 40; }
     #exportFieldset { order: 50; }
     #metadataFieldset { order: 60; }
     #communityFieldset { order: 70; }
-    #appearanceFieldset { order: 80; }
     aside > details { order: 90; }
+
+    .appModeTabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .appModeTab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    body.dark .appModeTab.active { color: #fff; }
+
+    .designTabs {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .designTab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    body.app-designer .template-only { display: none !important; }
+    body.app-template .designer-only { display: none !important; }
+    /* Layers panel hides in Template tab when in disc-sheet mode — disc layers live in the Designer */
+    body.app-template.template-disc #layersFieldset { display: none !important; }
+
+    /* Designer single-disc preview */
+    body.app-designer .sheetWrap { display: none !important; }
+
+    #discDesignerView {
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: calc(100vh - 112px);
+      gap: 16px;
+      padding: 24px;
+    }
+
+    body.app-designer #discDesignerView { display: flex; }
+
+    .designerDiscWrap {
+      position: relative;
+      width: 380px;
+      height: 380px;
+      border-radius: 50%;
+      background: #f8fafc;
+      border: 2px solid rgba(17,24,39,.18);
+      overflow: hidden;
+      box-shadow: 0 18px 50px rgba(15,23,42,.15);
+      flex: 0 0 auto;
+    }
+
+    .designerDiscHole {
+      position: absolute;
+      left: 50%; top: 50%;
+      width: 57px; height: 57px;
+      border-radius: 50%;
+      transform: translate(-50%,-50%);
+      background: rgba(255,255,255,.9);
+      border: 2px solid rgba(17,24,39,.25);
+      z-index: 12;
+      pointer-events: none;
+    }
+
+    body.hide-guides .designerDiscHole { border-color: transparent; }
+    /* Push placeholder text above the centre hole — both disc sheet slots and designer preview */
+    #designerPlaceholder,
+    .discSlot .placeholder { padding-bottom: 30%; }
+    /* Spine slot is too narrow for placeholder text — hide it, keep the checkered bg */
+    .slot.spine .placeholder { font-size: 0; }
+
+    .designerDiscLabel {
+      font-size: .86rem;
+      color: var(--muted);
+      font-weight: 700;
+      text-align: center;
+    }
+
+    body.dark .designerDiscWrap { background: #121821; border-color: #2c3443; }
+    body.dark .designerDiscHole { background: rgba(18,24,33,.9); border-color: #2c3443; }
 
     .topbar {
       display: flex;
@@ -308,6 +396,7 @@
       justify-content: space-between;
       gap: 14px;
       margin-bottom: 18px;
+      padding-right: 210px;
     }
 
     .status {
@@ -564,6 +653,28 @@
       z-index: 11;
       pointer-events: none;
       display: var(--guide-display, block);
+    }
+
+    .discSpineLabel {
+      position: absolute;
+      z-index: 13;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .discSpineLabel span {
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      font-size: 6pt;
+      font-weight: 700;
+      color: rgba(15, 23, 42, .82);
+      letter-spacing: .04em;
+      white-space: nowrap;
+      max-height: 4.2in;
+      overflow: hidden;
     }
 
     .layerOverlay {
@@ -893,8 +1004,67 @@
     .modalCard { width:min(900px,92vw); max-height:88vh; overflow:auto; margin:4vh auto; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:14px; }
     .searchGrid{display:grid;grid-template-columns:1fr 140px 110px;gap:8px;align-items:end}
     .results{display:grid;gap:8px;margin-top:10px}
-    .resultItem{display:grid;grid-template-columns:100px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px;background:rgba(127,127,127,.07)}
-    .resultItem img{width:100px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+    .resultItem{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px;background:rgba(127,127,127,.07)}
+    .resultThumb{width:100px;height:70px;border-radius:6px;border:1px solid var(--line);background:#f1f5f9;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .resultThumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1}
+    .resultThumbDisc{border-radius:50%;width:70px;height:70px}
+    .resultThumbFallback{font-size:.68rem;font-weight:700;color:var(--muted);text-align:center;padding:4px;line-height:1.3;position:relative;z-index:0}
+    body.dark .resultThumb{background:#0b1220}
+
+    /* Modal tabs */
+    .modalHeader{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+    .modalHeader h2{margin:0}
+    .modalTabs{display:flex;gap:6px;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:12px}
+    .modalTab{border:1px solid var(--line);border-radius:8px;padding:6px 16px;background:#fff;color:var(--ink);cursor:pointer;font-weight:700;font-size:.86rem}
+    .modalTab.active{background:var(--accent);border-color:var(--accent);color:#fff}
+    body.dark .modalTab{background:#0b1220;color:var(--ink);border-color:var(--line)}
+    body.dark .modalTab.active{color:#fff}
+
+    /* Feed wall */
+    .feedWall{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:4px;max-height:62vh;overflow-y:auto}
+    .feedCard{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;cursor:pointer;display:flex;flex-direction:column;transition:box-shadow .12s}
+    .feedCard:hover{box-shadow:0 4px 18px rgba(15,23,42,.13)}
+    .feedCardThumb{width:100%;aspect-ratio:1;background:#f1f5f9;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
+    .feedCardThumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1}
+    .feedCardThumb.feedCardThumbDisc img{inset:10%;width:80%;height:80%;border-radius:50%}
+    .feedCardThumbLabel{font-size:.68rem;font-weight:700;color:#94a3b8;text-align:center;padding:8px;position:relative;z-index:0}
+    .feedCardMeta{padding:7px 8px;flex:1;display:flex;flex-direction:column;gap:2px}
+    .feedCardTitle{font-weight:700;font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .feedCardSub{font-size:.68rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .feedCardActions{display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border-top:1px solid var(--line);gap:6px}
+    .reactionBadge{font-size:.72rem;font-weight:700;color:var(--muted)}
+    .reactionBtn{border:1px solid var(--line);border-radius:20px;padding:3px 10px;background:#fff;color:var(--muted);cursor:pointer;font-size:.72rem;font-weight:800;transition:background .1s,border-color .1s,color .1s;white-space:nowrap}
+    .reactionBtn:hover{background:#fef9e7;border-color:#f59e0b;color:#92400e}
+    .reactionBtn.reacted{background:#fef3c7;border-color:#f59e0b;color:#b45309}
+    body.dark .reactionBtn{background:#0b1220}
+    body.dark .reactionBtn:hover,.body.dark .reactionBtn.reacted{background:#1c1805;border-color:#f59e0b;color:#fcd34d}
+    .feedCardActions button{font-size:.76rem;padding:4px 10px}
+    body.dark .feedCard{background:var(--panel)}
+    body.dark .feedCardThumb{background:#0b1220}
+
+    /* Nostr user widget — fixed top-right */
+    .nostrWidget{position:fixed;top:12px;right:16px;z-index:500;display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:5px 10px 5px 8px;box-shadow:0 2px 12px rgba(15,23,42,.12)}
+    .nostrProfileBtn{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;padding:5px 10px;background:#fff;cursor:pointer;font-size:.82rem;font-weight:600;color:var(--ink);max-width:200px}
+    .nostrAvatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid var(--line);background:#f1f5f9;flex:0 0 auto}
+    .nostrNameEl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+    body.dark .nostrWidget{background:var(--panel);border-color:var(--line)}
+    body.dark .nostrProfileBtn{background:transparent;border:none;padding:0}
+
+    /* Author info in feed cards */
+    .feedCardAuthor{display:flex;align-items:center;gap:5px;margin-top:4px}
+    .feedCardAvatar{width:18px;height:18px;border-radius:50%;object-fit:cover;border:1px solid var(--line);background:#f1f5f9;flex:0 0 auto}
+    .feedCardAuthorName{font-size:.66rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .resultAuthor{display:flex;align-items:center;gap:4px;margin-top:3px}
+    .resultAuthorAvatar{width:14px;height:14px;border-radius:50%;object-fit:cover;border:1px solid var(--line);background:#f1f5f9;flex:0 0 auto}
+    .resultAuthorName{font-size:.68rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+    /* Feed type filter pills */
+    .feedTypeFilter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+    .feedTypeBtn{border:1px solid var(--line);border-radius:20px;padding:4px 13px;background:#fff;color:var(--muted);cursor:pointer;font-size:.78rem;font-weight:700}
+    .feedTypeBtn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+    body.dark .feedTypeBtn{background:#0b1220;color:var(--muted);border-color:var(--line)}
+    body.dark .feedTypeBtn.active{color:#fff}
+    .welcomeCard { max-width: 640px; }
 
     @media (max-width: 900px) {
       .app { grid-template-columns: 1fr; }
@@ -911,7 +1081,7 @@
         overflow: hidden !important;
       }
 
-      aside, .topbar, .printHelp {
+      aside, .topbar, .printHelp, .nostrWidget {
         display: none !important;
       }
 
@@ -1012,6 +1182,14 @@
   </style>
 </head>
 <body>
+  <div class="nostrWidget" id="nostrWidget">
+    <button type="button" id="nostrLoginBtn" class="pill">Sign in with Nostr</button>
+    <button type="button" id="nostrProfileBtn" class="nostrProfileBtn" style="display:none">
+      <img class="nostrAvatar" id="nostrAvatarEl" alt="" />
+      <span id="nostrNameEl"></span>
+    </button>
+  </div>
+
   <div class="app">
     <aside>
       <div class="appTitle">
@@ -1019,22 +1197,32 @@
         <p class="subhead">Design printable case wraps and disc labels, then save, print, or share them on Nostr.</p>
       </div>
 
-      <div class="quickActions" aria-label="Primary actions">
-        <button class="primary" type="button" id="quickPrintBtn">Print / Save PDF</button>
-        <button type="button" id="quickSaveBtn">Save JSON</button>
-        <button type="button" id="quickPublishBtn">Publish</button>
+      <div class="appModeTabs">
+        <button type="button" class="appModeTab active" id="modeTabTemplate">Template</button>
+        <button type="button" class="appModeTab" id="modeTabDesigner">Disc Designer</button>
       </div>
 
-      <fieldset class="workflowStep" id="layoutFieldset">
+      <div class="quickActions designer-only" aria-label="Designer actions">
+        <button type="button" id="designerSaveProjectBtn">Save Disc Project</button>
+        <button type="button" id="designerLoadProjectBtn">Load Disc Project</button>
+        <input id="discProjectFile" type="file" accept="application/json,.json" hidden />
+      </div>
+
+      <div class="quickActions template-only" aria-label="Primary actions">
+        <button class="primary" type="button" id="quickPrintBtn">Print / Save PDF</button>
+        <button type="button" id="quickSaveBtn">Save Project</button>
+        <button type="button" id="browseCommunityBtn">Browse Templates</button>
+      </div>
+
+      <fieldset class="workflowStep template-only" id="layoutFieldset">
         <legend data-step="1">Layout</legend>
         <div class="layoutTabs" role="tablist" aria-label="Template layout">
           <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover</button>
           <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels</button>
         </div>
-        <p class="hint">Disc labels use Avery 8960 / 8944 Letter stock geometry and should print at 100% scale.</p>
       </fieldset>
 
-      <fieldset class="workflowStep" id="coverSizeFieldset">
+      <fieldset class="workflowStep template-only" id="coverSizeFieldset">
         <legend data-step="2">Size</legend>
         <label for="preset">Preset</label>
         <select id="preset">
@@ -1043,118 +1231,55 @@
           <option value="custom">Custom</option>
         </select>
 
-        <div class="row">
-          <div>
-            <label for="panelW">Front/back width, in</label>
-            <input id="panelW" type="number" min="1" max="12" step="0.001" />
+        <div id="customSizeFields" style="display:none">
+          <div class="row">
+            <div>
+              <label for="panelW">Front/back width, in</label>
+              <input id="panelW" type="number" min="1" max="12" step="0.001" />
+            </div>
+            <div>
+              <label for="trimH">Trim height, in</label>
+              <input id="trimH" type="number" min="1" max="12" step="0.001" />
+            </div>
           </div>
-          <div>
-            <label for="trimH">Trim height, in</label>
-            <input id="trimH" type="number" min="1" max="12" step="0.001" />
-          </div>
-        </div>
 
-        <div class="row">
-          <div>
-            <label for="spineW">Spine width, in</label>
-            <input id="spineW" type="number" min="0.1" max="2" step="0.001" />
+          <div class="row">
+            <div>
+              <label for="spineW">Spine width, in</label>
+              <input id="spineW" type="number" min="0.1" max="2" step="0.001" />
+            </div>
+            <div>
+              <label for="bleed">Bleed, in</label>
+              <input id="bleed" type="number" min="0" max="0.5" step="0.001" />
+            </div>
           </div>
-          <div>
-            <label for="bleed">Bleed, in</label>
-            <input id="bleed" type="number" min="0" max="0.5" step="0.001" />
-          </div>
-        </div>
 
-        <div>
-          <label for="safe">Safe margin guide, in</label>
-          <input id="safe" type="number" min="0" max="0.5" step="0.001" />
+          <div>
+            <label for="safe">Safe margin guide, in</label>
+            <input id="safe" type="number" min="0" max="0.5" step="0.001" />
+          </div>
         </div>
 
         <div class="miniReadout" id="sizeReadout"></div>
       </fieldset>
 
-      <fieldset class="secondaryPanel" id="metadataFieldset">
+      <fieldset class="secondaryPanel template-only" id="metadataFieldset">
         <details class="compactDetails">
           <summary>Project metadata</summary>
         <label for="titleField">Title</label><input id="titleField" type="text" placeholder="Movie title" />
         <label for="imdbField">IMDb ID</label><input id="imdbField" type="text" placeholder="tt1234567" />
-        <div class="buttonRow"><button type="button" id="imdbImportBtn">Import IMDb data</button><button type="button" id="nostrExportBtn">Export to Nostr</button><button type="button" id="nostrImportBtn">Import from Nostr</button><button type="button" id="nostrSearchBtn">Search Nostr</button></div>
-        <p class="hint">IMDb import uses OMDb-compatible endpoint + API key.</p>
-        </details>
-      </fieldset>
-
-      <fieldset class="secondaryPanel" id="communityFieldset">
-        <details class="compactDetails">
-          <summary>Community</summary>
-
-        <div class="row">
-          <div>
-            <label for="relayList">Relays</label>
-            <input id="relayList" type="text" placeholder="wss://relay.damus.io, wss://nos.lol" />
-          </div>
-          <div>
-            <label for="communityKind">Feed</label>
-            <select id="communityKind">
-              <option value="templates">Templates</option>
-              <option value="disc-designs">Disc designs</option>
-              <option value="notes">Notes</option>
-              <option value="profiles">Profiles</option>
-              <option value="all">Everything</option>
-            </select>
-          </div>
-        </div>
-
-        <label for="communityQuery">Search</label>
-        <input id="communityQuery" type="text" placeholder="title, imdb id, author, tag" />
-
         <div class="buttonRow">
-          <button type="button" id="communityRefreshBtn">Refresh feed</button>
-          <button type="button" id="communityPublishBtn">Publish current template</button>
-          <button type="button" id="communityNoteBtn">Publish note</button>
+          <button type="button" id="imdbImportBtn">Import IMDb data</button>
+          <button type="button" id="communityPublishBtn" class="primary">Publish to Nostr</button>
+          <button type="button" id="nostrExportBtn">Copy Nostr event</button>
+          <button type="button" id="nostrImportBtn">Import from Nostr</button>
         </div>
-
-        <div class="profileCard" id="communityProfileCard">
-          <div class="communityMeta">
-            <div>
-              <strong id="communityProfileName">Not connected</strong>
-              <div class="hint" id="communityProfileAbout">Sign in with NIP-07 to publish, follow, reply, and react.</div>
-            </div>
-            <div class="pill" id="communityPubkey">No pubkey</div>
-          </div>
-        </div>
-
-        <div class="feedList" id="communityFeed"></div>
-
-        <details id="communityDetail" open>
-          <summary>Selected post</summary>
-          <div class="communityDetail" id="communityDetailBody">
-            <div class="hint">Pick a template or note from the feed.</div>
-          </div>
-          <label for="communityReplyText">Reply text</label>
-          <textarea id="communityReplyText" placeholder="Write a reply to the selected post"></textarea>
-          <label for="communityNoteText">New note</label>
-          <textarea id="communityNoteText" placeholder="Write a public Nostr note"></textarea>
-
-          <div class="buttonRow">
-            <button type="button" id="communityLoadBtn">Load template</button>
-            <button type="button" id="communityLikeBtn">Like</button>
-            <button type="button" id="communityReplyBtn">Reply</button>
-            <button type="button" id="communityFollowBtn">Follow author</button>
-            <button type="button" id="communityRepostBtn">Repost</button>
-          </div>
-        </details>
+        <p class="hint">IMDb import uses OMDb-compatible endpoint + API key. Publishing requires a Nostr extension (Alby, nos2x).</p>
         </details>
       </fieldset>
 
-      <fieldset class="secondaryPanel" id="appearanceFieldset">
-        <details class="compactDetails">
-          <summary>Appearance</summary>
-        <label class="toggle"><input id="darkMode" type="checkbox" /> Enable dark theme</label>
-        <p class="hint">Affects editor panels, controls, and preview shell.</p>
-        </details>
-      </fieldset>
 
-      <fieldset class="workflowStep" id="exportFieldset">
+      <fieldset class="workflowStep template-only" id="exportFieldset">
         <legend data-step="5">Export</legend>
         <label for="zoom">Preview zoom</label>
         <div class="rangeLine">
@@ -1180,7 +1305,7 @@
         <p class="hint">Export PDF opens your print dialog. Choose <b>Save as PDF</b>, use <b>100% scale</b>, and disable browser headers/footers.</p>
       </fieldset>
 
-      <fieldset class="workflowStep" id="coverArtworkFieldset">
+      <fieldset class="workflowStep template-only" id="coverArtworkFieldset">
         <legend data-step="3">Artwork</legend>
 
         <label for="artworkMode">Artwork mode</label>
@@ -1258,28 +1383,92 @@
         </p>
       </fieldset>
 
-      <fieldset class="workflowStep" id="discArtworkFieldset">
-        <legend data-step="3">Disc designs</legend>
+      <fieldset class="workflowStep template-only" id="discArtworkFieldset">
+        <legend data-step="3">Disc Layout</legend>
         <div class="miniReadout" id="discSizeReadout"></div>
         <div id="discControls" class="slotGrid"></div>
-        <div class="buttonRow">
-          <button type="button" class="danger" id="clearDiscBtn">Clear disc designs</button>
+        <p class="hint">Create disc designs in the Disc Designer tab, then assign them to print positions here.</p>
+        <details style="margin-top:10px">
+          <summary style="font-weight:700;font-size:.86rem;cursor:pointer">Spine strip labels (optional)</summary>
+          <div class="row" style="margin-top:8px">
+            <div>
+              <label for="spineTextTop">Disc 1 spine text</label>
+              <input id="spineTextTop" type="text" placeholder="e.g. Movie Title" />
+            </div>
+            <div>
+              <label for="spineTextBottom">Disc 2 spine text</label>
+              <input id="spineTextBottom" type="text" placeholder="e.g. Movie Title" />
+            </div>
+          </div>
+          <p class="hint">Appears on the 4 narrow Avery 8960 spine sticker strips — Disc 1 text on the top pair, Disc 2 on the bottom pair. Leave blank to skip.</p>
+        </details>
+      </fieldset>
+
+      <fieldset class="workflowStep designer-only" id="designerFieldset">
+        <legend data-step="1">Disc Design</legend>
+        <label>Active design</label>
+        <div class="designTabs">
+          <button type="button" class="designTab active" id="designTab-a">A</button>
+          <button type="button" class="designTab" id="designTab-b">B</button>
+          <button type="button" class="designTab" id="designTab-c">C</button>
+          <button type="button" class="designTab" id="designTab-d">D</button>
         </div>
-        <p class="hint">Create reusable disc designs, then assign any design to either label position on the Avery sheet.</p>
+        <label for="designerName">Design name</label>
+        <input id="designerName" type="text" placeholder="e.g. Front of disc" />
+        <label for="designerUrl">Image URL</label>
+        <input id="designerUrl" type="url" placeholder="https://example.com/disc.jpg" />
+        <div class="buttonRow">
+          <button type="button" id="designerLoadBtn" class="primary">Load image</button>
+          <button type="button" id="designerClearBtn" class="danger">Clear</button>
+        </div>
+        <label for="fit-designer">Fit</label>
+        <select id="fit-designer">
+          <option value="cover">Cover / crop to fill</option>
+          <option value="contain">Contain / no crop</option>
+          <option value="fill">Stretch to fit</option>
+          <option value="none">Natural size</option>
+        </select>
+        <details id="designerPositionDetails">
+          <summary>Position &amp; zoom</summary>
+          <label for="zoom-designer">Zoom</label>
+          <div class="rangeLine">
+            <input id="zoom-designer" type="range" min="0.1" max="4" step="0.01" />
+            <output id="zoom-designer-out"></output>
+          </div>
+          <label for="x-designer">Move X</label>
+          <div class="rangeLine">
+            <input id="x-designer" type="range" min="-100" max="100" step="1" />
+            <output id="x-designer-out"></output>
+          </div>
+          <label for="y-designer">Move Y</label>
+          <div class="rangeLine">
+            <input id="y-designer" type="range" min="-100" max="100" step="1" />
+            <output id="y-designer-out"></output>
+          </div>
+          <label for="rotate-designer">Rotate</label>
+          <div class="rangeLine">
+            <input id="rotate-designer" type="range" min="-180" max="180" step="1" />
+            <output id="rotate-designer-out"></output>
+          </div>
+          <div class="buttonRow">
+            <button type="button" id="designerResetBtn">Reset position</button>
+          </div>
+        </details>
+        <div class="buttonRow" style="margin-top:8px">
+          <button type="button" id="designerSaveDesignBtn">Save Design</button>
+          <button type="button" id="designerPublishBtn">Publish to Nostr</button>
+          <button type="button" class="danger" id="clearDiscBtn">Clear all</button>
+        </div>
+        <p class="hint">Designs A–D created here can be assigned to print positions in the Template tab.</p>
       </fieldset>
 
       <fieldset class="workflowStep" id="layersFieldset">
         <legend data-step="4">Layers</legend>
 
-        <label for="layerTarget">New layer target</label>
+        <label for="layerTarget">Add layer to</label>
         <select id="layerTarget">
-          <option value="page">Whole page</option>
-          <option value="cover-trim">Cover trim area</option>
-          <option value="back">Back cover</option>
-          <option value="spine">Spine</option>
-          <option value="front">Front cover</option>
-          <option value="disc-top">Disc 1</option>
-          <option value="disc-bottom">Disc 2</option>
+          <option value="disc-top">Disc 1 position</option>
+          <option value="disc-bottom">Disc 2 position</option>
         </select>
 
         <div class="buttonRow">
@@ -1364,10 +1553,6 @@
         <p class="hint">Click a layer on the preview to select it. Drag selected image or text layers directly on the page. Text layers are editable in place.</p>
       </fieldset>
 
-      <details>
-        <summary>Deployment notes</summary>
-        <p class="hint">Save this file as <span class="kbd">index.html</span> and host it anywhere static: Netlify, GitHub Pages, S3, Nginx, or just open it locally. Images stay in your browser unless you save a project JSON.</p>
-      </details>
     </aside>
 
     <main>
@@ -1427,30 +1612,111 @@
               <div class="discSpineStrip" id="disc-spine-2" aria-hidden="true"></div>
               <div class="discSpineStrip" id="disc-spine-3" aria-hidden="true"></div>
               <div class="discSpineStrip" id="disc-spine-4" aria-hidden="true"></div>
+              <div class="discSpineLabel" id="disc-spine-label-1" aria-hidden="true"></div>
+              <div class="discSpineLabel" id="disc-spine-label-2" aria-hidden="true"></div>
+              <div class="discSpineLabel" id="disc-spine-label-3" aria-hidden="true"></div>
+              <div class="discSpineLabel" id="disc-spine-label-4" aria-hidden="true"></div>
             </div>
             <div class="layerOverlay" id="layerOverlay"></div>
           </section>
+        </div>
+
+        <div id="discDesignerView">
+          <div class="designerDiscWrap" id="designerDiscWrap">
+            <div class="placeholder" id="designerPlaceholder">Load an image URL in the sidebar</div>
+            <img class="art" id="designerDiscArt" alt="Disc design preview" hidden />
+            <div class="designerDiscHole"></div>
+          </div>
+          <div class="designerDiscLabel" id="designerDiscLabel">Design A</div>
         </div>
       </div>
     </main>
   </div>
 
 
+  <div class="modal" id="welcomeModal" aria-hidden="true">
+    <div class="modalCard welcomeCard">
+      <h2 style="margin:0 0 6px">Welcome to CaseWrap Studio</h2>
+      <p class="subhead" style="margin:0 0 16px">Design printable DVD and Blu-ray case wraps and disc labels.</p>
+      <p style="margin:0 0 12px; font-weight:600">Search first — a community template may already exist for your title:</p>
+      <div class="searchGrid">
+        <div><label for="welcomeQuery">Title or IMDb ID</label><input id="welcomeQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
+        <div><label for="welcomeType">Type</label><select id="welcomeType"><option value="any">Any type</option><option value="cover">Case cover</option><option value="disc">Disc labels</option></select></div>
+        <div class="buttonRow" style="margin:0"><button type="button" id="welcomeSearchBtn" class="primary">Search</button></div>
+      </div>
+      <div class="results" id="welcomeResults"></div>
+      <div style="margin-top:18px; padding-top:14px; border-top:1px solid var(--line); text-align:center">
+        <p class="hint" style="margin:0 0 10px">No templates found for your title? Start designing your own.</p>
+        <button type="button" id="welcomeSkipBtn">Start from scratch →</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="nostrModal" aria-hidden="true">
     <div class="modalCard">
-      <h2 style="margin:0 0 8px">Nostr template search</h2>
-      <div class="searchGrid">
-        <div><label for="nostrQuery">Title / IMDb</label><input id="nostrQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
-        <div><label for="nostrType">Template</label><select id="nostrType"><option value="any">Any</option><option value="cover">Cover</option><option value="disc">Disc sheet</option><option value="disc-design">Disc design</option></select></div>
-        <div class="buttonRow" style="margin:0"><button type="button" id="nostrRunSearch">Search</button><button type="button" id="nostrClose">Close</button></div>
+      <div class="modalHeader">
+        <h2>Browse Community Templates</h2>
+        <button type="button" id="nostrClose">Close</button>
       </div>
-      <div class="results" id="nostrResults"></div>
-      <p class="hint">Search queries recent templates from the relays listed in the Community panel (kind 30078).</p>
+      <div class="modalTabs">
+        <button type="button" class="modalTab" id="tabNew">New</button>
+        <button type="button" class="modalTab" id="tabPopular">Popular</button>
+        <button type="button" class="modalTab" id="tabSearch">Search</button>
+        <button type="button" class="modalTab" id="tabMine">My Designs</button>
+      </div>
+
+      <div id="panelNew">
+        <div class="feedTypeFilter">
+          <button class="feedTypeBtn active" data-tab="New" data-type="any">All</button>
+          <button class="feedTypeBtn" data-tab="New" data-type="cover">Case Covers</button>
+          <button class="feedTypeBtn" data-tab="New" data-type="disc">Disc Sheets</button>
+          <button class="feedTypeBtn" data-tab="New" data-type="disc-design">Disc Designs</button>
+        </div>
+        <div class="feedWall" id="feedWallNew"></div>
+      </div>
+
+      <div id="panelPopular" style="display:none">
+        <div class="feedTypeFilter">
+          <button class="feedTypeBtn active" data-tab="Popular" data-type="any">All</button>
+          <button class="feedTypeBtn" data-tab="Popular" data-type="cover">Case Covers</button>
+          <button class="feedTypeBtn" data-tab="Popular" data-type="disc">Disc Sheets</button>
+          <button class="feedTypeBtn" data-tab="Popular" data-type="disc-design">Disc Designs</button>
+        </div>
+        <div class="feedWall" id="feedWallPopular"></div>
+      </div>
+
+      <div id="panelSearch" style="display:none">
+        <div class="searchGrid">
+          <div><label for="nostrQuery">Title or IMDb ID</label><input id="nostrQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
+          <div><label for="nostrType">Type</label><select id="nostrType"><option value="any">Any</option><option value="cover">Case cover</option><option value="disc">Disc sheet</option><option value="disc-design">Disc design</option></select></div>
+          <div class="buttonRow" style="margin:0"><button type="button" id="nostrRunSearch" class="primary">Search</button></div>
+        </div>
+        <div class="results" id="nostrResults" style="margin-top:10px"></div>
+      </div>
+
+      <div id="panelMine" style="display:none">
+        <div class="feedTypeFilter">
+          <button class="feedTypeBtn active" data-tab="Mine" data-type="any">All</button>
+          <button class="feedTypeBtn" data-tab="Mine" data-type="cover">Case Covers</button>
+          <button class="feedTypeBtn" data-tab="Mine" data-type="disc">Disc Sheets</button>
+          <button class="feedTypeBtn" data-tab="Mine" data-type="disc-design">Disc Designs</button>
+        </div>
+        <div class="feedWall" id="feedWallMine"></div>
+      </div>
+
+      <details style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+        <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">Relay settings</summary>
+        <label for="relayList" style="margin-top:8px;display:block;font-size:.8rem;font-weight:650;color:#374151">Nostr relays</label>
+        <input id="relayList" type="text" placeholder="wss://relay.damus.io, wss://nos.lol" style="margin-top:4px" />
+        <p class="hint">Separate multiple relays with commas. Changing relays clears the template cache.</p>
+      </details>
     </div>
   </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
+
+    const SCHEMA_VERSION = 4;
 
     const presets = {
       dvd: {
@@ -1504,6 +1770,8 @@
     const state = {
       meta: { title: "", imdbId: "", omdbApiKey: "" },
       darkMode: false,
+      appMode: 'template',
+      activeDiscDesign: 'a',
       templateMode: 'cover',
       preset: 'dvd',
       panelW: presets.dvd.panelW,
@@ -1546,6 +1814,7 @@
         top: 'a',
         bottom: 'b'
       },
+      discSpineLabels: { top: '', bottom: '' },
       layers: [],
       selectedLayerId: '',
       community: {
@@ -1632,7 +1901,7 @@
       if (!design) throw new Error('Disc design not found.');
       if (!design.src) throw new Error('Load an image URL before publishing this disc design.');
       return {
-        version: 2,
+        version: SCHEMA_VERSION,
         meta: state.meta,
         templateMode: 'disc-design',
         discDesign: {
@@ -1646,14 +1915,14 @@
       };
     }
 
-    function getTemplateTags(payload) {
+    function getTemplateTags(payload, typeTag) {
       const tags = [];
       const title = payload?.meta?.title || payload?.title || '';
       const imdb = payload?.meta?.imdbId || payload?.imdbId || '';
       if (title) tags.push(['title', title]);
       if (imdb) tags.push(['i', imdb]);
       tags.push(['t', 'casewrap']);
-      tags.push(['t', 'template']);
+      if (typeTag) tags.push(['t', typeTag]);
       return tags;
     }
 
@@ -1841,6 +2110,7 @@
       if ($('preset').value !== 'custom') {
         $('preset').value = 'custom';
         state.preset = 'custom';
+        $('customSizeFields').style.display = '';
       }
     }
 
@@ -1849,6 +2119,7 @@
       if (presets[name]) {
         Object.assign(state, presets[name]);
       }
+      $('customSizeFields').style.display = name === 'custom' ? '' : 'none';
       syncInputs();
       render();
     }
@@ -1861,6 +2132,7 @@
         button.setAttribute('aria-selected', active ? 'true' : 'false');
       }
       $('preset').value = state.preset;
+      const csf = $('customSizeFields'); if (csf) csf.style.display = state.preset === 'custom' ? '' : 'none';
       $('panelW').value = state.panelW;
       $('trimH').value = state.trimH;
       $('spineW').value = state.spineW;
@@ -1877,6 +2149,9 @@
       $('showCrops').checked = state.showCrops;
       $('printGuides').checked = state.printGuides;
       $('printCrops').checked = state.printCrops;
+      const stt = $('spineTextTop'); if (stt) stt.value = state.discSpineLabels?.top || '';
+      const stb = $('spineTextBottom'); if (stb) stb.value = state.discSpineLabels?.bottom || '';
+      syncModeTabsUI();
     }
 
     function syncUrlInputs() {
@@ -1884,9 +2159,6 @@
       $('newLayerUrl').value = '';
       for (const { key } of slotNames) {
         $(`url-${key}`).value = state.slots[key].src || '';
-      }
-      for (const { key } of discDesignNames) {
-        $(`disc-url-${key}`).value = state.discDesigns[key].src || '';
       }
     }
 
@@ -1899,9 +2171,21 @@
       document.body.classList.toggle('print-guides', state.printGuides);
       document.body.classList.toggle('print-crops', state.printCrops);
       document.body.classList.toggle('dark', !!state.darkMode);
+      document.body.classList.toggle('app-designer', state.appMode === 'designer');
+      document.body.classList.toggle('app-template', state.appMode !== 'designer');
     }
 
     function renderDimensions() {
+      if (state.appMode === 'designer') {
+        const key = state.activeDiscDesign || 'a';
+        const design = state.discDesigns[key];
+        const name = design?.name && design.name !== `Design ${key.toUpperCase()}` ? design.name : `Design ${key.toUpperCase()}`;
+        $('projectTitle').textContent = `Disc Designer`;
+        document.querySelector('.printHelp').textContent = name;
+        $('trimReadout').textContent = `${fmt(discTemplate.discD)} in disc`;
+        $('sheetReadout').textContent = `Hole: ${fmt(discTemplate.holeD)} in`;
+        return;
+      }
       const root = document.documentElement;
       root.style.setProperty('--sheet-w', inches(sheetW()));
       root.style.setProperty('--sheet-h', inches(sheetH()));
@@ -1970,9 +2254,9 @@
       renderDiscSlots();
       renderCombined();
       renderLayers();
+      renderDesignerDisc();
       syncLayerInputs();
-      syncCommunityInputs();
-      renderCommunity();
+      syncDesignerInputs();
       updateBodyClasses();
       localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify(state));
     }
@@ -2077,144 +2361,49 @@
       const wrap = $('discControls');
       wrap.innerHTML = '';
 
-      const assignment = document.createElement('details');
-      assignment.open = true;
-      assignment.innerHTML = `
-        <summary>Print sheet assignment</summary>
-        <div class="row">
-          <div>
-            <label for="disc-sheet-top">Disc 1 artwork</label>
-            <select id="disc-sheet-top"></select>
-          </div>
-          <div>
-            <label for="disc-sheet-bottom">Disc 2 artwork</label>
-            <select id="disc-sheet-bottom"></select>
-          </div>
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = `
+        <div>
+          <label for="disc-sheet-top">Disc 1 design</label>
+          <select id="disc-sheet-top"></select>
         </div>
-        <p class="hint">This controls what prints in each Avery label position. Choose the same design twice for duplicates, or mix different designs on one sheet.</p>
+        <div>
+          <label for="disc-sheet-bottom">Disc 2 design</label>
+          <select id="disc-sheet-bottom"></select>
+        </div>
       `;
-      wrap.appendChild(assignment);
+      wrap.appendChild(row);
 
       for (const slot of discTemplate.slots) {
         const select = $(`disc-sheet-${slot.key}`);
-        select.innerHTML = discDesignNames
-          .map(({ key, label }) => `<option value="${key}">${label}</option>`)
-          .join('');
         select.addEventListener('change', (event) => {
           state.discSheet[slot.key] = event.target.value;
           render();
         });
       }
 
-      for (const { key, label } of discDesignNames) {
-        const details = document.createElement('details');
-        details.open = false;
-        details.innerHTML = `
-          <summary>${label}</summary>
-          <label for="disc-name-${key}">Name</label>
-          <input id="disc-name-${key}" type="text" />
-
-          <label for="disc-url-${key}">Image URL</label>
-          <input id="disc-url-${key}" type="url" placeholder="https://example.com/disc.jpg" />
-          <div class="buttonRow">
-            <button type="button" id="load-disc-${key}">Load URL</button>
-            <button type="button" id="publish-disc-${key}">Publish design</button>
-            <button type="button" class="danger" id="clear-disc-${key}">Clear design</button>
-          </div>
-
-          <label for="fit-disc-${key}">Fit</label>
-          <select id="fit-disc-${key}">
-            <option value="cover">Cover / crop to fill</option>
-            <option value="contain">Contain / no crop</option>
-            <option value="fill">Stretch to fit</option>
-            <option value="none">Natural size</option>
+      const importRow = document.createElement('div');
+      importRow.style.marginTop = '12px';
+      importRow.innerHTML = `
+        <label style="font-size:.8rem;font-weight:650;color:#374151;display:block;margin-bottom:5px">Import a disc design</label>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center">
+          <select id="importDiscTarget">
+            <option value="a">into Design A</option>
+            <option value="b">into Design B</option>
+            <option value="c">into Design C</option>
+            <option value="d">into Design D</option>
           </select>
-
-          <label for="zoom-disc-${key}">Image zoom</label>
-          <div class="rangeLine">
-            <input id="zoom-disc-${key}" type="range" min="0.1" max="4" step="0.01" />
-            <output id="zoom-disc-${key}-out"></output>
+          <div class="buttonRow" style="margin:0;flex-wrap:nowrap">
+            <button type="button" id="importDiscFileBtn">From file</button>
+            <button type="button" id="searchDiscNostrBtn">Search Nostr</button>
+            <input id="discDesignFile" type="file" accept="application/json,.json" hidden />
           </div>
+        </div>
+      `;
+      wrap.appendChild(importRow);
 
-          <label for="x-disc-${key}">Move X</label>
-          <div class="rangeLine">
-            <input id="x-disc-${key}" type="range" min="-100" max="100" step="1" />
-            <output id="x-disc-${key}-out"></output>
-          </div>
-
-          <label for="y-disc-${key}">Move Y</label>
-          <div class="rangeLine">
-            <input id="y-disc-${key}" type="range" min="-100" max="100" step="1" />
-            <output id="y-disc-${key}-out"></output>
-          </div>
-
-          <label for="rotate-disc-${key}">Rotate</label>
-          <div class="rangeLine">
-            <input id="rotate-disc-${key}" type="range" min="-180" max="180" step="1" />
-            <output id="rotate-disc-${key}-out"></output>
-          </div>
-
-          <div class="buttonRow">
-            <button type="button" id="reset-disc-${key}">Reset ${label.toLowerCase()}</button>
-          </div>
-        `;
-        wrap.appendChild(details);
-
-        $(`disc-name-${key}`).addEventListener('input', (event) => {
-          state.discDesigns[key].name = event.target.value || label;
-          syncDiscAssignmentInputs();
-          render();
-        });
-
-        $(`load-disc-${key}`).addEventListener('click', () => {
-          const raw = $(`disc-url-${key}`).value.trim();
-          if (!raw) return;
-          try {
-            state.templateMode = 'disc';
-            state.discDesigns[key].src = normalizeImageUrl(raw);
-            syncInputs();
-            render();
-          } catch (error) {
-            alert(error.message || 'Invalid image URL.');
-          }
-        });
-
-        $(`publish-disc-${key}`).addEventListener('click', async () => {
-          try {
-            await publishDiscDesignToNostr(key);
-            alert(`${state.discDesigns[key].name || label} published to Nostr.`);
-          } catch (error) {
-            alert(error.message || 'Could not publish the disc design.');
-          }
-        });
-
-        $(`fit-disc-${key}`).addEventListener('change', (event) => {
-          state.discDesigns[key].fit = event.target.value;
-          render();
-        });
-
-        for (const prop of ['zoom', 'x', 'y', 'rotate']) {
-          $(`${prop}-disc-${key}`).addEventListener('input', (event) => {
-            state.discDesigns[key][prop] = Number(event.target.value);
-            syncDiscInputs(key);
-            render();
-          });
-        }
-
-        $(`reset-disc-${key}`).addEventListener('click', () => {
-          Object.assign(state.discDesigns[key], { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
-          syncDiscInputs(key);
-          render();
-        });
-
-        $(`clear-disc-${key}`).addEventListener('click', () => {
-          state.discDesigns[key].src = '';
-          $(`disc-url-${key}`).value = '';
-          render();
-        });
-      }
-
-      syncAllDiscInputs();
+      syncDiscAssignmentInputs();
     }
 
     function syncSlotInputs(key) {
@@ -2235,24 +2424,33 @@
       for (const { key } of slotNames) syncSlotInputs(key);
     }
 
-    function syncDiscInputs(key) {
-      const disc = state.discDesigns[key];
-      $(`disc-name-${key}`).value = disc.name || `Design ${key.toUpperCase()}`;
-      $(`disc-url-${key}`).value = disc.src || '';
-      $(`fit-disc-${key}`).value = disc.fit;
-      $(`zoom-disc-${key}`).value = disc.zoom;
-      $(`zoom-disc-${key}-out`).textContent = `${Math.round(disc.zoom * 100)}%`;
-      $(`x-disc-${key}`).value = disc.x;
-      $(`x-disc-${key}-out`).textContent = `${disc.x}%`;
-      $(`y-disc-${key}`).value = disc.y;
-      $(`y-disc-${key}-out`).textContent = `${disc.y}%`;
-      $(`rotate-disc-${key}`).value = disc.rotate;
-      $(`rotate-disc-${key}-out`).textContent = `${disc.rotate}°`;
+    function syncDesignerInputs() {
+      const key = state.activeDiscDesign || 'a';
+      const design = state.discDesigns[key];
+      if (!design) return;
+      for (const k of ['a', 'b', 'c', 'd']) {
+        const tab = $(`designTab-${k}`);
+        if (tab) tab.classList.toggle('active', k === key);
+      }
+      const nameEl = $('designerName');
+      if (nameEl) nameEl.value = design.name || `Design ${key.toUpperCase()}`;
+      const urlEl = $('designerUrl');
+      if (urlEl) urlEl.value = design.src || '';
+      const fitEl = $('fit-designer');
+      if (fitEl) fitEl.value = design.fit || 'cover';
+      const zoomEl = $('zoom-designer');
+      if (zoomEl) { zoomEl.value = design.zoom ?? 1; $('zoom-designer-out').textContent = `${Math.round((design.zoom ?? 1) * 100)}%`; }
+      const xEl = $('x-designer');
+      if (xEl) { xEl.value = design.x ?? 0; $('x-designer-out').textContent = `${design.x ?? 0}%`; }
+      const yEl = $('y-designer');
+      if (yEl) { yEl.value = design.y ?? 0; $('y-designer-out').textContent = `${design.y ?? 0}%`; }
+      const rEl = $('rotate-designer');
+      if (rEl) { rEl.value = design.rotate ?? 0; $('rotate-designer-out').textContent = `${design.rotate ?? 0}°`; }
     }
 
     function syncAllDiscInputs() {
       syncDiscAssignmentInputs();
-      for (const { key } of discDesignNames) syncDiscInputs(key);
+      syncDesignerInputs();
     }
 
     function syncDiscAssignmentInputs() {
@@ -2288,12 +2486,8 @@
     }
 
     function syncCommunityInputs() {
-      $('relayList').value = state.community.relays;
-      $('communityQuery').value = state.community.query;
-      $('communityKind').value = state.community.kind;
-      $('communityPubkey').textContent = state.community.myPubkey ? shortPubkey(state.community.myPubkey) : 'No pubkey';
-      $('communityProfileName').textContent = state.community.myProfile?.name || state.community.myProfile?.display_name || (state.community.myPubkey ? shortPubkey(state.community.myPubkey) : 'Not connected');
-      $('communityProfileAbout').textContent = state.community.myProfile?.about || 'Sign in with NIP-07 to publish, follow, reply, and react.';
+      const rl = $('relayList');
+      if (rl) rl.value = state.community.relays;
     }
 
     function renderCombined() {
@@ -2364,6 +2558,18 @@
         el.style.top = inches(strip.y);
         el.style.width = inches(strip.w);
         el.style.height = inches(strip.h);
+
+        const labelEl = $(`disc-spine-label-${index + 1}`);
+        if (labelEl) {
+          labelEl.style.left = inches(strip.x);
+          labelEl.style.top = inches(strip.y);
+          labelEl.style.width = inches(strip.w);
+          labelEl.style.height = inches(strip.h);
+          const text = index < 2
+            ? (state.discSpineLabels?.top || '')
+            : (state.discSpineLabels?.bottom || '');
+          labelEl.innerHTML = text ? `<span>${escapeHtml(text)}</span>` : '';
+        }
       });
     }
 
@@ -2761,7 +2967,9 @@
     async function refreshCommunityFeed() {
       const relays = splitRelayList(state.community.relays);
       const kinds = communityKindKinds();
-      const items = await queryRelays(relays, { kinds, limit: 120 }, { timeoutMs: 4000 });
+      const filter = { kinds, limit: 120 };
+      if (kinds.length === 1 && kinds[0] === 30078) filter['#t'] = ['casewrap'];
+      const items = await queryRelays(relays, filter, { timeoutMs: 4000 });
       const q = state.community.query.trim().toLowerCase();
       const filtered = items.filter((event) => {
         if (state.community.kind === 'disc-designs') {
@@ -2800,35 +3008,45 @@
     }
 
     async function publishCurrentTemplateToNostr() {
-      const payload = exportPayload();
-      const discPreview = previewFromPayload(payload, 'disc');
-      const template = payload.coverTemplate?.slots?.front?.src || payload.coverTemplate?.combined?.src || discPreview || '';
-      if (!template) {
-        throw new Error('Load a template before publishing.');
+      if (!state.meta.title?.trim()) {
+        throw new Error('Add a title in Project Metadata before publishing.');
+      }
+      let payload, typeTag;
+      if (state.templateMode === 'disc') {
+        payload = discSheetPayload();
+        typeTag = 'casewrap-disc';
+        if (!previewFromPayload(payload, 'disc')) {
+          throw new Error('Assign at least one disc design before publishing.');
+        }
+      } else {
+        payload = coverTemplatePayload();
+        typeTag = 'casewrap-cover';
+        if (!previewFromPayload(payload, 'cover')) {
+          throw new Error('Load cover artwork before publishing.');
+        }
       }
       const tags = [
-        ['d', state.meta.imdbId || state.meta.title || 'template'],
-        ['t', 'casewrap'],
-        ['t', payload.ui?.templateMode || state.templateMode]
-      ].concat(getTemplateTags(payload));
-      const evt = {
-        kind: 30078,
-        created_at: Math.floor(Date.now() / 1000),
-        tags,
-        content: JSON.stringify(payload)
-      };
+        ['d', state.meta.imdbId || state.meta.title],
+        ...getTemplateTags(payload, typeTag)
+      ];
+      const evt = { kind: 30078, created_at: Math.floor(Date.now() / 1000), tags, content: JSON.stringify(payload) };
       const signed = await publishCommunityEvent(evt);
-      state.community.status = 'Published current template to Nostr.';
+      state.community.status = `Published "${state.meta.title}" to Nostr.`;
       return signed;
     }
 
     async function publishDiscDesignToNostr(key) {
+      const design = state.discDesigns[key];
+      if (!design?.src) throw new Error('Load an image URL before publishing this disc design.');
       const payload = discDesignPayload(key);
-      const designName = payload.discDesign.name || `Design ${String(key).toUpperCase()}`;
+      const designName = design.name && design.name !== `Design ${key.toUpperCase()}` ? design.name : state.meta.title;
+      if (!designName?.trim()) {
+        throw new Error('Add a title in Project Metadata or a custom design name before publishing.');
+      }
       const tags = [
-        ['d', `${state.meta.imdbId || state.meta.title || 'disc-design'}-${key}`],
+        ['d', `${state.meta.imdbId || designName}-${key}`],
         ['t', 'casewrap'],
-        ['t', 'disc-design'],
+        ['t', 'casewrap-disc-design'],
         ['title', designName]
       ];
       if (state.meta.imdbId) tags.push(['i', state.meta.imdbId]);
@@ -2942,6 +3160,7 @@
         ? (contactEvent.tags || []).filter((tag) => tag[0] === 'p' && tag[1]).map((tag) => tag[1])
         : [];
       syncCommunityInputs();
+      updateNostrWidget();
     }
 
     function updateCommunityProfileReadout() {
@@ -3053,29 +3272,101 @@
       render();
     }
 
+    function coverTemplatePayload() {
+      return {
+        version: SCHEMA_VERSION,
+        templateMode: 'cover',
+        meta: state.meta,
+        ui: { zoom: state.zoom, showGuides: state.showGuides, showBleed: state.showBleed, showCrops: state.showCrops, printGuides: state.printGuides, printCrops: state.printCrops },
+        coverTemplate: { preset: state.preset, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
+        layers: state.layers.filter(l => !String(l.target || '').startsWith('disc'))
+      };
+    }
+
+    function discSheetPayload() {
+      return {
+        version: SCHEMA_VERSION,
+        templateMode: 'disc',
+        meta: state.meta,
+        ui: { zoom: state.zoom },
+        discTemplate: { config: discTemplate, designs: state.discDesigns, sheet: state.discSheet, spineLabels: state.discSpineLabels },
+        layers: state.layers.filter(l => String(l.target || '').startsWith('disc'))
+      };
+    }
+
     function exportPayload() {
       return {
-        version: 2,
+        version: SCHEMA_VERSION,
         meta: state.meta,
-        ui: { zoom: state.zoom, darkMode: state.darkMode, showGuides: state.showGuides, showBleed: state.showBleed, showCrops: state.showCrops, printGuides: state.printGuides, printCrops: state.printCrops, templateMode: state.templateMode },
+        ui: {
+          zoom: state.zoom,
+          showGuides: state.showGuides,
+          showBleed: state.showBleed,
+          showCrops: state.showCrops,
+          printGuides: state.printGuides,
+          printCrops: state.printCrops,
+          templateMode: state.templateMode,
+          appMode: state.appMode,
+          activeDiscDesign: state.activeDiscDesign
+        },
         coverTemplate: { preset: state.preset, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
-        discTemplate: { config: discTemplate, designs: state.discDesigns, sheet: state.discSheet, discs: state.discs },
+        discTemplate: { config: discTemplate, designs: state.discDesigns, sheet: state.discSheet, discs: state.discs, spineLabels: state.discSpineLabels },
         layers: state.layers,
         community: { relays: state.community.relays, query: state.community.query, kind: state.community.kind }
       };
     }
 
-    function downloadProject() {
-      const blob = new Blob([JSON.stringify(exportPayload(), null, 2)], { type: 'application/json' });
+    function projectFilename(type) {
+      const title = (state.meta.title || 'untitled')
+        .trim().toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      const imdb = state.meta.imdbId
+        ? state.meta.imdbId.replace(/[^a-z0-9]/gi, '').toLowerCase()
+        : '';
+      return [title, imdb, type].filter(Boolean).join('_') + '.json';
+    }
+
+    function triggerDownload(payload, filename) {
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10);
       a.href = url;
-      a.download = `case-cover-project-${date}.json`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+    }
+
+    function downloadProject() {
+      if (state.templateMode === 'disc') {
+        triggerDownload(discSheetPayload(), projectFilename('disk'));
+      } else {
+        triggerDownload(coverTemplatePayload(), projectFilename('case'));
+      }
+    }
+
+    function downloadDiscProject() {
+      triggerDownload(discSheetPayload(), projectFilename('disk'));
+    }
+
+    function downloadSingleDesign() {
+      const key = state.activeDiscDesign || 'a';
+      const design = state.discDesigns[key];
+      if (!design) return;
+      const payload = {
+        version: SCHEMA_VERSION,
+        templateMode: 'disc-design',
+        meta: state.meta,
+        discDesign: { key, ...design },
+        discTemplate: { config: discTemplate }
+      };
+      const name = (design.name || `Design ${key.toUpperCase()}`)
+        .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      const title = (state.meta.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      const imdb = state.meta.imdbId ? state.meta.imdbId.replace(/[^a-z0-9]/gi, '').toLowerCase() : '';
+      const filename = [title || name, imdb, 'design', key].filter(Boolean).join('_') + '.json';
+      triggerDownload(payload, filename);
     }
 
     function loadProjectFromText(text) {
@@ -3093,12 +3384,69 @@
         render();
         return;
       }
+      const v = parsed.version || 0;
+      const mode = parsed.templateMode || parsed.ui?.templateMode || '';
+
+      // v4+ cover-only: restore cover fields, leave disc designs untouched
+      if (v >= 4 && mode === 'cover' && !parsed.discTemplate) {
+        Object.assign(state, {
+          templateMode: 'cover',
+          meta: { ...state.meta, ...(parsed.meta || {}) },
+          zoom: parsed.ui?.zoom ?? state.zoom,
+          showGuides: parsed.ui?.showGuides ?? state.showGuides,
+          showBleed: parsed.ui?.showBleed ?? state.showBleed,
+          showCrops: parsed.ui?.showCrops ?? state.showCrops,
+          printGuides: parsed.ui?.printGuides ?? state.printGuides,
+          printCrops: parsed.ui?.printCrops ?? state.printCrops,
+          preset: parsed.coverTemplate?.preset || state.preset,
+          panelW: parsed.coverTemplate?.panelW ?? state.panelW,
+          trimH: parsed.coverTemplate?.trimH ?? state.trimH,
+          spineW: parsed.coverTemplate?.spineW ?? state.spineW,
+          bleed: parsed.coverTemplate?.bleed ?? state.bleed,
+          safe: parsed.coverTemplate?.safe ?? state.safe,
+          artworkMode: parsed.coverTemplate?.artworkMode || state.artworkMode,
+          slots: { ...state.slots, ...(parsed.coverTemplate?.slots || {}) },
+          combined: { ...state.combined, ...(parsed.coverTemplate?.combined || {}) },
+          layers: [
+            ...state.layers.filter(l => String(l.target || '').startsWith('disc')),
+            ...(Array.isArray(parsed.layers) ? parsed.layers : [])
+          ],
+          selectedLayerId: ''
+        });
+        syncInputs(); syncAllSlotInputs(); syncCombinedInputs(); render();
+        return;
+      }
+
+      // v4+ disc-only: restore disc fields, leave cover data untouched
+      if (v >= 4 && mode === 'disc' && !parsed.coverTemplate) {
+        const designs = parsed.discTemplate?.designs || {};
+        const sheet = parsed.discTemplate?.sheet || {};
+        const spineLabels = parsed.discTemplate?.spineLabels || parsed.discSpineLabels || null;
+        Object.assign(state, {
+          templateMode: 'disc',
+          meta: { ...state.meta, ...(parsed.meta || {}) },
+          discDesigns: { ...state.discDesigns, ...designs },
+          discSheet: { ...state.discSheet, ...sheet },
+          ...(spineLabels ? { discSpineLabels: { ...state.discSpineLabels, ...spineLabels } } : {}),
+          layers: [
+            ...state.layers.filter(l => !String(l.target || '').startsWith('disc')),
+            ...(Array.isArray(parsed.layers) ? parsed.layers : [])
+          ],
+          selectedLayerId: ''
+        });
+        normalizeDiscState();
+        syncInputs(); syncAllDiscInputs(); render();
+        return;
+      }
+
+      // Legacy / full project file: restore everything
       const source = parsed.version
         ? {
             meta: parsed.meta || state.meta,
             templateMode: parsed.ui?.templateMode || parsed.coverTemplate?.templateMode || state.templateMode,
+            appMode: parsed.ui?.appMode || state.appMode,
+            activeDiscDesign: parsed.ui?.activeDiscDesign || state.activeDiscDesign,
             zoom: parsed.ui?.zoom ?? state.zoom,
-            darkMode: parsed.ui?.darkMode ?? state.darkMode,
             showGuides: parsed.ui?.showGuides ?? state.showGuides,
             showBleed: parsed.ui?.showBleed ?? state.showBleed,
             showCrops: parsed.ui?.showCrops ?? state.showCrops,
@@ -3116,6 +3464,7 @@
             discs: parsed.discTemplate?.discs || {},
             discDesigns: parsed.discTemplate?.designs || parsed.discDesigns || {},
             discSheet: parsed.discTemplate?.sheet || parsed.discSheet || {},
+            discSpineLabels: parsed.discTemplate?.spineLabels || parsed.discSpineLabels || state.discSpineLabels,
             community: parsed.community || {},
             layers: Array.isArray(parsed.layers) ? parsed.layers : []
           }
@@ -3142,47 +3491,499 @@
     }
 
 
-    function previewFromPayload(payload, typeHint) {
-      try {
-        if (typeHint === 'disc-design' || payload.templateMode === 'disc-design') {
-          return payload.discDesign?.src || '';
-        }
-        if (typeHint === 'disc' || payload.templateMode === 'disc') {
-          const designs = payload.discDesigns || payload.discTemplate?.designs || {};
-          const sheet = payload.discSheet || payload.discTemplate?.sheet || {};
-          const firstDesign = sheet.top ? designs[sheet.top] : Object.values(designs)[0];
-          return firstDesign?.src || payload.discs?.top?.src || payload.discTemplate?.discs?.top?.src || '';
-        }
-        return payload.slots?.front?.src || payload.coverTemplate?.slots?.front?.src || '';
-      } catch { return ''; }
+    const _feedCache = { events: null, reactions: {}, profiles: {}, fetchedAt: 0, loading: false, relayKey: '' };
+
+    function invalidateFeedCache() {
+      _feedCache.events = null;
+      _feedCache.reactions = {};
+      _feedCache.profiles = {};
+      _feedCache.fetchedAt = 0;
     }
 
-    async function runNostrSearch() {
-      const q = $('nostrQuery').value.trim().toLowerCase();
-      const type = $('nostrType').value;
-      const out = $('nostrResults');
-      out.innerHTML = '<div class="hint">Searching…</div>';
-      const events = await queryRelays(splitRelayList(state.community.relays), { kinds: [30078], limit: 120 }, { timeoutMs: 3500 });
+    async function fetchFeedAndReactions() {
+      const relays = splitRelayList(state.community.relays);
+      const relayKey = relays.join(',');
+      const age = Date.now() - _feedCache.fetchedAt;
+      if (_feedCache.loading) return;
+      if (_feedCache.events && age < 5 * 60 * 1000 && _feedCache.relayKey === relayKey) return;
+      _feedCache.loading = true;
+      _feedCache.relayKey = relayKey;
+      try {
+        const events = await queryRelays(relays, { kinds: [30078], '#t': ['casewrap'], limit: 200 }, { timeoutMs: 4500 });
+        _feedCache.events = events;
+        _feedCache.reactions = {};
+        _feedCache.profiles = {};
+        if (events.length) {
+          const ids = events.map(e => e.id);
+          const BATCH = 50;
+          for (let i = 0; i < ids.length; i += BATCH) {
+            const rxEvents = await queryRelays(relays, { kinds: [7], '#e': ids.slice(i, i + BATCH) }, { timeoutMs: 2500 });
+            for (const rx of rxEvents) {
+              const tag = (rx.tags || []).find(t => t[0] === 'e' && t[1]);
+              if (tag) _feedCache.reactions[tag[1]] = (_feedCache.reactions[tag[1]] || 0) + 1;
+            }
+          }
+          // Fetch author profiles for all unique pubkeys
+          const pubkeys = [...new Set(events.map(e => e.pubkey).filter(Boolean))].slice(0, 100);
+          for (let i = 0; i < pubkeys.length; i += BATCH) {
+            const profileEvs = await queryRelays(relays, { kinds: [0], authors: pubkeys.slice(i, i + BATCH) }, { timeoutMs: 2500 });
+            for (const pe of profileEvs) {
+              const p = safeJsonParse(pe.content, {});
+              _feedCache.profiles[pe.pubkey] = { pubkey: pe.pubkey, ...p };
+            }
+          }
+        }
+        _feedCache.fetchedAt = Date.now();
+      } finally {
+        _feedCache.loading = false;
+      }
+    }
+
+    const _feedState = { filterNew: 'any', filterPopular: 'any', filterMine: 'any' };
+
+    function buildRowsFromEvents(events, typeFilter = 'any', query = '', skipVersionFilter = false) {
+      const q = query.trim().toLowerCase();
       const rows = [];
       for (const e of events) {
         let payload = null;
         try { payload = JSON.parse(e.content || '{}'); } catch { continue; }
-        const title = payload.meta?.title || '';
+        // Only show posts from SCHEMA_VERSION 4 onwards (unless fetching own designs)
+        if (!skipVersionFilter && (payload.version ?? 0) < SCHEMA_VERSION) continue;
+        const title = payload.meta?.title || payload.title || '';
         const imdb = payload.meta?.imdbId || '';
         const mode = payload.templateMode || (payload.coverTemplate ? 'cover' : 'disc');
-        const displayTitle = mode === 'disc-design' ? (payload.discDesign?.name || title || 'Disc design') : title;
-        const hay = `${displayTitle} ${title} ${imdb} ${(e.tags||[]).map(t=>t.join(' ')).join(' ')}`.toLowerCase();
-        if (q && !hay.includes(q)) continue;
-        if (type !== 'any' && mode !== type) continue;
-        rows.push({e,payload,title:displayTitle,imdb,mode,preview:previewFromPayload(payload, mode)});
+        const displayTitle = mode === 'disc-design' ? (payload.discDesign?.name || title || '') : title;
+        // Skip completely unidentifiable posts
+        if (!displayTitle && !imdb) continue;
+        if (typeFilter !== 'any' && mode !== typeFilter) continue;
+        if (q) {
+          const hay = `${displayTitle} ${title} ${imdb} ${(e.tags || []).map(t => t.join(' ')).join(' ')}`.toLowerCase();
+          if (!hay.includes(q)) continue;
+        }
+        rows.push({
+          e, payload,
+          title: displayTitle || `(${mode})`,
+          imdb,
+          mode,
+          preview: previewFromPayload(payload, mode),
+          reactions: _feedCache.reactions[e.id] || 0,
+          createdAt: e.created_at || 0
+        });
       }
+      return rows;
+    }
+
+    function deduplicateRows(rows) {
+      const seen = new Map();
+      for (const row of rows) {
+        const key = row.imdb || row.title?.toLowerCase().trim() || '';
+        if (!key) { seen.set(row.e.id, row); continue; }
+        const existing = seen.get(key);
+        if (!existing || row.reactions > existing.reactions) seen.set(key, row);
+      }
+      return [...seen.values()];
+    }
+
+    function buildFeedCard(row, onUse) {
+      const el = document.createElement('div');
+      el.className = 'feedCard';
+      const isDisc = row.mode === 'disc' || row.mode === 'disc-design';
+      const modeLabel = MODE_LABELS[row.mode] || row.mode;
+      const thumb = document.createElement('div');
+      thumb.className = 'feedCardThumb' + (isDisc ? ' feedCardThumbDisc' : '');
+      const lbl = document.createElement('span');
+      lbl.className = 'feedCardThumbLabel';
+      lbl.textContent = modeLabel;
+      thumb.appendChild(lbl);
+      if (row.preview) {
+        const img = document.createElement('img');
+        img.alt = ''; img.loading = 'lazy'; img.src = row.preview;
+        img.addEventListener('error', () => img.remove());
+        thumb.insertBefore(img, lbl);
+      }
+      const meta = document.createElement('div');
+      meta.className = 'feedCardMeta';
+      const authorProfile = _feedCache.profiles?.[row.e?.pubkey] || null;
+      const authorName = authorProfile?.name || authorProfile?.display_name || (row.e?.pubkey ? shortPubkey(row.e.pubkey) : '');
+      const authorPic = authorProfile?.picture || authorProfile?.image || '';
+      const authorHtml = authorName ? `<div class="feedCardAuthor">${authorPic ? `<img class="feedCardAvatar" src="${escapeHtml(authorPic)}" alt="" onerror="this.remove()" loading="lazy" />` : ''}<span class="feedCardAuthorName">${escapeHtml(authorName)}</span></div>` : '';
+      meta.innerHTML = `<div class="feedCardTitle" title="${escapeHtml(row.title || 'Untitled')}">${escapeHtml(row.title || 'Untitled')}</div><div class="feedCardSub">${escapeHtml([modeLabel, row.imdb].filter(Boolean).join(' · '))}</div>${authorHtml}`;
+      const actions = document.createElement('div');
+      actions.className = 'feedCardActions';
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.textContent = 'Use';
+      btn.addEventListener('click', e => { e.stopPropagation(); onUse(); });
+      actions.append(makeReactionBtn(row), btn);
+      el.append(thumb, meta, actions);
+      el.addEventListener('click', onUse);
+      return el;
+    }
+
+    function updateNostrWidget() {
+      const pubkey = state.community.myPubkey;
+      const profile = state.community.myProfile;
+      const loginBtn = $('nostrLoginBtn');
+      const profileBtn = $('nostrProfileBtn');
+      const avatarEl = $('nostrAvatarEl');
+      const nameEl = $('nostrNameEl');
+      if (pubkey) {
+        const name = profile?.name || profile?.display_name || shortPubkey(pubkey);
+        const pic = profile?.picture || profile?.image || '';
+        avatarEl.src = pic;
+        avatarEl.onerror = () => { avatarEl.src = ''; };
+        nameEl.textContent = name;
+        loginBtn.style.display = 'none';
+        profileBtn.style.display = '';
+      } else {
+        loginBtn.style.display = '';
+        profileBtn.style.display = 'none';
+      }
+    }
+
+    async function nostrLogin() {
+      const pubkey = await getNostrPublicKey();
+      if (!pubkey) {
+        alert('No Nostr extension found. Install Alby, nos2x, or another NIP-07 extension.');
+        return;
+      }
+      state.community.myPubkey = pubkey;
+      await loadCommunityIdentity();
+    }
+
+    async function loadMyDesigns() {
+      const wall = $('feedWallMine');
+      if (!state.community.myPubkey) {
+        wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Sign in with Nostr (top right) to see your published designs.</div>';
+        return;
+      }
+      const typeFilter = _feedState.filterMine || 'any';
+      wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading your designs…</div>';
+      const relays = splitRelayList(state.community.relays);
+      const events = await queryRelays(relays, {
+        kinds: [30078], '#t': ['casewrap'],
+        authors: [state.community.myPubkey], limit: 100
+      }, { timeoutMs: 4500 });
+      // Fetch reactions for user's own events
+      if (events.length) {
+        const ids = events.map(e => e.id);
+        const rxEvents = await queryRelays(relays, { kinds: [7], '#e': ids }, { timeoutMs: 2500 });
+        for (const rx of rxEvents) {
+          const tag = (rx.tags || []).find(t => t[0] === 'e' && t[1]);
+          if (tag) _feedCache.reactions[tag[1]] = (_feedCache.reactions[tag[1]] || 0) + 1;
+        }
+        // Cache user's own profile
+        if (!_feedCache.profiles[state.community.myPubkey] && state.community.myProfile) {
+          _feedCache.profiles[state.community.myPubkey] = state.community.myProfile;
+        }
+      }
+      const rows = buildRowsFromEvents(events, typeFilter);
+      rows.sort((a, b) => b.createdAt - a.createdAt);
+      wall.innerHTML = '';
+      if (!rows.length) {
+        wall.innerHTML = '<div class="hint" style="grid-column:1/-1">No published designs found. Publish a case cover or disc design to see it here.</div>';
+        return;
+      }
+      rows.forEach(row => {
+        wall.appendChild(buildFeedCard(row, () => {
+          if (row.mode === 'disc-design') {
+            importDiscDesignFromPayload(row.payload, $('importDiscTarget')?.value || state.activeDiscDesign || 'a');
+          } else {
+            loadProjectFromText(JSON.stringify(row.payload));
+          }
+          $('nostrModal').classList.remove('open');
+        }));
+      });
+    }
+
+    function switchModalTab(tab) {
+      for (const t of ['New', 'Popular', 'Search', 'Mine']) {
+        const tabEl = $(`tab${t}`);
+        const panelEl = $(`panel${t}`);
+        if (tabEl) tabEl.classList.toggle('active', t === tab);
+        if (panelEl) panelEl.style.display = t === tab ? '' : 'none';
+      }
+      if (tab === 'New' || tab === 'Popular') loadFeedTab(tab);
+      if (tab === 'Mine') loadMyDesigns();
+    }
+
+    async function loadFeedTab(tab) {
+      const wall = $(`feedWall${tab}`);
+      wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading…</div>';
+      await fetchFeedAndReactions();
+      const typeFilter = _feedState[`filter${tab}`] || 'any';
+      let rows = buildRowsFromEvents(_feedCache.events || [], typeFilter);
+      if (tab === 'New') {
+        rows.sort((a, b) => b.createdAt - a.createdAt);
+      } else {
+        rows = deduplicateRows(rows);
+        rows.sort((a, b) => b.reactions - a.reactions);
+      }
+      wall.innerHTML = '';
+      if (!rows.length) {
+        wall.innerHTML = '<div class="hint" style="grid-column:1/-1">No templates found on these relays yet.</div>';
+        return;
+      }
+      rows.slice(0, 60).forEach(row => {
+        wall.appendChild(buildFeedCard(row, () => {
+          if (row.mode === 'disc-design') {
+            importDiscDesignFromPayload(row.payload, $('importDiscTarget')?.value || state.activeDiscDesign || 'a');
+          } else {
+            loadProjectFromText(JSON.stringify(row.payload));
+          }
+          $('nostrModal').classList.remove('open');
+        }));
+      });
+    }
+
+    function previewFromPayload(payload, typeHint) {
+      try {
+        const mode = typeHint || payload.templateMode || 'cover';
+
+        if (mode === 'disc-design') {
+          return payload.discDesign?.src || '';
+        }
+
+        if (mode === 'disc') {
+          const designs = payload.discTemplate?.designs || payload.discDesigns || {};
+          const sheet = payload.discTemplate?.sheet || payload.discSheet || {};
+          // Prefer the assigned top-slot design, then try every design in order
+          const topKey = sheet.top;
+          if (topKey && designs[topKey]?.src) return designs[topKey].src;
+          const any = Object.values(designs).find(d => d?.src);
+          if (any) return any.src;
+          return payload.discs?.top?.src || payload.discTemplate?.discs?.top?.src || '';
+        }
+
+        // Cover: front → combined wrap → back (in that priority)
+        return (
+          payload.coverTemplate?.slots?.front?.src ||
+          payload.slots?.front?.src ||
+          payload.coverTemplate?.combined?.src ||
+          payload.combined?.src ||
+          payload.coverTemplate?.slots?.back?.src ||
+          payload.slots?.back?.src ||
+          ''
+        );
+      } catch { return ''; }
+    }
+
+    async function reactToNostrEvent(eventId, pubkey) {
+      if (!window.nostr) {
+        alert('Install a Nostr extension (like Alby or nos2x) to react to templates.');
+        return false;
+      }
+      try {
+        const evt = {
+          kind: 7,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [['e', eventId], ['p', pubkey || '']],
+          content: '+'
+        };
+        const signed = await signNostrEvent(evt);
+        await publishToRelays(signed);
+        _feedCache.reactions[eventId] = (_feedCache.reactions[eventId] || 0) + 1;
+        return true;
+      } catch (e) {
+        alert(e.message || 'Could not send reaction.');
+        return false;
+      }
+    }
+
+    function makeReactionBtn(row) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'reactionBtn';
+      btn.textContent = row.reactions > 0 ? `▲ ${row.reactions}` : '▲';
+      btn.title = 'React to this template on Nostr';
+      btn.addEventListener('click', async e => {
+        e.stopPropagation();
+        const ok = await reactToNostrEvent(row.e.id, row.e.pubkey);
+        if (ok) {
+          row.reactions = _feedCache.reactions[row.e.id] || 1;
+          btn.textContent = `▲ ${row.reactions}`;
+          btn.classList.add('reacted');
+        }
+      });
+      return btn;
+    }
+
+    const MODE_LABELS = { cover: 'Case cover', disc: 'Disc sheet', 'disc-design': 'Disc design' };
+
+    function buildResultCard(row, onUse) {
+      const el = document.createElement('div');
+      el.className = 'resultItem';
+
+      const isDisc = row.mode === 'disc' || row.mode === 'disc-design';
+      const modeLabel = MODE_LABELS[row.mode] || row.mode;
+
+      const thumb = document.createElement('div');
+      thumb.className = isDisc ? 'resultThumb resultThumbDisc' : 'resultThumb';
+
+      if (row.preview) {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.src = row.preview;
+        img.addEventListener('error', () => img.remove());
+        thumb.appendChild(img);
+      }
+
+      const fallback = document.createElement('span');
+      fallback.className = 'resultThumbFallback';
+      fallback.textContent = modeLabel;
+      thumb.appendChild(fallback);
+
+      const meta = document.createElement('div');
+      const sub = [row.imdb, modeLabel].filter(Boolean).join(' · ');
+      const rAuthor = _feedCache.profiles?.[row.e?.pubkey];
+      const rAuthorName = rAuthor?.name || rAuthor?.display_name || (row.e?.pubkey ? shortPubkey(row.e.pubkey) : '');
+      const rAuthorPic = rAuthor?.picture || rAuthor?.image || '';
+      const rAuthorHtml = rAuthorName ? `<div class="resultAuthor">${rAuthorPic ? `<img class="resultAuthorAvatar" src="${escapeHtml(rAuthorPic)}" alt="" onerror="this.remove()" loading="lazy" />` : ''}<span class="resultAuthorName">${escapeHtml(rAuthorName)}</span></div>` : '';
+      meta.innerHTML = `<b>${escapeHtml(row.title || 'Untitled')}</b><div class="hint">${escapeHtml(sub)}</div>${rAuthorHtml}`;
+
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display:flex;flex-direction:column;gap:4px;align-items:stretch';
+      const useBtn = document.createElement('button');
+      useBtn.type = 'button';
+      useBtn.textContent = 'Use this';
+      useBtn.addEventListener('click', onUse);
+      actions.append(makeReactionBtn(row), useBtn);
+
+      el.append(thumb, meta, actions);
+      return el;
+    }
+
+    async function runNostrSearch() {
+      const q = $('nostrQuery').value.trim();
+      const type = $('nostrType').value;
+      const out = $('nostrResults');
+      out.innerHTML = '<div class="hint">Searching…</div>';
+      await fetchFeedAndReactions();
+      let rows = buildRowsFromEvents(_feedCache.events || [], type, q);
+      if (q) rows = deduplicateRows(rows);
+      rows.sort((a, b) => b.reactions - a.reactions);
       out.innerHTML = rows.length ? '' : '<div class="hint">No templates found.</div>';
-      rows.slice(0,40).forEach((row) => {
-        const el = document.createElement('div');
-        el.className = 'resultItem';
-        el.innerHTML = `<img src="${row.preview || ''}" alt="preview" /><div><b>${escapeHtml(row.title || 'Untitled')}</b><div class="hint">${escapeHtml(`${row.imdb || 'No IMDb'} • ${row.mode}`)}</div></div><button type="button">Import</button>`;
-        el.querySelector('button').addEventListener('click', ()=> loadProjectFromText(JSON.stringify(row.payload)));
-        out.appendChild(el);
+      rows.slice(0, 40).forEach(row => {
+        out.appendChild(buildResultCard(row, () => {
+          if (row.mode === 'disc-design') {
+            importDiscDesignFromPayload(row.payload, $('importDiscTarget')?.value || state.activeDiscDesign || 'a');
+          } else {
+            loadProjectFromText(JSON.stringify(row.payload));
+          }
+          $('nostrModal').classList.remove('open');
+        }));
+      });
+    }
+
+    function renderDesignerDisc() {
+      const key = state.activeDiscDesign || 'a';
+      const design = state.discDesigns[key];
+      const img = $('designerDiscArt');
+      const placeholder = $('designerPlaceholder');
+      const label = $('designerDiscLabel');
+      if (label) {
+        const custom = design?.name && design.name !== `Design ${key.toUpperCase()}` ? ` — ${design.name}` : '';
+        label.textContent = `Design ${key.toUpperCase()}${custom}`;
+      }
+      if (design?.src) {
+        img.src = design.src;
+        img.hidden = false;
+        if (placeholder) placeholder.style.display = 'none';
+        img.style.objectFit = design.fit || 'cover';
+        img.style.transform = `translate(-50%,-50%) translate(${design.x ?? 0}%,${design.y ?? 0}%) rotate(${design.rotate ?? 0}deg) scale(${design.zoom ?? 1})`;
+      } else {
+        img.hidden = true;
+        img.removeAttribute('src');
+        if (placeholder) placeholder.style.display = 'grid';
+      }
+    }
+
+    function importDiscDesignFromPayload(payload, targetKey) {
+      const key = targetKey || state.activeDiscDesign || 'a';
+      if (payload?.templateMode === 'disc-design' && payload.discDesign) {
+        const { key: _k, ...design } = payload.discDesign;
+        state.discDesigns[key] = { ...state.discDesigns[key], ...design };
+      } else if (payload?.discTemplate?.designs) {
+        const first = Object.values(payload.discTemplate.designs).find(d => d?.src);
+        if (first) state.discDesigns[key] = { ...state.discDesigns[key], ...first };
+      } else if (payload?.discDesigns) {
+        const first = Object.values(payload.discDesigns).find(d => d?.src);
+        if (first) state.discDesigns[key] = { ...state.discDesigns[key], ...first };
+      }
+      syncDiscAssignmentInputs();
+      syncDesignerInputs();
+      render();
+    }
+
+    function syncModeTabsUI() {
+      const isDesigner = state.appMode === 'designer';
+      $('modeTabTemplate').classList.toggle('active', !isDesigner);
+      $('modeTabDesigner').classList.toggle('active', isDesigner);
+    }
+
+    function updateLayerTargetOptions() {
+      const select = $('layerTarget');
+      if (!select) return;
+      if (state.appMode === 'designer') {
+        select.innerHTML = `
+          <option value="disc-top">Disc 1 position</option>
+          <option value="disc-bottom">Disc 2 position</option>
+        `;
+      } else {
+        select.innerHTML = `
+          <option value="page">Whole page</option>
+          <option value="cover-trim">Cover trim area</option>
+          <option value="back">Back cover</option>
+          <option value="spine">Spine</option>
+          <option value="front">Front cover</option>
+        `;
+      }
+    }
+
+    function switchAppMode(mode) {
+      state.appMode = mode;
+      if (mode === 'designer') {
+        if (state.templateMode !== 'disc') {
+          state._prevTemplateMode = state.templateMode;
+          state.templateMode = 'disc';
+        }
+      } else {
+        if (state._prevTemplateMode) {
+          state.templateMode = state._prevTemplateMode;
+          delete state._prevTemplateMode;
+        }
+      }
+      updateLayerTargetOptions();
+      syncModeTabsUI();
+      syncInputs();
+      render();
+    }
+
+    function switchActiveDesign(key) {
+      state.activeDiscDesign = key;
+      render();
+    }
+
+    function dismissWelcomeModal() {
+      $('welcomeModal').classList.remove('open');
+      localStorage.setItem('casewrap-welcomed', '1');
+    }
+
+    async function runWelcomeSearch() {
+      const q = $('welcomeQuery').value.trim();
+      const type = $('welcomeType').value;
+      const out = $('welcomeResults');
+      out.innerHTML = '<div class="hint">Searching relays…</div>';
+      await fetchFeedAndReactions();
+      let rows = buildRowsFromEvents(_feedCache.events || [], type, q);
+      if (q) rows = deduplicateRows(rows);
+      rows.sort((a, b) => b.reactions - a.reactions);
+      out.innerHTML = rows.length ? '' : '<div class="hint">No templates found. Start from scratch below.</div>';
+      rows.slice(0, 40).forEach(row => {
+        out.appendChild(buildResultCard(row, () => {
+          loadProjectFromText(JSON.stringify(row.payload));
+          dismissWelcomeModal();
+        }));
       });
     }
 
@@ -3210,9 +4011,9 @@
         render();
       });
 
-      for (const id of ['showGuides', 'showBleed', 'showCrops', 'printGuides', 'printCrops','darkMode']) {
+      for (const id of ['showGuides', 'showBleed', 'showCrops', 'printGuides', 'printCrops']) {
         $(id).addEventListener('change', (event) => {
-          if (id === "darkMode") state.darkMode = event.target.checked; else state[id] = event.target.checked;
+          state[id] = event.target.checked;
           render();
         });
       }
@@ -3232,16 +4033,42 @@
 
       $("nostrExportBtn").addEventListener("click", async ()=>{
         if (!window.nostr) return alert("No Nostr extension found");
-        const evt={kind:30078,created_at:Math.floor(Date.now()/1000),tags:[["d", state.meta.imdbId||state.meta.title||"template"]],content:JSON.stringify(exportPayload())};
+        const payload = state.templateMode === 'disc' ? discSheetPayload() : coverTemplatePayload();
+        const typeTag = state.templateMode === 'disc' ? 'casewrap-disc' : 'casewrap-cover';
+        const tags = [
+          ['d', state.meta.imdbId || state.meta.title || 'template'],
+          ...getTemplateTags(payload, typeTag)
+        ];
+        const evt = { kind: 30078, created_at: Math.floor(Date.now()/1000), tags, content: JSON.stringify(payload) };
         evt.pubkey = await window.nostr.getPublicKey();
         const signed = await window.nostr.signEvent(evt);
         await navigator.clipboard.writeText(JSON.stringify(signed));
         alert("Signed Nostr event copied to clipboard");
       });
 
-      $("nostrSearchBtn").addEventListener("click", ()=>{ $("nostrModal").classList.add("open"); });
-      $("nostrClose").addEventListener("click", ()=>{ $("nostrModal").classList.remove("open"); });
+      $("nostrClose").addEventListener("click", () => $("nostrModal").classList.remove("open"));
       $("nostrRunSearch").addEventListener("click", runNostrSearch);
+      $("tabNew").addEventListener("click", () => switchModalTab('New'));
+      $("tabPopular").addEventListener("click", () => switchModalTab('Popular'));
+      $("tabSearch").addEventListener("click", () => switchModalTab('Search'));
+      $("tabMine").addEventListener("click", () => switchModalTab('Mine'));
+      $("nostrLoginBtn").addEventListener("click", nostrLogin);
+      $("nostrProfileBtn").addEventListener("click", () => {
+        $('nostrModal').classList.add('open');
+        switchModalTab('Mine');
+      });
+
+      document.querySelectorAll('.feedTypeBtn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tab = btn.dataset.tab;
+          const type = btn.dataset.type;
+          _feedState[`filter${tab}`] = type;
+          btn.closest('.feedTypeFilter').querySelectorAll('.feedTypeBtn').forEach(b => {
+            b.classList.toggle('active', b === btn);
+          });
+          if (tab === 'Mine') loadMyDesigns(); else loadFeedTab(tab);
+        });
+      });
 
       $("nostrImportBtn").addEventListener("click", ()=>{
         const raw = prompt("Paste Nostr event JSON"); if (!raw) return;
@@ -3250,97 +4077,16 @@
 
       $('relayList').addEventListener('change', async (event) => {
         state.community.relays = event.target.value.trim() || state.community.relays;
-        syncCommunityInputs();
+        invalidateFeedCache();
         await loadCommunityIdentity();
-        await refreshCommunityFeed();
-      });
-
-      $('communityQuery').addEventListener('input', (event) => {
-        state.community.query = event.target.value;
-      });
-
-      $('communityKind').addEventListener('change', async (event) => {
-        state.community.kind = event.target.value;
-        await refreshCommunityFeed();
-      });
-
-      $('communityRefreshBtn').addEventListener('click', async () => {
-        try {
-          state.community.status = 'Refreshing community feed…';
-          renderCommunity();
-          await loadCommunityIdentity();
-          await refreshCommunityFeed();
-        } catch (error) {
-          state.community.status = error.message || 'Could not refresh community feed.';
-          renderCommunity();
-          alert(error.message || 'Could not refresh community feed.');
-        }
       });
 
       $('communityPublishBtn').addEventListener('click', async () => {
         try {
           await publishCurrentTemplateToNostr();
-          alert('Current template published to Nostr.');
+          alert('Published to Nostr.');
         } catch (error) {
           alert(error.message || 'Could not publish the template.');
-        }
-      });
-
-      $('communityNoteBtn').addEventListener('click', async () => {
-        const text = $('communityNoteText').value.trim();
-        try {
-          await publishCommunityNote(text);
-          $('communityNoteText').value = '';
-          alert('Note published.');
-        } catch (error) {
-          alert(error.message || 'Could not publish the note.');
-        }
-      });
-
-      $('communityLoadBtn').addEventListener('click', () => {
-        const event = currentCommunityEvent();
-        if (!event) return;
-        const payload = templatePayloadFromEvent(event);
-        if (!payload) return alert('Selected post is not a template.');
-        loadProjectFromText(JSON.stringify(payload));
-      });
-
-      $('communityLikeBtn').addEventListener('click', async () => {
-        try {
-          await likeSelectedCommunityEvent();
-          await refreshCommunityThread();
-        } catch (error) {
-          alert(error.message || 'Could not send the reaction.');
-        }
-      });
-
-      $('communityReplyBtn').addEventListener('click', async () => {
-        const text = $('communityReplyText').value.trim();
-        try {
-          const event = currentCommunityEvent();
-          if (!event) throw new Error('Select a post first.');
-          await publishCommunityNote(text, event);
-          $('communityReplyText').value = '';
-          await refreshCommunityThread();
-        } catch (error) {
-          alert(error.message || 'Could not send the reply.');
-        }
-      });
-
-      $('communityFollowBtn').addEventListener('click', async () => {
-        try {
-          await followSelectedAuthor();
-        } catch (error) {
-          alert(error.message || 'Could not update follows.');
-        }
-      });
-
-      $('communityRepostBtn').addEventListener('click', async () => {
-        try {
-          await repostSelectedCommunityEvent();
-          alert('Repost sent.');
-        } catch (error) {
-          alert(error.message || 'Could not repost the selected item.');
         }
       });
 
@@ -3350,9 +4096,123 @@
       });
 
       $('saveProjectBtn').addEventListener('click', downloadProject);
+      $('designerSaveProjectBtn').addEventListener('click', downloadDiscProject);
+      $('designerLoadProjectBtn').addEventListener('click', () => $('discProjectFile').click());
+      $('discProjectFile').addEventListener('change', (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            loadProjectFromText(String(reader.result));
+          } catch {
+            alert('Could not load that disc project file.');
+          }
+          event.target.value = '';
+        };
+        reader.readAsText(file);
+      });
+      // App mode tabs
+      $('modeTabTemplate').addEventListener('click', () => switchAppMode('template'));
+      $('modeTabDesigner').addEventListener('click', () => switchAppMode('designer'));
+
+      // Disc designer: design A/B/C/D tabs
+      for (const key of ['a', 'b', 'c', 'd']) {
+        $(`designTab-${key}`).addEventListener('click', () => switchActiveDesign(key));
+      }
+
+      // Disc designer: image/position controls
+      $('designerName').addEventListener('input', (e) => {
+        state.discDesigns[state.activeDiscDesign].name = e.target.value;
+        syncDiscAssignmentInputs();
+        render();
+      });
+
+      $('designerLoadBtn').addEventListener('click', () => {
+        const raw = $('designerUrl').value.trim();
+        if (!raw) return;
+        try {
+          state.discDesigns[state.activeDiscDesign].src = normalizeImageUrl(raw);
+          render();
+        } catch (error) {
+          alert(error.message || 'Invalid image URL.');
+        }
+      });
+
+      $('designerClearBtn').addEventListener('click', () => {
+        state.discDesigns[state.activeDiscDesign].src = '';
+        $('designerUrl').value = '';
+        render();
+      });
+
+      $('fit-designer').addEventListener('change', (e) => {
+        state.discDesigns[state.activeDiscDesign].fit = e.target.value;
+        render();
+      });
+
+      for (const prop of ['zoom', 'x', 'y', 'rotate']) {
+        $(`${prop}-designer`).addEventListener('input', (e) => {
+          state.discDesigns[state.activeDiscDesign][prop] = Number(e.target.value);
+          syncDesignerInputs();
+          render();
+        });
+      }
+
+      $('designerResetBtn').addEventListener('click', () => {
+        Object.assign(state.discDesigns[state.activeDiscDesign], { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
+        syncDesignerInputs();
+        render();
+      });
+
+      $('spineTextTop').addEventListener('input', e => {
+        state.discSpineLabels = { ...state.discSpineLabels, top: e.target.value };
+        render();
+      });
+      $('spineTextBottom').addEventListener('input', e => {
+        state.discSpineLabels = { ...state.discSpineLabels, bottom: e.target.value };
+        render();
+      });
+
+      $('designerSaveDesignBtn').addEventListener('click', downloadSingleDesign);
+
+      $('designerPublishBtn').addEventListener('click', async () => {
+        try {
+          await publishDiscDesignToNostr(state.activeDiscDesign);
+          alert(`${state.discDesigns[state.activeDiscDesign].name || 'Design'} published to Nostr.`);
+        } catch (error) {
+          alert(error.message || 'Could not publish.');
+        }
+      });
+
+      // Disc layout import (template tab)
+      $('importDiscFileBtn').addEventListener('click', () => $('discDesignFile').click());
+      $('discDesignFile').addEventListener('change', (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const payload = JSON.parse(String(reader.result));
+            const target = $('importDiscTarget').value || 'a';
+            importDiscDesignFromPayload(payload, target);
+            event.target.value = '';
+          } catch {
+            alert('Could not read that file as a disc design.');
+          }
+        };
+        reader.readAsText(file);
+      });
+      $('searchDiscNostrBtn').addEventListener('click', () => {
+        $('nostrType').value = 'disc-design';
+        $('nostrModal').classList.add('open');
+        switchModalTab('Search');
+      });
+
       $('quickPrintBtn').addEventListener('click', () => $('printBtn').click());
       $('quickSaveBtn').addEventListener('click', () => $('saveProjectBtn').click());
-      $('quickPublishBtn').addEventListener('click', () => $('communityPublishBtn').click());
+      $('browseCommunityBtn').addEventListener('click', () => { $('nostrModal').classList.add('open'); switchModalTab('New'); });
+      $('welcomeSearchBtn').addEventListener('click', runWelcomeSearch);
+      $('welcomeSkipBtn').addEventListener('click', dismissWelcomeModal);
       $('loadProjectBtn').addEventListener('click', () => $('projectFile').click());
       $('projectFile').addEventListener('change', (event) => {
         const file = event.target.files && event.target.files[0];
@@ -3440,9 +4300,8 @@
       $('clearDiscBtn').addEventListener('click', () => {
         for (const { key } of discDesignNames) {
           state.discDesigns[key].src = '';
-          $(`disc-url-${key}`).value = '';
         }
-
+        $('designerUrl').value = '';
         render();
       });
 
@@ -3560,15 +4419,23 @@
 
     function init() {
       restoreAutosave();
+      state.appMode = state.appMode || 'template';
+      state.activeDiscDesign = state.activeDiscDesign || 'a';
       normalizeDiscState();
+      if (!localStorage.getItem('casewrap-welcomed')) {
+        $('welcomeModal').classList.add('open');
+      }
       buildSlotControls();
       buildDiscControls();
       attachEvents();
+      updateLayerTargetOptions();
       syncInputs();
       syncAllSlotInputs();
       syncAllDiscInputs();
       syncCombinedInputs();
       syncCommunityInputs();
+      syncDesignerInputs();
+      updateNostrWidget();
       render();
     }
 
