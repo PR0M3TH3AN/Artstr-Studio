@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DVD / Blu-ray Cover Template Maker</title>
+  <title>CaseWrap Studio</title>
   <style id="dynamicPageStyle">
     @page { size: 11in 8.5in; margin: 0; }
       body.dark {
-      --bg:#07070a; --panel:#10131a; --ink:#e5e7eb; --muted:#9aa4b2; --line:#2c3443; --accent:#60a5fa;
-      background-image: repeating-linear-gradient(90deg, rgba(255,0,255,.06) 0 2px, transparent 2px 6px), repeating-linear-gradient(0deg, rgba(0,255,255,.05) 0 3px, transparent 3px 8px);
+      --bg:#0b0f14; --panel:#121821; --ink:#e5e7eb; --muted:#9aa4b2; --line:#2c3443; --accent:#60a5fa;
+      background-image: none;
     }
     body.dark aside, body.dark fieldset, body.dark details, body.dark .pill, body.dark .previewShell { background: var(--panel); color: var(--ink); border-color: var(--line); }
     body.dark .previewShell { background:#0f1622; box-shadow: inset 0 1px 0 rgba(255,255,255,.03); }
-    body.dark input[type="number"], body.dark input[type="text"], body.dark select, body.dark button, body.dark input[type="file"] { background:#0b1220; color:var(--ink); border-color:var(--line); }
+    body.dark input[type="number"], body.dark input[type="text"], body.dark input[type="url"], body.dark textarea, body.dark select, body.dark button { background:#0b1220; color:var(--ink); border-color:var(--line); }
     body.dark .hint, body.dark label, body.dark .subhead, body.dark .status { color: var(--muted); }
     body.dark .sheet{filter:contrast(1.08) saturate(1.15) brightness(.95);}
     body.dark .layoutTab.active, body.dark button.primary { color:#fff; }
@@ -50,24 +50,27 @@
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 
-    button, input, select {
+    button, input, select, textarea {
       font: inherit;
     }
 
     .app {
       display: grid;
-      grid-template-columns: minmax(320px, 390px) 1fr;
+      grid-template-columns: minmax(340px, 420px) 1fr;
       min-height: 100vh;
     }
 
     aside {
       background: var(--panel);
       border-right: 1px solid var(--line);
-      padding: 22px;
+      padding: 20px;
       overflow-y: auto;
       max-height: 100vh;
       position: sticky;
       top: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
 
     main {
@@ -85,13 +88,13 @@
       color: var(--muted);
       font-size: .9rem;
       line-height: 1.4;
-      margin: 0 0 18px;
+      margin: 0;
     }
 
     fieldset {
       border: 1px solid var(--line);
-      border-radius: 16px;
-      margin: 0 0 16px;
+      border-radius: 8px;
+      margin: 0;
       padding: 14px;
       background: #fff;
     }
@@ -106,7 +109,7 @@
       display: block;
       font-size: .8rem;
       color: #374151;
-      margin: 11px 0 5px;
+      margin: 10px 0 5px;
       font-weight: 650;
     }
 
@@ -116,11 +119,11 @@
       gap: 10px;
     }
 
-    input[type="number"], input[type="text"], select {
+    input[type="number"], input[type="text"], input[type="url"], textarea, select {
       width: 100%;
       border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 9px 10px;
+      border-radius: 8px;
+      padding: 8px 10px;
       background: #fff;
       color: var(--ink);
     }
@@ -129,10 +132,9 @@
       width: 100%;
     }
 
-    input[type="file"] {
-      width: 100%;
-      font-size: .82rem;
-      color: var(--muted);
+    textarea {
+      min-height: 84px;
+      resize: vertical;
     }
 
     .hint {
@@ -145,14 +147,14 @@
     .buttonRow {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 12px;
+      gap: 8px;
+      margin-top: 10px;
     }
 
     button {
       border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 9px 13px;
+      border-radius: 8px;
+      padding: 8px 11px;
       background: #fff;
       color: var(--ink);
       cursor: pointer;
@@ -181,7 +183,7 @@
     }
 
     .layoutTab {
-      border-radius: 10px;
+      border-radius: 8px;
       padding: 10px;
     }
 
@@ -210,7 +212,7 @@
 
     details {
       border: 1px solid var(--line);
-      border-radius: 14px;
+      border-radius: 8px;
       padding: 10px 12px;
       margin-top: 10px;
       background: #fafafa;
@@ -221,6 +223,83 @@
       font-weight: 800;
       font-size: .86rem;
     }
+
+    .appTitle {
+      display: grid;
+      gap: 5px;
+      margin-bottom: 2px;
+    }
+
+    .quickActions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 2px 0 4px;
+    }
+
+    .quickActions .primary {
+      grid-column: 1 / -1;
+    }
+
+    .workflowStep legend::before {
+      content: attr(data-step);
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      margin-right: 7px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: var(--accent);
+      font-size: .74rem;
+      font-weight: 850;
+    }
+
+    .secondaryPanel {
+      background: #fbfcfe;
+    }
+
+    .compactDetails {
+      margin: 0;
+      border: 0;
+      padding: 0;
+      background: transparent;
+    }
+
+    .compactDetails > summary {
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+    }
+
+    .compactDetails > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .compactDetails > summary::after {
+      content: "Open";
+      color: var(--muted);
+      font-size: .72rem;
+      font-weight: 700;
+    }
+
+    .compactDetails[open] > summary::after {
+      content: "Close";
+    }
+
+    #layoutFieldset { order: 10; }
+    #coverSizeFieldset { order: 20; }
+    #coverArtworkFieldset,
+    #discArtworkFieldset { order: 30; }
+    #layersFieldset { order: 40; }
+    #exportFieldset { order: 50; }
+    #metadataFieldset { order: 60; }
+    #communityFieldset { order: 70; }
+    #appearanceFieldset { order: 80; }
+    aside > details { order: 90; }
 
     .topbar {
       display: flex;
@@ -243,7 +322,7 @@
     .pill {
       border: 1px solid var(--line);
       background: #fff;
-      border-radius: 999px;
+      border-radius: 8px;
       padding: 7px 10px;
       box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
     }
@@ -251,7 +330,7 @@
     .previewShell {
       background: #e5e7eb;
       border: 1px solid #cbd5e1;
-      border-radius: 24px;
+      border-radius: 8px;
       padding: 24px;
       overflow: auto;
       min-height: calc(100vh - 112px);
@@ -537,9 +616,134 @@
       margin-top: 10px;
     }
 
+    .communityCard {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: rgba(127,127,127,.06);
+      display: grid;
+      gap: 10px;
+    }
+
+    .communityMeta {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .communityDetail strong,
+    .communityMeta strong {
+      display: block;
+      font-size: .9rem;
+    }
+
+    .feedList {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+      max-height: 360px;
+      overflow: auto;
+    }
+
+    .feedItem {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .feedItem.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+    }
+
+    .feedHead {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .feedPreview {
+      display: grid;
+      grid-template-columns: 92px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .feedPreview img {
+      width: 92px;
+      height: 68px;
+      object-fit: cover;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+    }
+
+    .feedTags, .reactionRow, .authorRow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .chip {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 3px 8px;
+      font-size: .72rem;
+      color: var(--muted);
+      background: rgba(127,127,127,.06);
+    }
+
+    .communityDetail {
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .threadList {
+      display: grid;
+      gap: 8px;
+    }
+
+    .threadItem {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: rgba(127,127,127,.05);
+      display: grid;
+      gap: 6px;
+    }
+
+    .profileCard {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: rgba(127,127,127,.05);
+      display: grid;
+      gap: 8px;
+    }
+
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      object-fit: cover;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      flex: 0 0 auto;
+    }
+
     .layerItem {
       width: 100%;
-      border-radius: 10px;
+      border-radius: 8px;
       display: flex;
       justify-content: space-between;
       gap: 8px;
@@ -561,7 +765,7 @@
     .textTools button {
       width: 38px;
       padding: 8px 0;
-      border-radius: 10px;
+      border-radius: 8px;
     }
 
     body.dragging-layer {
@@ -644,7 +848,7 @@
     .miniReadout {
       margin-top: 8px;
       padding: 10px;
-      border-radius: 12px;
+      border-radius: 8px;
       background: #f8fafc;
       border: 1px solid var(--line);
       color: #475569;
@@ -686,10 +890,10 @@
     
     .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display:none; z-index:1000; }
     .modal.open { display:block; }
-    .modalCard { width:min(900px,92vw); max-height:88vh; overflow:auto; margin:4vh auto; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:16px; padding:14px; }
+    .modalCard { width:min(900px,92vw); max-height:88vh; overflow:auto; margin:4vh auto; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:14px; }
     .searchGrid{display:grid;grid-template-columns:1fr 140px 110px;gap:8px;align-items:end}
     .results{display:grid;gap:8px;margin-top:10px}
-    .resultItem{display:grid;grid-template-columns:100px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px;background:rgba(127,127,127,.07)}
+    .resultItem{display:grid;grid-template-columns:100px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:8px;background:rgba(127,127,127,.07)}
     .resultItem img{width:100px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
 
     @media (max-width: 900px) {
@@ -795,12 +999,12 @@
       }
     }
       body.dark {
-      --bg:#07070a; --panel:#10131a; --ink:#e5e7eb; --muted:#9aa4b2; --line:#2c3443; --accent:#60a5fa;
-      background-image: repeating-linear-gradient(90deg, rgba(255,0,255,.06) 0 2px, transparent 2px 6px), repeating-linear-gradient(0deg, rgba(0,255,255,.05) 0 3px, transparent 3px 8px);
+      --bg:#0b0f14; --panel:#121821; --ink:#e5e7eb; --muted:#9aa4b2; --line:#2c3443; --accent:#60a5fa;
+      background-image: none;
     }
-    body.dark aside, body.dark fieldset, body.dark details, body.dark .pill, body.dark .previewShell { background: var(--panel); color: var(--ink); border-color: var(--line); }
+    body.dark aside, body.dark fieldset, body.dark details, body.dark .pill, body.dark .previewShell, body.dark .feedItem { background: var(--panel); color: var(--ink); border-color: var(--line); }
     body.dark .previewShell { background:#0f1622; box-shadow: inset 0 1px 0 rgba(255,255,255,.03); }
-    body.dark input[type="number"], body.dark input[type="text"], body.dark select, body.dark button, body.dark input[type="file"] { background:#0b1220; color:var(--ink); border-color:var(--line); }
+    body.dark input[type="number"], body.dark input[type="text"], body.dark input[type="url"], body.dark textarea, body.dark select, body.dark button { background:#0b1220; color:var(--ink); border-color:var(--line); }
     body.dark .hint, body.dark label, body.dark .subhead, body.dark .status { color: var(--muted); }
     body.dark .sheet{filter:contrast(1.08) saturate(1.15) brightness(.95);}
     body.dark .layoutTab.active, body.dark button.primary { color:#fff; }
@@ -810,11 +1014,19 @@
 <body>
   <div class="app">
     <aside>
-      <h1>DVD / Blu-ray Cover Template Maker</h1>
-      <p class="subhead">Upload front, back, and spine art; adjust the case dimensions; then export with your browser’s “Save as PDF” print flow.</p>
+      <div class="appTitle">
+        <h1>CaseWrap Studio</h1>
+        <p class="subhead">Design printable case wraps and disc labels, then save, print, or share them on Nostr.</p>
+      </div>
 
-      <fieldset>
-        <legend>Layout</legend>
+      <div class="quickActions" aria-label="Primary actions">
+        <button class="primary" type="button" id="quickPrintBtn">Print / Save PDF</button>
+        <button type="button" id="quickSaveBtn">Save JSON</button>
+        <button type="button" id="quickPublishBtn">Publish</button>
+      </div>
+
+      <fieldset class="workflowStep" id="layoutFieldset">
+        <legend data-step="1">Layout</legend>
         <div class="layoutTabs" role="tablist" aria-label="Template layout">
           <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover</button>
           <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels</button>
@@ -822,8 +1034,8 @@
         <p class="hint">Disc labels use Avery 8960 / 8944 Letter stock geometry and should print at 100% scale.</p>
       </fieldset>
 
-      <fieldset id="coverSizeFieldset">
-        <legend>Template size</legend>
+      <fieldset class="workflowStep" id="coverSizeFieldset">
+        <legend data-step="2">Size</legend>
         <label for="preset">Preset</label>
         <select id="preset">
           <option value="dvd">DVD case wrap — 10.80 × 7.50 in with bleed</option>
@@ -861,22 +1073,89 @@
         <div class="miniReadout" id="sizeReadout"></div>
       </fieldset>
 
-      <fieldset>
-        <legend>Project metadata</legend>
+      <fieldset class="secondaryPanel" id="metadataFieldset">
+        <details class="compactDetails">
+          <summary>Project metadata</summary>
         <label for="titleField">Title</label><input id="titleField" type="text" placeholder="Movie title" />
         <label for="imdbField">IMDb ID</label><input id="imdbField" type="text" placeholder="tt1234567" />
         <div class="buttonRow"><button type="button" id="imdbImportBtn">Import IMDb data</button><button type="button" id="nostrExportBtn">Export to Nostr</button><button type="button" id="nostrImportBtn">Import from Nostr</button><button type="button" id="nostrSearchBtn">Search Nostr</button></div>
         <p class="hint">IMDb import uses OMDb-compatible endpoint + API key.</p>
+        </details>
       </fieldset>
 
-      <fieldset>
-        <legend>Appearance</legend>
-        <label class="toggle"><input id="darkMode" type="checkbox" /> Enable dark / glitch theme</label>
+      <fieldset class="secondaryPanel" id="communityFieldset">
+        <details class="compactDetails">
+          <summary>Community</summary>
+
+        <div class="row">
+          <div>
+            <label for="relayList">Relays</label>
+            <input id="relayList" type="text" placeholder="wss://relay.damus.io, wss://nos.lol" />
+          </div>
+          <div>
+            <label for="communityKind">Feed</label>
+            <select id="communityKind">
+              <option value="templates">Templates</option>
+              <option value="disc-designs">Disc designs</option>
+              <option value="notes">Notes</option>
+              <option value="profiles">Profiles</option>
+              <option value="all">Everything</option>
+            </select>
+          </div>
+        </div>
+
+        <label for="communityQuery">Search</label>
+        <input id="communityQuery" type="text" placeholder="title, imdb id, author, tag" />
+
+        <div class="buttonRow">
+          <button type="button" id="communityRefreshBtn">Refresh feed</button>
+          <button type="button" id="communityPublishBtn">Publish current template</button>
+          <button type="button" id="communityNoteBtn">Publish note</button>
+        </div>
+
+        <div class="profileCard" id="communityProfileCard">
+          <div class="communityMeta">
+            <div>
+              <strong id="communityProfileName">Not connected</strong>
+              <div class="hint" id="communityProfileAbout">Sign in with NIP-07 to publish, follow, reply, and react.</div>
+            </div>
+            <div class="pill" id="communityPubkey">No pubkey</div>
+          </div>
+        </div>
+
+        <div class="feedList" id="communityFeed"></div>
+
+        <details id="communityDetail" open>
+          <summary>Selected post</summary>
+          <div class="communityDetail" id="communityDetailBody">
+            <div class="hint">Pick a template or note from the feed.</div>
+          </div>
+          <label for="communityReplyText">Reply text</label>
+          <textarea id="communityReplyText" placeholder="Write a reply to the selected post"></textarea>
+          <label for="communityNoteText">New note</label>
+          <textarea id="communityNoteText" placeholder="Write a public Nostr note"></textarea>
+
+          <div class="buttonRow">
+            <button type="button" id="communityLoadBtn">Load template</button>
+            <button type="button" id="communityLikeBtn">Like</button>
+            <button type="button" id="communityReplyBtn">Reply</button>
+            <button type="button" id="communityFollowBtn">Follow author</button>
+            <button type="button" id="communityRepostBtn">Repost</button>
+          </div>
+        </details>
+        </details>
+      </fieldset>
+
+      <fieldset class="secondaryPanel" id="appearanceFieldset">
+        <details class="compactDetails">
+          <summary>Appearance</summary>
+        <label class="toggle"><input id="darkMode" type="checkbox" /> Enable dark theme</label>
         <p class="hint">Affects editor panels, controls, and preview shell.</p>
+        </details>
       </fieldset>
 
-      <fieldset>
-        <legend>View / export</legend>
+      <fieldset class="workflowStep" id="exportFieldset">
+        <legend data-step="5">Export</legend>
         <label for="zoom">Preview zoom</label>
         <div class="rangeLine">
           <input id="zoom" type="range" min="20" max="125" step="1" value="60" />
@@ -901,8 +1180,8 @@
         <p class="hint">Export PDF opens your print dialog. Choose <b>Save as PDF</b>, use <b>100% scale</b>, and disable browser headers/footers.</p>
       </fieldset>
 
-      <fieldset id="coverArtworkFieldset">
-        <legend>Artwork</legend>
+      <fieldset class="workflowStep" id="coverArtworkFieldset">
+        <legend data-step="3">Artwork</legend>
 
         <label for="artworkMode">Artwork mode</label>
         <select id="artworkMode">
@@ -913,8 +1192,12 @@
         <details id="combinedControls">
           <summary>Combined wrap image</summary>
 
-          <label for="file-combined">Image file</label>
-          <input id="file-combined" type="file" accept="image/*" />
+          <label for="combinedUrl">Image URL</label>
+          <input id="combinedUrl" type="url" placeholder="https://example.com/wrap.jpg" />
+          <div class="buttonRow">
+            <button type="button" id="load-combined">Load URL</button>
+            <button type="button" class="danger" id="clear-combined">Clear combined image</button>
+          </div>
 
           <label for="area-combined">Span area</label>
           <select id="area-combined">
@@ -956,7 +1239,6 @@
 
           <div class="buttonRow">
             <button type="button" id="reset-combined">Reset combined image</button>
-            <button type="button" class="danger" id="clear-combined">Clear combined image</button>
           </div>
 
           <p class="hint">
@@ -972,22 +1254,22 @@
         </div>
 
         <p class="hint">
-          Tip: you can switch between separate-image mode and combined-image mode without losing what you uploaded.
+          Tip: you can switch between separate-image mode and combined-image mode without losing what you loaded.
         </p>
       </fieldset>
 
-      <fieldset id="discArtworkFieldset">
-        <legend>Disc artwork</legend>
+      <fieldset class="workflowStep" id="discArtworkFieldset">
+        <legend data-step="3">Disc designs</legend>
         <div class="miniReadout" id="discSizeReadout"></div>
         <div id="discControls" class="slotGrid"></div>
         <div class="buttonRow">
-          <button type="button" class="danger" id="clearDiscBtn">Clear disc images</button>
+          <button type="button" class="danger" id="clearDiscBtn">Clear disc designs</button>
         </div>
-        <p class="hint">Avery 8960 uses two 4.625 in full-face disc labels on Letter paper. The center holes are kept clear in the preview and PDF.</p>
+        <p class="hint">Create reusable disc designs, then assign any design to either label position on the Avery sheet.</p>
       </fieldset>
 
-      <fieldset>
-        <legend>Layers</legend>
+      <fieldset class="workflowStep" id="layersFieldset">
+        <legend data-step="4">Layers</legend>
 
         <label for="layerTarget">New layer target</label>
         <select id="layerTarget">
@@ -1001,9 +1283,9 @@
         </select>
 
         <div class="buttonRow">
+          <input id="newLayerUrl" type="url" placeholder="https://example.com/layer.png" />
           <button type="button" id="addImageLayerBtn">Add image layer</button>
           <button type="button" id="addTextLayerBtn">Add text layer</button>
-          <input id="layerImageFile" type="file" accept="image/*" hidden />
         </div>
 
         <div class="layerList" id="layerList"></div>
@@ -1013,6 +1295,11 @@
 
           <label for="layerName">Name</label>
           <input id="layerName" type="text" />
+
+          <div id="layerImageControls">
+            <label for="layerUrl">Image URL</label>
+            <input id="layerUrl" type="url" placeholder="https://example.com/layer.png" />
+          </div>
 
           <div class="row">
             <div>
@@ -1100,19 +1387,19 @@
           <section class="sheet" id="sheet" aria-label="Printable case cover layout">
             <div class="bleedFill coverOnly" aria-hidden="true"></div>
             <div class="combinedLayer coverOnly" id="combinedLayer">
-              <div class="placeholder combinedPlaceholder">Upload one combined wrap image</div>
+              <div class="placeholder combinedPlaceholder">Enter one combined wrap image URL</div>
               <img class="art combinedArt" id="art-combined" alt="Combined wrap art" hidden />
             </div>
             <div class="slot back coverOnly" data-label="BACK" id="slot-back">
-              <div class="placeholder">Upload back image</div>
+              <div class="placeholder">Enter back image URL</div>
               <img class="art" id="art-back" alt="Back cover art" hidden />
             </div>
             <div class="slot spine coverOnly" data-label="SPINE" id="slot-spine">
-              <div class="placeholder">Upload spine</div>
+              <div class="placeholder">Enter spine image URL</div>
               <img class="art" id="art-spine" alt="Spine art" hidden />
             </div>
             <div class="slot front coverOnly" data-label="FRONT" id="slot-front">
-              <div class="placeholder">Upload front image</div>
+              <div class="placeholder">Enter front image URL</div>
               <img class="art" id="art-front" alt="Front cover art" hidden />
             </div>
             <div class="spineText coverOnly">SPINE</div>
@@ -1127,12 +1414,12 @@
             </div>
             <div class="diskLayer" id="diskLayer" aria-hidden="true">
               <div class="discSlot" data-label="DISC 1" id="disc-top">
-                <div class="placeholder">Upload disc 1 image</div>
+                <div class="placeholder">Assign a disc design</div>
                 <img class="art" id="art-disc-top" alt="Disc 1 art" hidden />
                 <div class="discHole" aria-hidden="true"></div>
               </div>
               <div class="discSlot" data-label="DISC 2" id="disc-bottom">
-                <div class="placeholder">Upload disc 2 image</div>
+                <div class="placeholder">Assign a disc design</div>
                 <img class="art" id="art-disc-bottom" alt="Disc 2 art" hidden />
                 <div class="discHole" aria-hidden="true"></div>
               </div>
@@ -1154,11 +1441,11 @@
       <h2 style="margin:0 0 8px">Nostr template search</h2>
       <div class="searchGrid">
         <div><label for="nostrQuery">Title / IMDb</label><input id="nostrQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
-        <div><label for="nostrType">Template</label><select id="nostrType"><option value="any">Any</option><option value="cover">Cover</option><option value="disc">Disc</option></select></div>
+        <div><label for="nostrType">Template</label><select id="nostrType"><option value="any">Any</option><option value="cover">Cover</option><option value="disc">Disc sheet</option><option value="disc-design">Disc design</option></select></div>
         <div class="buttonRow" style="margin:0"><button type="button" id="nostrRunSearch">Search</button><button type="button" id="nostrClose">Close</button></div>
       </div>
       <div class="results" id="nostrResults"></div>
-      <p class="hint">Search queries recent templates from relay.damus.io (kind 30078).</p>
+      <p class="hint">Search queries recent templates from the relays listed in the Community panel (kind 30078).</p>
     </div>
   </div>
 
@@ -1207,6 +1494,13 @@
       ]
     };
 
+    const discDesignNames = [
+      { key: 'a', label: 'Design A' },
+      { key: 'b', label: 'Design B' },
+      { key: 'c', label: 'Design C' },
+      { key: 'd', label: 'Design D' }
+    ];
+
     const state = {
       meta: { title: "", imdbId: "", omdbApiKey: "" },
       darkMode: false,
@@ -1242,8 +1536,33 @@
         top: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
         bottom: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }
       },
+      discDesigns: {
+        a: { name: 'Design A', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
+        b: { name: 'Design B', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
+        c: { name: 'Design C', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
+        d: { name: 'Design D', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }
+      },
+      discSheet: {
+        top: 'a',
+        bottom: 'b'
+      },
       layers: [],
-      selectedLayerId: ''
+      selectedLayerId: '',
+      community: {
+        relays: 'wss://relay.damus.io, wss://nos.lol',
+        query: '',
+        kind: 'templates',
+        feed: [],
+        selectedEventId: '',
+        selectedEvent: null,
+        comments: [],
+        reactions: [],
+        profiles: {},
+        myPubkey: '',
+        myProfile: null,
+        myFollows: [],
+        status: 'Refresh the feed when you want to browse Nostr templates.'
+      }
     };
 
     function inches(n) {
@@ -1256,6 +1575,252 @@
 
     function fmt(n, digits = 3) {
       return Number(n).toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+    }
+
+    function normalizeImageUrl(raw) {
+      const value = String(raw || '').trim();
+      if (!value) throw new Error('Enter an image URL.');
+      const parsed = new URL(value, window.location.href);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new Error('Use an http or https image URL.');
+      }
+      return parsed.href;
+    }
+
+    function splitRelayList(raw) {
+      return String(raw || '')
+        .split(/[\s,]+/g)
+        .map((relay) => relay.trim())
+        .filter(Boolean);
+    }
+
+    function shortPubkey(pubkey) {
+      if (!pubkey) return '';
+      return `${pubkey.slice(0, 8)}…${pubkey.slice(-6)}`;
+    }
+
+    function safeJsonParse(text, fallback = null) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        return fallback;
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function eventTemplateSummary(payload) {
+      if (!payload) return { title: 'Untitled', mode: 'template', image: '' };
+      const title = payload.meta?.title || payload.title || 'Untitled';
+      const mode = payload.templateMode || (payload.coverTemplate ? 'cover' : 'disc');
+      return {
+        title,
+        mode,
+        image: previewFromPayload(payload, mode)
+      };
+    }
+
+    function discDesignPayload(key) {
+      const design = state.discDesigns[key];
+      if (!design) throw new Error('Disc design not found.');
+      if (!design.src) throw new Error('Load an image URL before publishing this disc design.');
+      return {
+        version: 2,
+        meta: state.meta,
+        templateMode: 'disc-design',
+        discDesign: {
+          key,
+          ...design
+        },
+        discTemplate: {
+          config: discTemplate
+        },
+        community: { relays: state.community.relays, query: state.community.query, kind: state.community.kind }
+      };
+    }
+
+    function getTemplateTags(payload) {
+      const tags = [];
+      const title = payload?.meta?.title || payload?.title || '';
+      const imdb = payload?.meta?.imdbId || payload?.imdbId || '';
+      if (title) tags.push(['title', title]);
+      if (imdb) tags.push(['i', imdb]);
+      tags.push(['t', 'casewrap']);
+      tags.push(['t', 'template']);
+      return tags;
+    }
+
+    function getCommunityProfile() {
+      return state.community.myProfile || null;
+    }
+
+    function getCommunityDisplayName(pubkey) {
+      const profile = state.community.myProfile?.pubkey === pubkey ? state.community.myProfile : state.community.profiles?.[pubkey];
+      if (profile?.name) return profile.name;
+      if (profile?.display_name) return profile.display_name;
+      if (profile?.nip05) return profile.nip05;
+      return shortPubkey(pubkey) || 'Unknown';
+    }
+
+    async function getNostrPublicKey() {
+      if (!window.nostr) return '';
+      try {
+        return await window.nostr.getPublicKey();
+      } catch {
+        return '';
+      }
+    }
+
+    async function signNostrEvent(evt) {
+      if (!window.nostr) throw new Error('No Nostr extension found');
+      const signed = await window.nostr.signEvent(evt);
+      return signed;
+    }
+
+    async function publishToRelays(event, relays = splitRelayList(state.community.relays)) {
+      const sockets = relays.map((relay) => {
+        try {
+          const ws = new WebSocket(relay);
+          ws.addEventListener('open', () => {
+            ws.send(JSON.stringify(['EVENT', event]));
+            ws.close();
+          });
+          return ws;
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+      await Promise.allSettled(sockets.map((ws) => new Promise((resolve) => {
+        ws.addEventListener('close', resolve, { once: true });
+        ws.addEventListener('error', resolve, { once: true });
+        setTimeout(resolve, 1200);
+      })));
+    }
+
+    async function queryRelays(relays, filters, { timeoutMs = 3500 } = {}) {
+      const relayList = relays.length ? relays : ['wss://relay.damus.io'];
+      const events = new Map();
+
+      await Promise.all(relayList.map((relay) => new Promise((resolve) => {
+        let done = false;
+        let ws;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          try { ws && ws.close(); } catch {}
+          resolve();
+        };
+
+        try {
+          ws = new WebSocket(relay);
+        } catch {
+          resolve();
+          return;
+        }
+
+        const timer = setTimeout(finish, timeoutMs);
+        const subId = `sub-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+        ws.addEventListener('open', () => {
+          try {
+            ws.send(JSON.stringify(['REQ', subId, filters]));
+          } catch {
+            clearTimeout(timer);
+            finish();
+          }
+        });
+        ws.addEventListener('message', (msg) => {
+          let data;
+          try {
+            data = JSON.parse(msg.data);
+          } catch {
+            return;
+          }
+          if (data[0] === 'EVENT' && data[1] === subId && data[2]?.id) {
+            events.set(data[2].id, data[2]);
+          }
+          if (data[0] === 'EOSE' && data[1] === subId) {
+            clearTimeout(timer);
+            finish();
+          }
+        });
+        ws.addEventListener('error', () => {
+          clearTimeout(timer);
+          finish();
+        });
+      })));
+
+      return [...events.values()].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+    }
+
+    function eventAuthorProfile(event) {
+      if (!event?.pubkey) return null;
+      return state.community.profiles?.[event.pubkey] || null;
+    }
+
+    function formatNostrTime(unixTime) {
+      if (!unixTime) return '';
+      return new Date(unixTime * 1000).toLocaleString();
+    }
+
+    function eventSummaryText(event) {
+      if (!event) return '';
+      if (event.kind === 30078) {
+        const payload = safeJsonParse(event.content, {});
+        return eventTemplateSummary(payload).title;
+      }
+      if (event.kind === 0) {
+        const profile = safeJsonParse(event.content, {});
+        return profile.about || profile.display_name || profile.name || shortPubkey(event.pubkey) || '';
+      }
+      return (event.content || '').trim().replace(/\s+/g, ' ').slice(0, 140);
+    }
+
+    function eventTagsList(event) {
+      return (event?.tags || []).filter((tag) => tag && tag[0]).map((tag) => {
+        const key = tag[0];
+        const value = tag.slice(1).join(' ');
+        return `${key}:${value}`;
+      });
+    }
+
+    function normalizeDiscState() {
+      for (const { key, label } of discDesignNames) {
+        state.discDesigns[key] = {
+          name: label,
+          src: '',
+          fit: 'cover',
+          zoom: 1,
+          x: 0,
+          y: 0,
+          rotate: 0,
+          ...(state.discDesigns[key] || {})
+        };
+      }
+
+      state.discSheet = {
+        top: state.discSheet?.top || 'a',
+        bottom: state.discSheet?.bottom || 'b'
+      };
+
+      if (state.discs?.top?.src && !state.discDesigns.a.src) {
+        Object.assign(state.discDesigns.a, { name: 'Design A', ...state.discs.top });
+      }
+      if (state.discs?.bottom?.src && !state.discDesigns.b.src) {
+        Object.assign(state.discDesigns.b, { name: 'Design B', ...state.discs.bottom });
+      }
+    }
+
+    function templatePayloadFromEvent(event) {
+      if (!event) return null;
+      if (event.kind === 30078) return safeJsonParse(event.content, null);
+      return null;
     }
 
     function totalTrimW() {
@@ -1312,6 +1877,17 @@
       $('showCrops').checked = state.showCrops;
       $('printGuides').checked = state.printGuides;
       $('printCrops').checked = state.printCrops;
+    }
+
+    function syncUrlInputs() {
+      $('combinedUrl').value = state.combined.src || '';
+      $('newLayerUrl').value = '';
+      for (const { key } of slotNames) {
+        $(`url-${key}`).value = state.slots[key].src || '';
+      }
+      for (const { key } of discDesignNames) {
+        $(`disc-url-${key}`).value = state.discDesigns[key].src || '';
+      }
     }
 
     function updateBodyClasses() {
@@ -1395,6 +1971,8 @@
       renderCombined();
       renderLayers();
       syncLayerInputs();
+      syncCommunityInputs();
+      renderCommunity();
       updateBodyClasses();
       localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify(state));
     }
@@ -1408,8 +1986,12 @@
         details.open = false;
         details.innerHTML = `
           <summary>${label}</summary>
-          <label for="file-${key}">Image file</label>
-          <input id="file-${key}" type="file" accept="image/*" />
+          <label for="url-${key}">Image URL</label>
+          <input id="url-${key}" type="url" placeholder="https://example.com/image.jpg" />
+          <div class="buttonRow">
+            <button type="button" id="load-${key}">Load URL</button>
+            <button type="button" class="danger" id="clear-${key}">Clear image</button>
+          </div>
 
           <label for="fit-${key}">Fit</label>
           <select id="fit-${key}">
@@ -1445,23 +2027,22 @@
 
           <div class="buttonRow">
             <button type="button" id="reset-${key}">Reset ${label.toLowerCase()}</button>
-            <button type="button" class="danger" id="clear-${key}">Clear image</button>
           </div>
         `;
         wrap.appendChild(details);
 
-        $(`file-${key}`).addEventListener('change', (event) => {
-          const file = event.target.files && event.target.files[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = () => {
+        $(`load-${key}`).addEventListener('click', () => {
+          const raw = $(`url-${key}`).value.trim();
+          if (!raw) return;
+          try {
             state.templateMode = 'cover';
             state.artworkMode = 'separate';
-            state.slots[key].src = String(reader.result);
+            state.slots[key].src = normalizeImageUrl(raw);
             syncInputs();
             render();
-          };
-          reader.readAsDataURL(file);
+          } catch (error) {
+            alert(error.message || 'Invalid image URL.');
+          }
         });
 
         $(`fit-${key}`).addEventListener('change', (event) => {
@@ -1485,7 +2066,7 @@
 
         $(`clear-${key}`).addEventListener('click', () => {
           state.slots[key].src = '';
-          $(`file-${key}`).value = '';
+          $(`url-${key}`).value = '';
           render();
         });
       }
@@ -1496,13 +2077,50 @@
       const wrap = $('discControls');
       wrap.innerHTML = '';
 
-      for (const { key, label } of discTemplate.slots) {
+      const assignment = document.createElement('details');
+      assignment.open = true;
+      assignment.innerHTML = `
+        <summary>Print sheet assignment</summary>
+        <div class="row">
+          <div>
+            <label for="disc-sheet-top">Disc 1 artwork</label>
+            <select id="disc-sheet-top"></select>
+          </div>
+          <div>
+            <label for="disc-sheet-bottom">Disc 2 artwork</label>
+            <select id="disc-sheet-bottom"></select>
+          </div>
+        </div>
+        <p class="hint">This controls what prints in each Avery label position. Choose the same design twice for duplicates, or mix different designs on one sheet.</p>
+      `;
+      wrap.appendChild(assignment);
+
+      for (const slot of discTemplate.slots) {
+        const select = $(`disc-sheet-${slot.key}`);
+        select.innerHTML = discDesignNames
+          .map(({ key, label }) => `<option value="${key}">${label}</option>`)
+          .join('');
+        select.addEventListener('change', (event) => {
+          state.discSheet[slot.key] = event.target.value;
+          render();
+        });
+      }
+
+      for (const { key, label } of discDesignNames) {
         const details = document.createElement('details');
         details.open = false;
         details.innerHTML = `
           <summary>${label}</summary>
-          <label for="file-disc-${key}">Image file</label>
-          <input id="file-disc-${key}" type="file" accept="image/*" />
+          <label for="disc-name-${key}">Name</label>
+          <input id="disc-name-${key}" type="text" />
+
+          <label for="disc-url-${key}">Image URL</label>
+          <input id="disc-url-${key}" type="url" placeholder="https://example.com/disc.jpg" />
+          <div class="buttonRow">
+            <button type="button" id="load-disc-${key}">Load URL</button>
+            <button type="button" id="publish-disc-${key}">Publish design</button>
+            <button type="button" class="danger" id="clear-disc-${key}">Clear design</button>
+          </div>
 
           <label for="fit-disc-${key}">Fit</label>
           <select id="fit-disc-${key}">
@@ -1538,46 +2156,60 @@
 
           <div class="buttonRow">
             <button type="button" id="reset-disc-${key}">Reset ${label.toLowerCase()}</button>
-            <button type="button" class="danger" id="clear-disc-${key}">Clear image</button>
           </div>
         `;
         wrap.appendChild(details);
 
-        $(`file-disc-${key}`).addEventListener('change', (event) => {
-          const file = event.target.files && event.target.files[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = () => {
+        $(`disc-name-${key}`).addEventListener('input', (event) => {
+          state.discDesigns[key].name = event.target.value || label;
+          syncDiscAssignmentInputs();
+          render();
+        });
+
+        $(`load-disc-${key}`).addEventListener('click', () => {
+          const raw = $(`disc-url-${key}`).value.trim();
+          if (!raw) return;
+          try {
             state.templateMode = 'disc';
-            state.discs[key].src = String(reader.result);
+            state.discDesigns[key].src = normalizeImageUrl(raw);
             syncInputs();
             render();
-          };
-          reader.readAsDataURL(file);
+          } catch (error) {
+            alert(error.message || 'Invalid image URL.');
+          }
+        });
+
+        $(`publish-disc-${key}`).addEventListener('click', async () => {
+          try {
+            await publishDiscDesignToNostr(key);
+            alert(`${state.discDesigns[key].name || label} published to Nostr.`);
+          } catch (error) {
+            alert(error.message || 'Could not publish the disc design.');
+          }
         });
 
         $(`fit-disc-${key}`).addEventListener('change', (event) => {
-          state.discs[key].fit = event.target.value;
+          state.discDesigns[key].fit = event.target.value;
           render();
         });
 
         for (const prop of ['zoom', 'x', 'y', 'rotate']) {
           $(`${prop}-disc-${key}`).addEventListener('input', (event) => {
-            state.discs[key][prop] = Number(event.target.value);
+            state.discDesigns[key][prop] = Number(event.target.value);
             syncDiscInputs(key);
             render();
           });
         }
 
         $(`reset-disc-${key}`).addEventListener('click', () => {
-          Object.assign(state.discs[key], { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
+          Object.assign(state.discDesigns[key], { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
           syncDiscInputs(key);
           render();
         });
 
         $(`clear-disc-${key}`).addEventListener('click', () => {
-          state.discs[key].src = '';
-          $(`file-disc-${key}`).value = '';
+          state.discDesigns[key].src = '';
+          $(`disc-url-${key}`).value = '';
           render();
         });
       }
@@ -1587,6 +2219,7 @@
 
     function syncSlotInputs(key) {
       const slot = state.slots[key];
+      $(`url-${key}`).value = slot.src || '';
       $(`fit-${key}`).value = slot.fit;
       $(`zoom-${key}`).value = slot.zoom;
       $(`zoom-${key}-out`).textContent = `${Math.round(slot.zoom * 100)}%`;
@@ -1603,7 +2236,9 @@
     }
 
     function syncDiscInputs(key) {
-      const disc = state.discs[key];
+      const disc = state.discDesigns[key];
+      $(`disc-name-${key}`).value = disc.name || `Design ${key.toUpperCase()}`;
+      $(`disc-url-${key}`).value = disc.src || '';
       $(`fit-disc-${key}`).value = disc.fit;
       $(`zoom-disc-${key}`).value = disc.zoom;
       $(`zoom-disc-${key}-out`).textContent = `${Math.round(disc.zoom * 100)}%`;
@@ -1616,12 +2251,30 @@
     }
 
     function syncAllDiscInputs() {
-      for (const { key } of discTemplate.slots) syncDiscInputs(key);
+      syncDiscAssignmentInputs();
+      for (const { key } of discDesignNames) syncDiscInputs(key);
+    }
+
+    function syncDiscAssignmentInputs() {
+      for (const { key } of discTemplate.slots) {
+        const select = $(`disc-sheet-${key}`);
+        if (!select) continue;
+        const current = state.discSheet[key] || (key === 'top' ? 'a' : 'b');
+        select.innerHTML = discDesignNames
+          .map((design) => {
+            const item = state.discDesigns[design.key];
+            const label = item?.name || design.label;
+            return `<option value="${design.key}">${escapeHtml(label)}</option>`;
+          })
+          .join('');
+        select.value = current;
+      }
     }
 
     function syncCombinedInputs() {
       const c = state.combined;
       $('artworkMode').value = state.artworkMode;
+      $('combinedUrl').value = c.src || '';
       $('area-combined').value = c.area;
       $('fit-combined').value = c.fit;
       $('zoom-combined').value = c.zoom;
@@ -1632,6 +2285,15 @@
       $('y-combined-out').textContent = `${c.y}%`;
       $('rotate-combined').value = c.rotate;
       $('rotate-combined-out').textContent = `${c.rotate}°`;
+    }
+
+    function syncCommunityInputs() {
+      $('relayList').value = state.community.relays;
+      $('communityQuery').value = state.community.query;
+      $('communityKind').value = state.community.kind;
+      $('communityPubkey').textContent = state.community.myPubkey ? shortPubkey(state.community.myPubkey) : 'No pubkey';
+      $('communityProfileName').textContent = state.community.myProfile?.name || state.community.myProfile?.display_name || (state.community.myPubkey ? shortPubkey(state.community.myPubkey) : 'Not connected');
+      $('communityProfileAbout').textContent = state.community.myProfile?.about || 'Sign in with NIP-07 to publish, follow, reply, and react.';
     }
 
     function renderCombined() {
@@ -1668,7 +2330,8 @@
 
     function renderDiscSlots() {
       for (const slotDef of discTemplate.slots) {
-        const disc = state.discs[slotDef.key];
+        const designKey = state.discSheet[slotDef.key] || (slotDef.key === 'top' ? 'a' : 'b');
+        const disc = state.discDesigns[designKey] || state.discDesigns.a;
         const slot = $(`disc-${slotDef.key}`);
         const img = $(`art-disc-${slotDef.key}`);
         const placeholder = slot.querySelector('.placeholder');
@@ -1886,6 +2549,406 @@
       }
     }
 
+    function communityKindKinds() {
+      switch (state.community.kind) {
+        case 'templates':
+          return [30078];
+        case 'disc-designs':
+          return [30078];
+        case 'notes':
+          return [1];
+        case 'profiles':
+          return [0];
+        default:
+          return [0, 1, 7, 30078];
+      }
+    }
+
+    function currentCommunityEvent() {
+      return state.community.feed.find((event) => event.id === state.community.selectedEventId) || null;
+    }
+
+    function communityEventProfile(event) {
+      if (!event?.pubkey) return null;
+      return state.community.profiles[event.pubkey] || null;
+    }
+
+    function communityEventTitle(event) {
+      if (!event) return 'Untitled';
+      if (event.kind === 30078) {
+        const payload = safeJsonParse(event.content, {});
+        return eventTemplateSummary(payload).title || 'Untitled';
+      }
+      if (event.kind === 0) {
+        const profile = safeJsonParse(event.content, {});
+        return profile.name || profile.display_name || shortPubkey(event.pubkey) || 'Profile';
+      }
+      return eventSummaryText(event) || 'Note';
+    }
+
+    function communityEventSubhead(event) {
+      if (!event) return '';
+      const profile = communityEventProfile(event);
+      if (event.kind === 30078) {
+        const payload = safeJsonParse(event.content, {});
+        const summary = eventTemplateSummary(payload);
+        return `${summary.mode} • ${profile?.name || profile?.display_name || shortPubkey(event.pubkey) || 'Unknown'}`;
+      }
+      if (event.kind === 0) {
+        return profile?.about || 'Profile update';
+      }
+      return profile?.name || profile?.display_name || shortPubkey(event.pubkey) || 'Unknown';
+    }
+
+    function communityEventPreview(event) {
+      if (!event) return '';
+      if (event.kind === 30078) {
+        const payload = safeJsonParse(event.content, {});
+        return previewFromPayload(payload, payload.templateMode || 'cover');
+      }
+      const profile = safeJsonParse(event.content, {});
+      return profile.picture || profile.image || '';
+    }
+
+    function renderCommunityDetail(event) {
+      const body = $('communityDetailBody');
+      if (!event) {
+        body.innerHTML = '<div class="hint">Pick a template or note from the feed.</div>';
+        return;
+      }
+
+      const profile = communityEventProfile(event);
+      const preview = communityEventPreview(event);
+      const title = communityEventTitle(event);
+      const subhead = communityEventSubhead(event);
+      const tags = eventTagsList(event);
+      const payload = templatePayloadFromEvent(event);
+      const details = event.kind === 30078 ? eventTemplateSummary(payload) : null;
+      const commentItems = state.community.comments.slice(0, 12).map((item) => {
+        const author = communityEventProfile(item);
+        return `
+          <div class="threadItem">
+            <div class="authorRow">
+              <span class="chip">${escapeHtml(author?.name || author?.display_name || shortPubkey(item.pubkey) || 'unknown')}</span>
+              <span class="chip">${escapeHtml(formatNostrTime(item.created_at))}</span>
+              <span class="chip">reply</span>
+            </div>
+            <div>${escapeHtml(item.content || '')}</div>
+          </div>
+        `;
+      }).join('');
+      const reactionCount = state.community.reactions.length;
+
+      body.innerHTML = `
+        <div class="communityCard">
+          <div class="communityMeta">
+            <div>
+              <strong>${escapeHtml(title)}</strong>
+              <div class="hint">${escapeHtml(subhead)}</div>
+            </div>
+            <div class="pill">${escapeHtml(event.kind === 30078 ? 'Template' : event.kind === 0 ? 'Profile' : `Kind ${event.kind}`)}</div>
+          </div>
+          <div class="feedPreview">
+            ${preview ? `<img src="${preview}" alt="" />` : '<div class="miniReadout">No preview image</div>'}
+            <div>
+              <div class="authorRow">
+                <span class="chip">${escapeHtml(shortPubkey(event.pubkey) || 'unknown')}</span>
+                <span class="chip">${escapeHtml(formatNostrTime(event.created_at))}</span>
+                ${profile?.name ? `<span class="chip">${escapeHtml(profile.name)}</span>` : ''}
+              </div>
+              <p class="hint">${escapeHtml(event.kind === 30078 ? 'Case or disc template shared on Nostr.' : (event.content || '').slice(0, 360))}</p>
+              ${details ? `<div class="hint"><b>Mode:</b> ${escapeHtml(details.mode)}<br><b>Title:</b> ${escapeHtml(details.title)}</div>` : ''}
+            </div>
+          </div>
+          <div class="feedTags">${tags.slice(0, 10).map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join('')}</div>
+          <div class="reactionRow">
+            <span class="chip">${escapeHtml(`${reactionCount} reaction${reactionCount === 1 ? '' : 's'}`)}</span>
+            <span class="chip">${escapeHtml(`${state.community.comments.length} repl${state.community.comments.length === 1 ? 'y' : 'ies'}`)}</span>
+          </div>
+          <div class="communityDetail">
+            <strong>Replies</strong>
+            <div class="threadList">
+              ${commentItems || '<div class="hint">No replies yet.</div>'}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderCommunity() {
+      const feed = $('communityFeed');
+      feed.innerHTML = '';
+      const items = state.community.feed;
+      if (!items.length) {
+        const empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.textContent = state.community.status || 'No posts loaded yet.';
+        feed.appendChild(empty);
+        renderCommunityDetail(currentCommunityEvent());
+        return;
+      }
+
+      for (const event of items) {
+        const card = document.createElement('div');
+        card.className = `feedItem${event.id === state.community.selectedEventId ? ' active' : ''}`;
+        card.innerHTML = `
+          <div class="feedHead">
+            <div>
+              <strong>${escapeHtml(communityEventTitle(event))}</strong>
+              <div class="hint">${escapeHtml(communityEventSubhead(event))}</div>
+            </div>
+            <div class="pill">${escapeHtml(event.kind === 30078 ? 'Template' : event.kind === 0 ? 'Profile' : `Kind ${event.kind}`)}</div>
+          </div>
+          <div class="feedPreview">
+            ${communityEventPreview(event) ? `<img src="${communityEventPreview(event)}" alt="" />` : '<div class="miniReadout">No preview</div>'}
+            <div>
+              <div class="authorRow">
+                <span class="chip">${escapeHtml(shortPubkey(event.pubkey) || 'unknown')}</span>
+                <span class="chip">${escapeHtml(formatNostrTime(event.created_at))}</span>
+              </div>
+              <p class="hint">${escapeHtml(eventSummaryText(event))}</p>
+            </div>
+          </div>
+          <div class="feedTags">${eventTagsList(event).slice(0, 4).map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join('')}</div>
+        `;
+        card.addEventListener('click', () => {
+          state.community.selectedEventId = event.id;
+          renderCommunity();
+          refreshCommunityThread();
+        });
+        feed.appendChild(card);
+      }
+
+      renderCommunityDetail(currentCommunityEvent());
+    }
+
+    async function populateCommunityProfiles(pubkeys) {
+      const relays = splitRelayList(state.community.relays);
+      const authors = [...new Set(pubkeys.filter(Boolean))];
+      if (!authors.length) return;
+      const events = await queryRelays(relays, { kinds: [0], authors }, { timeoutMs: 2500 });
+      for (const event of events) {
+        const profile = safeJsonParse(event.content, {});
+        state.community.profiles[event.pubkey] = {
+          pubkey: event.pubkey,
+          ...profile,
+          created_at: event.created_at
+        };
+      }
+      if (state.community.myPubkey) {
+        state.community.myProfile = state.community.profiles[state.community.myPubkey] || state.community.myProfile;
+      }
+    }
+
+    async function refreshCommunityThread() {
+      const event = currentCommunityEvent();
+      const relays = splitRelayList(state.community.relays);
+      if (!event) {
+        state.community.comments = [];
+        state.community.reactions = [];
+        renderCommunity();
+        return;
+      }
+
+      const comments = await queryRelays(relays, { kinds: [1], '#e': [event.id] }, { timeoutMs: 2500 });
+      const reactions = await queryRelays(relays, { kinds: [7], '#e': [event.id] }, { timeoutMs: 2500 });
+      state.community.comments = comments;
+      state.community.reactions = reactions;
+      await populateCommunityProfiles([...comments, ...reactions].map((item) => item.pubkey));
+      renderCommunityDetail(event);
+    }
+
+    async function refreshCommunityFeed() {
+      const relays = splitRelayList(state.community.relays);
+      const kinds = communityKindKinds();
+      const items = await queryRelays(relays, { kinds, limit: 120 }, { timeoutMs: 4000 });
+      const q = state.community.query.trim().toLowerCase();
+      const filtered = items.filter((event) => {
+        if (state.community.kind === 'disc-designs') {
+          const payload = event.kind === 30078 ? safeJsonParse(event.content, {}) : {};
+          if (payload.templateMode !== 'disc-design') return false;
+        }
+        if (!q) return true;
+        const profile = state.community.profiles[event.pubkey] || {};
+        const haystack = [
+          communityEventTitle(event),
+          communityEventSubhead(event),
+          eventSummaryText(event),
+          event.pubkey,
+          profile.name,
+          profile.display_name,
+          profile.about,
+          eventTagsList(event).join(' ')
+        ].join(' ').toLowerCase();
+        return haystack.includes(q);
+      });
+
+      state.community.feed = filtered;
+      state.community.status = `Loaded ${filtered.length} post${filtered.length === 1 ? '' : 's'} from ${relays.length || 1} relay${(relays.length || 1) === 1 ? '' : 'ies'}.`;
+      await populateCommunityProfiles(filtered.map((event) => event.pubkey));
+      if (!state.community.selectedEventId || !filtered.some((event) => event.id === state.community.selectedEventId)) {
+        state.community.selectedEventId = filtered[0]?.id || '';
+      }
+      renderCommunity();
+      await refreshCommunityThread();
+    }
+
+    async function publishCommunityEvent(event) {
+      const signed = await signNostrEvent(event);
+      await publishToRelays(signed);
+      return signed;
+    }
+
+    async function publishCurrentTemplateToNostr() {
+      const payload = exportPayload();
+      const discPreview = previewFromPayload(payload, 'disc');
+      const template = payload.coverTemplate?.slots?.front?.src || payload.coverTemplate?.combined?.src || discPreview || '';
+      if (!template) {
+        throw new Error('Load a template before publishing.');
+      }
+      const tags = [
+        ['d', state.meta.imdbId || state.meta.title || 'template'],
+        ['t', 'casewrap'],
+        ['t', payload.ui?.templateMode || state.templateMode]
+      ].concat(getTemplateTags(payload));
+      const evt = {
+        kind: 30078,
+        created_at: Math.floor(Date.now() / 1000),
+        tags,
+        content: JSON.stringify(payload)
+      };
+      const signed = await publishCommunityEvent(evt);
+      state.community.status = 'Published current template to Nostr.';
+      return signed;
+    }
+
+    async function publishDiscDesignToNostr(key) {
+      const payload = discDesignPayload(key);
+      const designName = payload.discDesign.name || `Design ${String(key).toUpperCase()}`;
+      const tags = [
+        ['d', `${state.meta.imdbId || state.meta.title || 'disc-design'}-${key}`],
+        ['t', 'casewrap'],
+        ['t', 'disc-design'],
+        ['title', designName]
+      ];
+      if (state.meta.imdbId) tags.push(['i', state.meta.imdbId]);
+      const evt = {
+        kind: 30078,
+        created_at: Math.floor(Date.now() / 1000),
+        tags,
+        content: JSON.stringify(payload)
+      };
+      const signed = await publishCommunityEvent(evt);
+      state.community.status = `Published ${designName} to Nostr.`;
+      return signed;
+    }
+
+    async function publishCommunityNote(text, replyToEvent = null) {
+      const content = String(text || '').trim();
+      if (!content) throw new Error('Enter a note first.');
+      const tags = [['t', 'casewrap']];
+      if (replyToEvent?.id) {
+        tags.push(['e', replyToEvent.id]);
+        if (replyToEvent.pubkey) tags.push(['p', replyToEvent.pubkey]);
+      }
+      const evt = {
+        kind: 1,
+        created_at: Math.floor(Date.now() / 1000),
+        tags,
+        content
+      };
+      const signed = await publishCommunityEvent(evt);
+      state.community.status = replyToEvent ? 'Reply sent.' : 'Note published.';
+      return signed;
+    }
+
+    async function likeSelectedCommunityEvent() {
+      const event = currentCommunityEvent();
+      if (!event) throw new Error('Select a post first.');
+      const evt = {
+        kind: 7,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [['e', event.id], ['p', event.pubkey]],
+        content: '+'
+      };
+      const signed = await publishCommunityEvent(evt);
+      state.community.status = 'Reaction sent.';
+      return signed;
+    }
+
+    async function followSelectedAuthor() {
+      const event = currentCommunityEvent();
+      if (!event) throw new Error('Select a post first.');
+      const pubkey = await getNostrPublicKey();
+      if (!pubkey) throw new Error('Sign in with NIP-07 first.');
+      const follows = new Set(state.community.myFollows.length ? state.community.myFollows : []);
+      follows.add(event.pubkey);
+      const evt = {
+        kind: 3,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [...follows].map((key) => ['p', key]),
+        content: ''
+      };
+      const signed = await publishCommunityEvent(evt);
+      state.community.myFollows = [...follows];
+      state.community.status = 'Contact list updated.';
+      return signed;
+    }
+
+    async function repostSelectedCommunityEvent() {
+      const event = currentCommunityEvent();
+      if (!event) throw new Error('Select a post first.');
+      const pubkey = await getNostrPublicKey();
+      if (!pubkey) throw new Error('Sign in with NIP-07 first.');
+      const evt = {
+        kind: 6,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [['e', event.id], ['p', event.pubkey]],
+        content: event.content || ''
+      };
+      const signed = await publishCommunityEvent(evt);
+      state.community.status = 'Reposted selected post.';
+      return signed;
+    }
+
+    async function loadCommunityIdentity() {
+      const pubkey = await getNostrPublicKey();
+      state.community.myPubkey = pubkey || '';
+      if (!pubkey) {
+        state.community.myProfile = null;
+        state.community.myFollows = [];
+        syncCommunityInputs();
+        return;
+      }
+
+      const relays = splitRelayList(state.community.relays);
+      const [profileEvents, contactEvents] = await Promise.all([
+        queryRelays(relays, { kinds: [0], authors: [pubkey] }, { timeoutMs: 2500 }),
+        queryRelays(relays, { kinds: [3], authors: [pubkey] }, { timeoutMs: 2500 })
+      ]);
+
+      const profileEvent = profileEvents[0] || null;
+      if (profileEvent) {
+        state.community.myProfile = {
+          pubkey,
+          ...safeJsonParse(profileEvent.content, {}),
+          created_at: profileEvent.created_at
+        };
+        state.community.profiles[pubkey] = state.community.myProfile;
+      }
+
+      const contactEvent = contactEvents[0] || null;
+      state.community.myFollows = contactEvent
+        ? (contactEvent.tags || []).filter((tag) => tag[0] === 'p' && tag[1]).map((tag) => tag[1])
+        : [];
+      syncCommunityInputs();
+    }
+
+    function updateCommunityProfileReadout() {
+      syncCommunityInputs();
+      renderCommunityDetail(currentCommunityEvent());
+    }
+
     function selectedLayer() {
       return getLayer(state.selectedLayerId);
     }
@@ -1894,9 +2957,11 @@
       const layer = selectedLayer();
       $('layerControls').open = Boolean(layer);
       $('textLayerControls').style.display = layer && layer.type === 'text' ? 'block' : 'none';
+      $('layerImageControls').style.display = layer && layer.type === 'image' ? 'block' : 'none';
       for (const id of ['layerName', 'layerX', 'layerY', 'layerW', 'layerH', 'layerRotate', 'layerOpacity']) {
         $(id).disabled = !layer;
       }
+      $('layerUrl').disabled = !layer || layer.type !== 'image';
       for (const id of ['textFontSize', 'textColor', 'textAlign', 'textBold', 'textItalic']) {
         $(id).disabled = !layer || layer.type !== 'text';
       }
@@ -1912,6 +2977,10 @@
       $('layerH').value = fmt(layer.h, 3);
       $('layerRotate').value = layer.rotate || 0;
       $('layerOpacity').value = layer.opacity ?? 1;
+
+      if (layer.type === 'image') {
+        $('layerUrl').value = layer.src || '';
+      }
 
       if (layer.type === 'text') {
         $('textFontSize').value = layer.fontSize || 24;
@@ -1988,10 +3057,11 @@
       return {
         version: 2,
         meta: state.meta,
-        ui: { zoom: state.zoom, darkMode: state.darkMode, showGuides: state.showGuides, showBleed: state.showBleed, showCrops: state.showCrops, printGuides: state.printGuides, printCrops: state.printCrops },
+        ui: { zoom: state.zoom, darkMode: state.darkMode, showGuides: state.showGuides, showBleed: state.showBleed, showCrops: state.showCrops, printGuides: state.printGuides, printCrops: state.printCrops, templateMode: state.templateMode },
         coverTemplate: { preset: state.preset, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
-        discTemplate: { config: discTemplate, discs: state.discs },
-        layers: state.layers
+        discTemplate: { config: discTemplate, designs: state.discDesigns, sheet: state.discSheet, discs: state.discs },
+        layers: state.layers,
+        community: { relays: state.community.relays, query: state.community.query, kind: state.community.kind }
       };
     }
 
@@ -2010,14 +3080,60 @@
 
     function loadProjectFromText(text) {
       const parsed = JSON.parse(text);
-      const source = parsed.version ? { ...parsed.ui, ...parsed.coverTemplate, discs: parsed.discTemplate?.discs, meta: parsed.meta, layers: parsed.layers } : parsed;
-      const next = { ...state, ...source };
-      next.slots = { ...state.slots, ...(parsed.slots || {}) };
-      next.combined = { ...state.combined, ...(parsed.combined || {}) };
-      next.discs = { ...state.discs, ...(parsed.discs || {}) };
-      next.layers = Array.isArray(parsed.layers) ? parsed.layers : [];
-      next.selectedLayerId = '';
+      if (parsed.version && parsed.templateMode === 'disc-design' && parsed.discDesign) {
+        const key = parsed.discDesign.key && state.discDesigns[parsed.discDesign.key] ? parsed.discDesign.key : 'a';
+        const { key: _discardKey, ...discDesign } = parsed.discDesign;
+        state.discDesigns[key] = {
+          ...state.discDesigns[key],
+          ...discDesign
+        };
+        state.templateMode = 'disc';
+        syncInputs();
+        syncAllDiscInputs();
+        render();
+        return;
+      }
+      const source = parsed.version
+        ? {
+            meta: parsed.meta || state.meta,
+            templateMode: parsed.ui?.templateMode || parsed.coverTemplate?.templateMode || state.templateMode,
+            zoom: parsed.ui?.zoom ?? state.zoom,
+            darkMode: parsed.ui?.darkMode ?? state.darkMode,
+            showGuides: parsed.ui?.showGuides ?? state.showGuides,
+            showBleed: parsed.ui?.showBleed ?? state.showBleed,
+            showCrops: parsed.ui?.showCrops ?? state.showCrops,
+            printGuides: parsed.ui?.printGuides ?? state.printGuides,
+            printCrops: parsed.ui?.printCrops ?? state.printCrops,
+            preset: parsed.coverTemplate?.preset || state.preset,
+            panelW: parsed.coverTemplate?.panelW ?? state.panelW,
+            trimH: parsed.coverTemplate?.trimH ?? state.trimH,
+            spineW: parsed.coverTemplate?.spineW ?? state.spineW,
+            bleed: parsed.coverTemplate?.bleed ?? state.bleed,
+            safe: parsed.coverTemplate?.safe ?? state.safe,
+            artworkMode: parsed.coverTemplate?.artworkMode || state.artworkMode,
+            slots: parsed.coverTemplate?.slots || {},
+            combined: parsed.coverTemplate?.combined || {},
+            discs: parsed.discTemplate?.discs || {},
+            discDesigns: parsed.discTemplate?.designs || parsed.discDesigns || {},
+            discSheet: parsed.discTemplate?.sheet || parsed.discSheet || {},
+            community: parsed.community || {},
+            layers: Array.isArray(parsed.layers) ? parsed.layers : []
+          }
+        : parsed;
+      const next = {
+        ...state,
+        ...source,
+        slots: { ...state.slots, ...(source.slots || {}) },
+        combined: { ...state.combined, ...(source.combined || {}) },
+        discs: { ...state.discs, ...(source.discs || {}) },
+        discDesigns: { ...state.discDesigns, ...(source.discDesigns || {}) },
+        discSheet: { ...state.discSheet, ...(source.discSheet || {}) },
+        community: { ...state.community, ...(source.community || {}) },
+        layers: Array.isArray(source.layers) ? source.layers : [],
+        selectedLayerId: ''
+      };
       Object.assign(state, next);
+      normalizeDiscState();
       syncInputs();
       syncAllSlotInputs();
       syncAllDiscInputs();
@@ -2028,8 +3144,14 @@
 
     function previewFromPayload(payload, typeHint) {
       try {
+        if (typeHint === 'disc-design' || payload.templateMode === 'disc-design') {
+          return payload.discDesign?.src || '';
+        }
         if (typeHint === 'disc' || payload.templateMode === 'disc') {
-          return payload.discs?.top?.src || payload.discTemplate?.discs?.top?.src || '';
+          const designs = payload.discDesigns || payload.discTemplate?.designs || {};
+          const sheet = payload.discSheet || payload.discTemplate?.sheet || {};
+          const firstDesign = sheet.top ? designs[sheet.top] : Object.values(designs)[0];
+          return firstDesign?.src || payload.discs?.top?.src || payload.discTemplate?.discs?.top?.src || '';
         }
         return payload.slots?.front?.src || payload.coverTemplate?.slots?.front?.src || '';
       } catch { return ''; }
@@ -2040,19 +3162,7 @@
       const type = $('nostrType').value;
       const out = $('nostrResults');
       out.innerHTML = '<div class="hint">Searching…</div>';
-      const ws = new WebSocket('wss://relay.damus.io');
-      const subId = `s-${Date.now()}`;
-      const events = [];
-      await new Promise((resolve) => {
-        const timeout = setTimeout(() => { try { ws.close(); } catch {} resolve(); }, 3500);
-        ws.onopen = () => ws.send(JSON.stringify(['REQ', subId, { kinds:[30078], limit:120 }]));
-        ws.onmessage = (msg) => {
-          const data = JSON.parse(msg.data);
-          if (data[0] === 'EVENT' && data[1] === subId) events.push(data[2]);
-          if (data[0] === 'EOSE') { clearTimeout(timeout); ws.close(); resolve(); }
-        };
-        ws.onerror = () => { clearTimeout(timeout); resolve(); };
-      });
+      const events = await queryRelays(splitRelayList(state.community.relays), { kinds: [30078], limit: 120 }, { timeoutMs: 3500 });
       const rows = [];
       for (const e of events) {
         let payload = null;
@@ -2060,16 +3170,17 @@
         const title = payload.meta?.title || '';
         const imdb = payload.meta?.imdbId || '';
         const mode = payload.templateMode || (payload.coverTemplate ? 'cover' : 'disc');
-        const hay = `${title} ${imdb} ${(e.tags||[]).map(t=>t.join(' ')).join(' ')}`.toLowerCase();
+        const displayTitle = mode === 'disc-design' ? (payload.discDesign?.name || title || 'Disc design') : title;
+        const hay = `${displayTitle} ${title} ${imdb} ${(e.tags||[]).map(t=>t.join(' ')).join(' ')}`.toLowerCase();
         if (q && !hay.includes(q)) continue;
         if (type !== 'any' && mode !== type) continue;
-        rows.push({e,payload,title,imdb,mode,preview:previewFromPayload(payload, mode)});
+        rows.push({e,payload,title:displayTitle,imdb,mode,preview:previewFromPayload(payload, mode)});
       }
       out.innerHTML = rows.length ? '' : '<div class="hint">No templates found.</div>';
       rows.slice(0,40).forEach((row) => {
         const el = document.createElement('div');
         el.className = 'resultItem';
-        el.innerHTML = `<img src="${row.preview || ''}" alt="preview" /><div><b>${row.title || 'Untitled'}</b><div class="hint">${row.imdb || 'No IMDb'} • ${row.mode}</div></div><button type="button">Import</button>`;
+        el.innerHTML = `<img src="${row.preview || ''}" alt="preview" /><div><b>${escapeHtml(row.title || 'Untitled')}</b><div class="hint">${escapeHtml(`${row.imdb || 'No IMDb'} • ${row.mode}`)}</div></div><button type="button">Import</button>`;
         el.querySelector('button').addEventListener('click', ()=> loadProjectFromText(JSON.stringify(row.payload)));
         out.appendChild(el);
       });
@@ -2121,7 +3232,7 @@
 
       $("nostrExportBtn").addEventListener("click", async ()=>{
         if (!window.nostr) return alert("No Nostr extension found");
-        const evt={kind:30078,created_at:Math.floor(Date.now()/1000),tags:[["d", state.meta.imdbId||state.meta.title||"template"]],content:JSON.stringify(state)};
+        const evt={kind:30078,created_at:Math.floor(Date.now()/1000),tags:[["d", state.meta.imdbId||state.meta.title||"template"]],content:JSON.stringify(exportPayload())};
         evt.pubkey = await window.nostr.getPublicKey();
         const signed = await window.nostr.signEvent(evt);
         await navigator.clipboard.writeText(JSON.stringify(signed));
@@ -2137,12 +3248,111 @@
         try { const evt = JSON.parse(raw); if (evt.content) loadProjectFromText(evt.content); } catch { alert("Bad event JSON"); }
       });
 
+      $('relayList').addEventListener('change', async (event) => {
+        state.community.relays = event.target.value.trim() || state.community.relays;
+        syncCommunityInputs();
+        await loadCommunityIdentity();
+        await refreshCommunityFeed();
+      });
+
+      $('communityQuery').addEventListener('input', (event) => {
+        state.community.query = event.target.value;
+      });
+
+      $('communityKind').addEventListener('change', async (event) => {
+        state.community.kind = event.target.value;
+        await refreshCommunityFeed();
+      });
+
+      $('communityRefreshBtn').addEventListener('click', async () => {
+        try {
+          state.community.status = 'Refreshing community feed…';
+          renderCommunity();
+          await loadCommunityIdentity();
+          await refreshCommunityFeed();
+        } catch (error) {
+          state.community.status = error.message || 'Could not refresh community feed.';
+          renderCommunity();
+          alert(error.message || 'Could not refresh community feed.');
+        }
+      });
+
+      $('communityPublishBtn').addEventListener('click', async () => {
+        try {
+          await publishCurrentTemplateToNostr();
+          alert('Current template published to Nostr.');
+        } catch (error) {
+          alert(error.message || 'Could not publish the template.');
+        }
+      });
+
+      $('communityNoteBtn').addEventListener('click', async () => {
+        const text = $('communityNoteText').value.trim();
+        try {
+          await publishCommunityNote(text);
+          $('communityNoteText').value = '';
+          alert('Note published.');
+        } catch (error) {
+          alert(error.message || 'Could not publish the note.');
+        }
+      });
+
+      $('communityLoadBtn').addEventListener('click', () => {
+        const event = currentCommunityEvent();
+        if (!event) return;
+        const payload = templatePayloadFromEvent(event);
+        if (!payload) return alert('Selected post is not a template.');
+        loadProjectFromText(JSON.stringify(payload));
+      });
+
+      $('communityLikeBtn').addEventListener('click', async () => {
+        try {
+          await likeSelectedCommunityEvent();
+          await refreshCommunityThread();
+        } catch (error) {
+          alert(error.message || 'Could not send the reaction.');
+        }
+      });
+
+      $('communityReplyBtn').addEventListener('click', async () => {
+        const text = $('communityReplyText').value.trim();
+        try {
+          const event = currentCommunityEvent();
+          if (!event) throw new Error('Select a post first.');
+          await publishCommunityNote(text, event);
+          $('communityReplyText').value = '';
+          await refreshCommunityThread();
+        } catch (error) {
+          alert(error.message || 'Could not send the reply.');
+        }
+      });
+
+      $('communityFollowBtn').addEventListener('click', async () => {
+        try {
+          await followSelectedAuthor();
+        } catch (error) {
+          alert(error.message || 'Could not update follows.');
+        }
+      });
+
+      $('communityRepostBtn').addEventListener('click', async () => {
+        try {
+          await repostSelectedCommunityEvent();
+          alert('Repost sent.');
+        } catch (error) {
+          alert(error.message || 'Could not repost the selected item.');
+        }
+      });
+
       $('printBtn').addEventListener('click', () => {
         render();
         window.print();
       });
 
       $('saveProjectBtn').addEventListener('click', downloadProject);
+      $('quickPrintBtn').addEventListener('click', () => $('printBtn').click());
+      $('quickSaveBtn').addEventListener('click', () => $('saveProjectBtn').click());
+      $('quickPublishBtn').addEventListener('click', () => $('communityPublishBtn').click());
       $('loadProjectBtn').addEventListener('click', () => $('projectFile').click());
       $('projectFile').addEventListener('change', (event) => {
         const file = event.target.files && event.target.files[0];
@@ -2164,19 +3374,18 @@
         render();
       });
 
-      $('file-combined').addEventListener('change', (event) => {
-        const file = event.target.files && event.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
+      $('load-combined').addEventListener('click', () => {
+        const raw = $('combinedUrl').value.trim();
+        if (!raw) return;
+        try {
           state.templateMode = 'cover';
           state.artworkMode = 'combined';
-          state.combined.src = String(reader.result);
+          state.combined.src = normalizeImageUrl(raw);
           syncInputs();
-          syncCombinedInputs();
           render();
-        };
-        reader.readAsDataURL(file);
+        } catch (error) {
+          alert(error.message || 'Invalid image URL.');
+        }
       });
 
       $('area-combined').addEventListener('change', (event) => {
@@ -2212,43 +3421,41 @@
 
       $('clear-combined').addEventListener('click', () => {
         state.combined.src = '';
-        $('file-combined').value = '';
+        $('combinedUrl').value = '';
         render();
       });
 
       $('clearBtn').addEventListener('click', () => {
         for (const { key } of slotNames) {
           state.slots[key].src = '';
-          const input = $(`file-${key}`);
-          if (input) input.value = '';
+          $(`url-${key}`).value = '';
         }
 
         state.combined.src = '';
-        if ($('file-combined')) $('file-combined').value = '';
+        $('combinedUrl').value = '';
 
         render();
       });
 
       $('clearDiscBtn').addEventListener('click', () => {
-        for (const { key } of discTemplate.slots) {
-          state.discs[key].src = '';
-          const input = $(`file-disc-${key}`);
-          if (input) input.value = '';
+        for (const { key } of discDesignNames) {
+          state.discDesigns[key].src = '';
+          $(`disc-url-${key}`).value = '';
         }
 
         render();
       });
 
-      $('addImageLayerBtn').addEventListener('click', () => $('layerImageFile').click());
-      $('layerImageFile').addEventListener('change', (event) => {
-        const file = event.target.files && event.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-          addImageLayer(String(reader.result), file.name || 'Image layer');
-          $('layerImageFile').value = '';
-        };
-        reader.readAsDataURL(file);
+      $('addImageLayerBtn').addEventListener('click', () => {
+        const raw = $('newLayerUrl').value.trim();
+        if (!raw) return;
+        try {
+          const url = normalizeImageUrl(raw);
+          addImageLayer(url, url.split('/').pop() || 'Image layer');
+          $('newLayerUrl').value = '';
+        } catch (error) {
+          alert(error.message || 'Invalid image URL.');
+        }
       });
 
       $('addTextLayerBtn').addEventListener('click', addTextLayer);
@@ -2259,6 +3466,19 @@
       });
 
       $('layerName').addEventListener('input', (event) => updateSelectedLayer('name', event.target.value));
+      $('layerUrl').addEventListener('change', (event) => {
+        const raw = event.target.value.trim();
+        if (!raw) {
+          updateSelectedLayer('src', '');
+          return;
+        }
+        try {
+          updateSelectedLayer('src', normalizeImageUrl(raw));
+        } catch (error) {
+          alert(error.message || 'Invalid image URL.');
+          syncLayerInputs();
+        }
+      });
       for (const [id, prop] of [
         ['layerX', 'x'],
         ['layerY', 'y'],
@@ -2326,9 +3546,13 @@
           slots: { ...state.slots, ...(parsed.slots || {}) },
           combined: { ...state.combined, ...(parsed.combined || {}) },
           discs: { ...state.discs, ...(parsed.discs || {}) },
+          discDesigns: { ...state.discDesigns, ...(parsed.discDesigns || parsed.discTemplate?.designs || {}) },
+          discSheet: { ...state.discSheet, ...(parsed.discSheet || parsed.discTemplate?.sheet || {}) },
+          community: { ...state.community, ...(parsed.community || {}) },
           layers: Array.isArray(parsed.layers) ? parsed.layers : [],
           selectedLayerId: ''
         });
+        normalizeDiscState();
       } catch (error) {
         console.warn('Autosave restore failed', error);
       }
@@ -2336,6 +3560,7 @@
 
     function init() {
       restoreAutosave();
+      normalizeDiscState();
       buildSlotControls();
       buildDiscControls();
       attachEvents();
@@ -2343,6 +3568,7 @@
       syncAllSlotInputs();
       syncAllDiscInputs();
       syncCombinedInputs();
+      syncCommunityInputs();
       render();
     }
 
