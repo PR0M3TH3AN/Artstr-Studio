@@ -6,10 +6,14 @@
   <title>DVD / Blu-ray Cover Template Maker</title>
   <style id="dynamicPageStyle">
     @page { size: 11in 8.5in; margin: 0; }
+      body.dark { --bg:#090909; --panel:#111; --ink:#e5e7eb; --muted:#9ca3af; --line:#333; background-image: repeating-linear-gradient(90deg, rgba(255,0,255,.04) 0 2px, transparent 2px 6px), repeating-linear-gradient(0deg, rgba(0,255,255,.04) 0 3px, transparent 3px 8px); }
+    body.dark .sheet{filter:contrast(1.08) saturate(1.15);}
+    .sheetWrap{margin:0 auto;}
   </style>
   <style>
     :root {
       --bg: #f4f5f7;
+      --noise: none;
       --panel: #ffffff;
       --ink: #111827;
       --muted: #6b7280;
@@ -773,6 +777,9 @@
         display: none !important;
       }
     }
+      body.dark { --bg:#090909; --panel:#111; --ink:#e5e7eb; --muted:#9ca3af; --line:#333; background-image: repeating-linear-gradient(90deg, rgba(255,0,255,.04) 0 2px, transparent 2px 6px), repeating-linear-gradient(0deg, rgba(0,255,255,.04) 0 3px, transparent 3px 8px); }
+    body.dark .sheet{filter:contrast(1.08) saturate(1.15);}
+    .sheetWrap{margin:0 auto;}
   </style>
 </head>
 <body>
@@ -830,6 +837,14 @@
       </fieldset>
 
       <fieldset>
+        <legend>Project metadata</legend>
+        <label for="titleField">Title</label><input id="titleField" type="text" placeholder="Movie title" />
+        <label for="imdbField">IMDb ID</label><input id="imdbField" type="text" placeholder="tt1234567" />
+        <div class="buttonRow"><button type="button" id="imdbImportBtn">Import IMDb data</button><button type="button" id="nostrExportBtn">Export to Nostr</button><button type="button" id="nostrImportBtn">Import from Nostr</button></div>
+        <p class="hint">IMDb import uses OMDb-compatible endpoint + API key.</p>
+      </fieldset>
+
+      <fieldset>
         <legend>View / export</legend>
         <label for="zoom">Preview zoom</label>
         <div class="rangeLine">
@@ -843,10 +858,11 @@
           <label class="toggle"><input id="showCrops" type="checkbox" checked /> Show crop marks on screen</label>
           <label class="toggle"><input id="printGuides" type="checkbox" /> Include guides in PDF</label>
           <label class="toggle"><input id="printCrops" type="checkbox" checked /> Include crop marks in PDF</label>
+          <label class="toggle"><input id="darkMode" type="checkbox" /> Dark mode / glitch mode</label>
         </div>
 
         <div class="buttonRow">
-          <button class="primary" id="printBtn">Export PDF</button>
+          <button class="primary" id="printBtn">Print / Save PDF</button>
           <button id="saveProjectBtn">Save project</button>
           <button id="loadProjectBtn">Load project</button>
           <input id="projectFile" type="file" accept="application/json,.json" hidden />
@@ -1148,6 +1164,8 @@
     };
 
     const state = {
+      meta: { title: "", imdbId: "", omdbApiKey: "" },
+      darkMode: false,
       templateMode: 'cover',
       preset: 'dvd',
       panelW: presets.dvd.panelW,
@@ -1243,6 +1261,9 @@
       $('zoomOut').textContent = `${state.zoom}%`;
       $('artworkMode').value = state.artworkMode;
       $('showGuides').checked = state.showGuides;
+      $('darkMode').checked = !!state.darkMode;
+      $('titleField').value = state.meta?.title || "";
+      $('imdbField').value = state.meta?.imdbId || "";
       $('showBleed').checked = state.showBleed;
       $('showCrops').checked = state.showCrops;
       $('printGuides').checked = state.printGuides;
@@ -1257,6 +1278,7 @@
       document.body.classList.toggle('hide-crops', !state.showCrops);
       document.body.classList.toggle('print-guides', state.printGuides);
       document.body.classList.toggle('print-crops', state.printCrops);
+      document.body.classList.toggle('dark', !!state.darkMode);
     }
 
     function renderDimensions() {
@@ -1918,8 +1940,19 @@
       render();
     }
 
+    function exportPayload() {
+      return {
+        version: 2,
+        meta: state.meta,
+        ui: { zoom: state.zoom, darkMode: state.darkMode, showGuides: state.showGuides, showBleed: state.showBleed, showCrops: state.showCrops, printGuides: state.printGuides, printCrops: state.printCrops },
+        coverTemplate: { preset: state.preset, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
+        discTemplate: { config: discTemplate, discs: state.discs },
+        layers: state.layers
+      };
+    }
+
     function downloadProject() {
-      const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+      const blob = new Blob([JSON.stringify(exportPayload(), null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       const date = new Date().toISOString().slice(0, 10);
@@ -1933,7 +1966,8 @@
 
     function loadProjectFromText(text) {
       const parsed = JSON.parse(text);
-      const next = { ...state, ...parsed };
+      const source = parsed.version ? { ...parsed.ui, ...parsed.coverTemplate, discs: parsed.discTemplate?.discs, meta: parsed.meta, layers: parsed.layers } : parsed;
+      const next = { ...state, ...source };
       next.slots = { ...state.slots, ...(parsed.slots || {}) };
       next.combined = { ...state.combined, ...(parsed.combined || {}) };
       next.discs = { ...state.discs, ...(parsed.discs || {}) };
@@ -1971,12 +2005,39 @@
         render();
       });
 
-      for (const id of ['showGuides', 'showBleed', 'showCrops', 'printGuides', 'printCrops']) {
+      for (const id of ['showGuides', 'showBleed', 'showCrops', 'printGuides', 'printCrops','darkMode']) {
         $(id).addEventListener('change', (event) => {
-          state[id] = event.target.checked;
+          if (id === "darkMode") state.darkMode = event.target.checked; else state[id] = event.target.checked;
           render();
         });
       }
+
+      $("titleField").addEventListener("input", (e)=>{state.meta.title=e.target.value; render();});
+      $("imdbField").addEventListener("input", (e)=>{state.meta.imdbId=e.target.value; render();});
+
+      $("imdbImportBtn").addEventListener("click", async ()=>{
+        const imdb = state.meta.imdbId.trim();
+        const key = prompt("OMDb API key:", state.meta.omdbApiKey || "");
+        if (!imdb || !key) return;
+        state.meta.omdbApiKey = key;
+        const res = await fetch(`https://www.omdbapi.com/?i=${encodeURIComponent(imdb)}&apikey=${encodeURIComponent(key)}`);
+        const data = await res.json();
+        if (data && data.Title) { state.meta.title = data.Title; $("titleField").value = data.Title; render(); } else alert("IMDb import failed");
+      });
+
+      $("nostrExportBtn").addEventListener("click", async ()=>{
+        if (!window.nostr) return alert("No Nostr extension found");
+        const evt={kind:30078,created_at:Math.floor(Date.now()/1000),tags:[["d", state.meta.imdbId||state.meta.title||"template"]],content:JSON.stringify(state)};
+        evt.pubkey = await window.nostr.getPublicKey();
+        const signed = await window.nostr.signEvent(evt);
+        await navigator.clipboard.writeText(JSON.stringify(signed));
+        alert("Signed Nostr event copied to clipboard");
+      });
+
+      $("nostrImportBtn").addEventListener("click", ()=>{
+        const raw = prompt("Paste Nostr event JSON"); if (!raw) return;
+        try { const evt = JSON.parse(raw); if (evt.content) loadProjectFromText(evt.content); } catch { alert("Bad event JSON"); }
+      });
 
       $('printBtn').addEventListener('click', () => {
         render();
