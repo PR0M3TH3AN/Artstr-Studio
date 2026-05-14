@@ -675,6 +675,15 @@
       color: #475569;
     }
 
+    
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display:none; z-index:1000; }
+    .modal.open { display:block; }
+    .modalCard { width:min(900px,92vw); max-height:88vh; overflow:auto; margin:4vh auto; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:16px; padding:14px; }
+    .searchGrid{display:grid;grid-template-columns:1fr 140px 110px;gap:8px;align-items:end}
+    .results{display:grid;gap:8px;margin-top:10px}
+    .resultItem{display:grid;grid-template-columns:100px 1fr auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px;background:rgba(127,127,127,.07)}
+    .resultItem img{width:100px;height:70px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+
     @media (max-width: 900px) {
       .app { grid-template-columns: 1fr; }
       aside { position: relative; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -840,7 +849,7 @@
         <legend>Project metadata</legend>
         <label for="titleField">Title</label><input id="titleField" type="text" placeholder="Movie title" />
         <label for="imdbField">IMDb ID</label><input id="imdbField" type="text" placeholder="tt1234567" />
-        <div class="buttonRow"><button type="button" id="imdbImportBtn">Import IMDb data</button><button type="button" id="nostrExportBtn">Export to Nostr</button><button type="button" id="nostrImportBtn">Import from Nostr</button></div>
+        <div class="buttonRow"><button type="button" id="imdbImportBtn">Import IMDb data</button><button type="button" id="nostrExportBtn">Export to Nostr</button><button type="button" id="nostrImportBtn">Import from Nostr</button><button type="button" id="nostrSearchBtn">Search Nostr</button></div>
         <p class="hint">IMDb import uses OMDb-compatible endpoint + API key.</p>
       </fieldset>
 
@@ -1118,6 +1127,20 @@
     </main>
   </div>
 
+
+  <div class="modal" id="nostrModal" aria-hidden="true">
+    <div class="modalCard">
+      <h2 style="margin:0 0 8px">Nostr template search</h2>
+      <div class="searchGrid">
+        <div><label for="nostrQuery">Title / IMDb</label><input id="nostrQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
+        <div><label for="nostrType">Template</label><select id="nostrType"><option value="any">Any</option><option value="cover">Cover</option><option value="disc">Disc</option></select></div>
+        <div class="buttonRow" style="margin:0"><button type="button" id="nostrRunSearch">Search</button><button type="button" id="nostrClose">Close</button></div>
+      </div>
+      <div class="results" id="nostrResults"></div>
+      <p class="hint">Search queries recent templates from relay.damus.io (kind 30078).</p>
+    </div>
+  </div>
+
   <script>
     const $ = (id) => document.getElementById(id);
 
@@ -1261,7 +1284,7 @@
       $('zoomOut').textContent = `${state.zoom}%`;
       $('artworkMode').value = state.artworkMode;
       $('showGuides').checked = state.showGuides;
-      $('darkMode').checked = !!state.darkMode;
+      const dm=$('darkMode'); if (dm) dm.checked = !!state.darkMode;
       $('titleField').value = state.meta?.title || "";
       $('imdbField').value = state.meta?.imdbId || "";
       $('showBleed').checked = state.showBleed;
@@ -1981,6 +2004,56 @@
       render();
     }
 
+
+    function previewFromPayload(payload, typeHint) {
+      try {
+        if (typeHint === 'disc' || payload.templateMode === 'disc') {
+          return payload.discs?.top?.src || payload.discTemplate?.discs?.top?.src || '';
+        }
+        return payload.slots?.front?.src || payload.coverTemplate?.slots?.front?.src || '';
+      } catch { return ''; }
+    }
+
+    async function runNostrSearch() {
+      const q = $('nostrQuery').value.trim().toLowerCase();
+      const type = $('nostrType').value;
+      const out = $('nostrResults');
+      out.innerHTML = '<div class="hint">Searching…</div>';
+      const ws = new WebSocket('wss://relay.damus.io');
+      const subId = `s-${Date.now()}`;
+      const events = [];
+      await new Promise((resolve) => {
+        const timeout = setTimeout(() => { try { ws.close(); } catch {} resolve(); }, 3500);
+        ws.onopen = () => ws.send(JSON.stringify(['REQ', subId, { kinds:[30078], limit:120 }]));
+        ws.onmessage = (msg) => {
+          const data = JSON.parse(msg.data);
+          if (data[0] === 'EVENT' && data[1] === subId) events.push(data[2]);
+          if (data[0] === 'EOSE') { clearTimeout(timeout); ws.close(); resolve(); }
+        };
+        ws.onerror = () => { clearTimeout(timeout); resolve(); };
+      });
+      const rows = [];
+      for (const e of events) {
+        let payload = null;
+        try { payload = JSON.parse(e.content || '{}'); } catch { continue; }
+        const title = payload.meta?.title || '';
+        const imdb = payload.meta?.imdbId || '';
+        const mode = payload.templateMode || (payload.coverTemplate ? 'cover' : 'disc');
+        const hay = `${title} ${imdb} ${(e.tags||[]).map(t=>t.join(' ')).join(' ')}`.toLowerCase();
+        if (q && !hay.includes(q)) continue;
+        if (type !== 'any' && mode !== type) continue;
+        rows.push({e,payload,title,imdb,mode,preview:previewFromPayload(payload, mode)});
+      }
+      out.innerHTML = rows.length ? '' : '<div class="hint">No templates found.</div>';
+      rows.slice(0,40).forEach((row) => {
+        const el = document.createElement('div');
+        el.className = 'resultItem';
+        el.innerHTML = `<img src="${row.preview || ''}" alt="preview" /><div><b>${row.title || 'Untitled'}</b><div class="hint">${row.imdb || 'No IMDb'} • ${row.mode}</div></div><button type="button">Import</button>`;
+        el.querySelector('button').addEventListener('click', ()=> loadProjectFromText(JSON.stringify(row.payload)));
+        out.appendChild(el);
+      });
+    }
+
     function attachEvents() {
       for (const mode of ['cover', 'disc']) {
         $(`mode-${mode}`).addEventListener('click', () => {
@@ -2033,6 +2106,10 @@
         await navigator.clipboard.writeText(JSON.stringify(signed));
         alert("Signed Nostr event copied to clipboard");
       });
+
+      $("nostrSearchBtn").addEventListener("click", ()=>{ $("nostrModal").classList.add("open"); });
+      $("nostrClose").addEventListener("click", ()=>{ $("nostrModal").classList.remove("open"); });
+      $("nostrRunSearch").addEventListener("click", runNostrSearch);
 
       $("nostrImportBtn").addEventListener("click", ()=>{
         const raw = prompt("Paste Nostr event JSON"); if (!raw) return;
