@@ -6,8 +6,16 @@
   <title>DVD / Blu-ray Cover Template Maker</title>
   <style id="dynamicPageStyle">
     @page { size: 11in 8.5in; margin: 0; }
-      body.dark { --bg:#090909; --panel:#111; --ink:#e5e7eb; --muted:#9ca3af; --line:#333; background-image: repeating-linear-gradient(90deg, rgba(255,0,255,.04) 0 2px, transparent 2px 6px), repeating-linear-gradient(0deg, rgba(0,255,255,.04) 0 3px, transparent 3px 8px); }
-    body.dark .sheet{filter:contrast(1.08) saturate(1.15);}
+      body.dark {
+      --bg:#07070a; --panel:#10131a; --ink:#e5e7eb; --muted:#9aa4b2; --line:#2c3443; --accent:#60a5fa;
+      background-image: repeating-linear-gradient(90deg, rgba(255,0,255,.06) 0 2px, transparent 2px 6px), repeating-linear-gradient(0deg, rgba(0,255,255,.05) 0 3px, transparent 3px 8px);
+    }
+    body.dark aside, body.dark fieldset, body.dark details, body.dark .pill, body.dark .previewShell { background: var(--panel); color: var(--ink); border-color: var(--line); }
+    body.dark .previewShell { background:#0f1622; box-shadow: inset 0 1px 0 rgba(255,255,255,.03); }
+    body.dark input[type="number"], body.dark input[type="text"], body.dark select, body.dark button, body.dark input[type="file"] { background:#0b1220; color:var(--ink); border-color:var(--line); }
+    body.dark .hint, body.dark label, body.dark .subhead, body.dark .status { color: var(--muted); }
+    body.dark .sheet{filter:contrast(1.08) saturate(1.15) brightness(.95);}
+    body.dark .layoutTab.active, body.dark button.primary { color:#fff; }
     .sheetWrap{margin:0 auto;}
   </style>
   <style>
@@ -786,8 +794,16 @@
         display: none !important;
       }
     }
-      body.dark { --bg:#090909; --panel:#111; --ink:#e5e7eb; --muted:#9ca3af; --line:#333; background-image: repeating-linear-gradient(90deg, rgba(255,0,255,.04) 0 2px, transparent 2px 6px), repeating-linear-gradient(0deg, rgba(0,255,255,.04) 0 3px, transparent 3px 8px); }
-    body.dark .sheet{filter:contrast(1.08) saturate(1.15);}
+      body.dark {
+      --bg:#07070a; --panel:#10131a; --ink:#e5e7eb; --muted:#9aa4b2; --line:#2c3443; --accent:#60a5fa;
+      background-image: repeating-linear-gradient(90deg, rgba(255,0,255,.06) 0 2px, transparent 2px 6px), repeating-linear-gradient(0deg, rgba(0,255,255,.05) 0 3px, transparent 3px 8px);
+    }
+    body.dark aside, body.dark fieldset, body.dark details, body.dark .pill, body.dark .previewShell { background: var(--panel); color: var(--ink); border-color: var(--line); }
+    body.dark .previewShell { background:#0f1622; box-shadow: inset 0 1px 0 rgba(255,255,255,.03); }
+    body.dark input[type="number"], body.dark input[type="text"], body.dark select, body.dark button, body.dark input[type="file"] { background:#0b1220; color:var(--ink); border-color:var(--line); }
+    body.dark .hint, body.dark label, body.dark .subhead, body.dark .status { color: var(--muted); }
+    body.dark .sheet{filter:contrast(1.08) saturate(1.15) brightness(.95);}
+    body.dark .layoutTab.active, body.dark button.primary { color:#fff; }
     .sheetWrap{margin:0 auto;}
   </style>
 </head>
@@ -854,6 +870,12 @@
       </fieldset>
 
       <fieldset>
+        <legend>Appearance</legend>
+        <label class="toggle"><input id="darkMode" type="checkbox" /> Enable dark / glitch theme</label>
+        <p class="hint">Affects editor panels, controls, and preview shell.</p>
+      </fieldset>
+
+      <fieldset>
         <legend>View / export</legend>
         <label for="zoom">Preview zoom</label>
         <div class="rangeLine">
@@ -867,8 +889,7 @@
           <label class="toggle"><input id="showCrops" type="checkbox" checked /> Show crop marks on screen</label>
           <label class="toggle"><input id="printGuides" type="checkbox" /> Include guides in PDF</label>
           <label class="toggle"><input id="printCrops" type="checkbox" checked /> Include crop marks in PDF</label>
-          <label class="toggle"><input id="darkMode" type="checkbox" /> Dark mode / glitch mode</label>
-        </div>
+                  </div>
 
         <div class="buttonRow">
           <button class="primary" id="printBtn">Print / Save PDF</button>
