@@ -323,10 +323,33 @@
       gap: 6px;
     }
 
+    .appModeTab {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 1.15rem;
+      line-height: 1.2;
+      padding: 12px 10px;
+      border-radius: 8px;
+      font-variant-numeric: tabular-nums;
+      text-shadow: 0 0.5px 0 rgba(0,0,0,.04);
+    }
+
     .appModeTab.active {
       background: var(--accent);
       border-color: var(--accent);
       color: #fff;
+    }
+
+    .appModeTab svg {
+      width: 26px;
+      height: 26px;
+      opacity: .85;
+    }
+
+    .appModeTab.active svg {
+      opacity: 1;
     }
 
     body.dark .appModeTab.active { color: #fff; }
@@ -1336,8 +1359,8 @@
       </div>
 
       <div class="appModeTabs">
-        <button type="button" class="appModeTab active" id="modeTabTemplate">Template</button>
-        <button type="button" class="appModeTab" id="modeTabDesigner">Disc Designer</button>
+        <button type="button" class="appModeTab active" id="modeTabTemplate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/><line x1="10" y1="3" x2="10" y2="21" stroke-width="1" stroke-dasharray="2 2"/></svg>Template</button>
+        <button type="button" class="appModeTab" id="modeTabDesigner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21"/><line x1="3" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21" y2="12"/></svg>Disc Designer</button>
       </div>
 
       <div class="quickActions designer-only" aria-label="Designer actions">
