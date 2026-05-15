@@ -5033,7 +5033,11 @@
         const info = document.createElement('p');
         info.className = 'hint';
         info.style.marginTop = '8px';
-        info.textContent = `${layers.length} layer${layers.length>1?'s':''}: ` + layers.map(l => l.name || (l.html||'').replace(/<[^>]+>/g,'').trim() || `[${l.type}]`).join(', ');
+        info.textContent = `${layers.length} layer${layers.length>1?'s':''}: ` + layers.map(l => {
+          if (l.type === 'image') return l.name || '[Image]';
+          if (l.type === 'text') return l.name || (l.html||l.text||'').replace(/<[^>]+>/g,'').trim() || '[Text]';
+          return l.name || `[${l.type}]`;
+        }).join(', ');
         container.appendChild(info);
       }
     }
