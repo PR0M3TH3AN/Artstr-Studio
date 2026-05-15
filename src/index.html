@@ -1384,7 +1384,7 @@
       </div>
 
       <div class="appModeTabs">
-        <button type="button" class="appModeTab active" id="modeTabTemplate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="18" rx="1.5"/><line x1="10" y1="3" x2="10" y2="21" stroke-width="1" stroke-dasharray="2 2"/></svg>Template</button>
+        <button type="button" class="appModeTab active" id="modeTabTemplate"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><polyline points="14 3 14 8 19 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>Template</button>
         <button type="button" class="appModeTab" id="modeTabDesigner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21"/><line x1="3" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21" y2="12"/></svg>Disc Designer</button>
       </div>
 
@@ -5095,7 +5095,17 @@
 
 
       $('browseCommunityBtn').addEventListener('click', () => { $('nostrModal').classList.add('open'); switchModalTab('New'); });
-      $('designerBrowseCommunityBtn').addEventListener('click', () => { $('nostrModal').classList.add('open'); switchModalTab('New'); });
+      $('designerBrowseCommunityBtn').addEventListener('click', () => {
+        for (const t of ['New', 'Popular', 'Mine']) {
+          _feedState[`filter${t}`] = 'disc-design';
+          // Update active button state
+          document.querySelectorAll(`.feedTypeBtn[data-tab="${t}"]`).forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.type === 'disc-design');
+          });
+        }
+        $('nostrModal').classList.add('open');
+        switchModalTab('New');
+      });
       $('welcomeSearchBtn').addEventListener('click', runWelcomeSearch);
       $('welcomeSkipBtn').addEventListener('click', dismissWelcomeModal);
       $('loadProjectBtn').addEventListener('click', () => $('projectFile').click());
