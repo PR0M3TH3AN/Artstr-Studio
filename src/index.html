@@ -3009,8 +3009,6 @@
       if (urlEl) urlEl.value = design.src || '';
       const fitEl = $('fit-designer');
       if (fitEl) fitEl.value = design.fit || 'cover';
-      const targetEl = $('designerImportTarget');
-      if (targetEl) targetEl.value = key;
       const zoomEl = $('zoom-designer');
       if (zoomEl) { zoomEl.value = design.zoom ?? 1; $('zoom-designer-out').textContent = `${Math.round((design.zoom ?? 1) * 100)}%`; }
       const xEl = $('x-designer');
@@ -4478,7 +4476,7 @@
         wall.appendChild(buildFeedCard(row, () => {
           if (row.mode === 'disc-design') {
             const target = state.appMode === 'designer'
-              ? ($('designerImportTarget')?.value || state.activeDiscDesign || 'a')
+              ? (state.activeDiscDesign || 'a')
               : ($('importDiscTarget')?.value || 'a');
             importDiscDesignFromPayload(row.payload, target, { openDesigner: state.appMode === 'designer' });
           } else {
@@ -4522,7 +4520,7 @@
         wall.appendChild(buildFeedCard(row, () => {
           if (row.mode === 'disc-design') {
             const target = state.appMode === 'designer'
-              ? ($('designerImportTarget')?.value || state.activeDiscDesign || 'a')
+              ? (state.activeDiscDesign || 'a')
               : ($('importDiscTarget')?.value || 'a');
             importDiscDesignFromPayload(row.payload, target, { openDesigner: state.appMode === 'designer' });
           } else {
@@ -4676,7 +4674,7 @@
         out.appendChild(buildResultCard(row, () => {
           if (row.mode === 'disc-design') {
             const target = state.appMode === 'designer'
-              ? ($('designerImportTarget')?.value || state.activeDiscDesign || 'a')
+              ? (state.activeDiscDesign || 'a')
               : ($('importDiscTarget')?.value || 'a');
             importDiscDesignFromPayload(row.payload, target, { openDesigner: state.appMode === 'designer' });
           } else {
@@ -4752,7 +4750,7 @@
     }
 
     function askDiscDesignSlot(defaultKey = state.activeDiscDesign || 'a') {
-      const select = $('designerImportTarget') || $('importDiscTarget');
+      const select = $('importDiscTarget');
       const key = select?.value || defaultKey || 'a';
       return state.discDesigns[key] ? key : 'a';
     }
@@ -4764,8 +4762,6 @@
       loadDesignerLayers(target);
       const importTarget = $('importDiscTarget');
       if (importTarget) importTarget.value = target;
-      const designerTarget = $('designerImportTarget');
-      if (designerTarget) designerTarget.value = target;
       $('nostrType').value = 'disc-design';
       $('nostrQuery').value = '';
       $('nostrCategory').value = state.meta.category || '';
@@ -4778,8 +4774,6 @@
 
     function openTemplateDiscDesignNostrSearch() {
       const target = $('importDiscTarget')?.value || 'a';
-      const designerTarget = $('designerImportTarget');
-      if (designerTarget) designerTarget.value = target;
       $('nostrType').value = 'disc-design';
       $('nostrQuery').value = '';
       $('nostrCategory').value = state.meta.category || '';
