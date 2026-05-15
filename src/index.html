@@ -1810,10 +1810,7 @@
       </fieldset>
 
       <fieldset class="workflowStep designer-only" id="designerPrintSaveFieldset">
-        <legend data-step="4">Print &amp; Save</legend>
-        <div class="buttonRow">
-          <button class="primary" id="designerPrintBtn">Print / Save PDF</button>
-        </div>
+        <legend data-step="4">Save &amp; Export</legend>
         <div class="buttonRow">
           <button type="button" id="designerSaveProjectBtn">Save design (JSON)</button>
           <button type="button" id="designerLoadFileBtn">Load from file</button>
@@ -4968,9 +4965,6 @@
         render();
         window.print();
       });
-      const dprint = $('designerPrintBtn');
-      if (dprint) dprint.addEventListener('click', () => { render(); window.print(); });
-
       $('saveProjectBtn').addEventListener('click', downloadProject);
       $('designerSaveProjectBtn').addEventListener('click', () => {
         try {
