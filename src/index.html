@@ -1823,9 +1823,6 @@
           <input id="designerImdbField" type="text" placeholder="tt1234567" />
           <label for="designerCategoryField">Category *</label>
           <select id="designerCategoryField" class="categorySelect"></select>
-          <div class="buttonRow">
-            <button type="button" class="primary" id="designerMetadataSaveBtn">Save</button>
-          </div>
           <p class="hint">Title and category are required to save or publish.</p>
         </details>
       </fieldset>
@@ -5131,27 +5128,6 @@
       $('searchDiscNostrBtn').addEventListener('click', () => {
         openTemplateDiscDesignNostrSearch();
       });
-      $('designerMetadataSaveBtn').addEventListener('click', () => {
-        const title = ($('designerTitleField')?.value || '').trim();
-        const category = ($('designerCategoryField')?.value || '').trim();
-        if (!title) { alert('Enter a title before saving.'); return; }
-        if (!category) { alert('Select a category before saving.'); return; }
-        state.meta.title = title;
-        state.meta.imdbId = ($('designerImdbField')?.value || '').trim();
-        state.meta.category = category;
-        // Sync the Templates tab fields too
-        if ($('titleField')) $('titleField').value = state.meta.title;
-        if ($('imdbField')) $('imdbField').value = state.meta.imdbId;
-        if ($('categoryField')) $('categoryField').value = state.meta.category;
-        render();
-        const btn = $('designerMetadataSaveBtn');
-        const orig = btn.textContent;
-        btn.textContent = 'Saved';
-        btn.style.background = 'var(--ok)';
-        btn.style.color = '#fff';
-        setTimeout(() => { btn.textContent = orig; btn.style.background = ''; btn.style.color = ''; }, 1500);
-      });
-
 
       $('browseCommunityBtn').addEventListener('click', () => {
         for (const t of ['New', 'Popular', 'Mine']) {
