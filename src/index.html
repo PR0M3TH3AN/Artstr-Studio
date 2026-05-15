@@ -50,6 +50,30 @@
       color: var(--ink);
       font-family: 'VT323', 'Courier New', monospace;
       letter-spacing: 0.05em;
+      scrollbar-color: var(--accent) var(--panel);
+      scrollbar-width: 12px;
+    }
+
+    /* Webkit scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 12px;
+      height: 12px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--panel);
+      border: 2px solid var(--line);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--accent);
+      border: 2px solid var(--accent);
+      box-shadow: inset 0 0 0 2px var(--panel);
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #00ffff;
+      box-shadow: inset 0 0 0 2px var(--panel), 0 0 8px rgba(0, 217, 255, 0.6);
     }
 
     button, input, select, textarea {
