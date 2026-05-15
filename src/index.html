@@ -3015,8 +3015,12 @@
               try {
                 const parsed = JSON.parse(String(reader.result));
                 if (parsed?.discDesign) {
-                  const { key: _k, layers: _l, ...design } = parsed.discDesign;
+                  const { key: _k, layers: payloadLayers, ...design } = parsed.discDesign;
                   state.discs[key] = { ...state.discs[key], ...design };
+                  const layersToUse = Array.isArray(payloadLayers) ? payloadLayers : (Array.isArray(parsed.layers) ? parsed.layers : []);
+                  if (layersToUse.length > 0) {
+                    state.discs[key].layers = layersToUse.map(l => ({ ...l }));
+                  }
                   if (state.templateMode !== 'disc') state.templateMode = 'disc';
                   syncInputs(); render();
                   const preview = $(`disc-preview-${key}`);
@@ -3036,8 +3040,13 @@
         const nostrBtn = $(`disc-nostr-${key}`);
         if (nostrBtn) nostrBtn.addEventListener('click', () => {
           $('nostrType').value = 'disc-design';
+          _feedState.filterNew = 'disc-design';
+          _feedState.filterPopular = 'disc-design';
+          _feedState.filterSearch = 'disc-design';
+          _feedState.filterMine = 'disc-design';
           $('nostrModal').classList.add('open');
           state._discImportTargetSlot = key;
+          switchModalTab('New');
         });
         for (const prop of ['fit', 'zoom', 'x', 'y', 'rotate']) {
           const el = $(`disc-${prop}-${key}`);
@@ -3774,7 +3783,7 @@
       if (!state.meta.category?.trim()) {
         throw new Error('Select a category in Project Metadata before publishing.');
       }
-      const payload = discDesignPayload(key);
+      const payload = discDesignPayload();
       const designName = (design.name || '').trim() || state.meta.title;
       if (!designName?.trim()) {
         throw new Error('Add a title in Project Metadata or a custom design name before publishing.');
@@ -4723,26 +4732,40 @@
       const isSlotImport = slotKey === 'top' || slotKey === 'bottom';
 
       if (payload?.templateMode === 'disc-design' && payload.discDesign) {
-        const { key: _k, layers: _l, ...design } = payload.discDesign;
+        const { key: _k, layers: payloadLayers, ...design } = payload.discDesign;
         if (isSlotImport) {
           state.discs[slotKey] = { ...state.discs[slotKey], ...design };
+          const layersToUse = Array.isArray(payloadLayers) ? payloadLayers : (Array.isArray(payload.layers) ? payload.layers : []);
+          if (layersToUse.length > 0) {
+            state.discs[slotKey].layers = layersToUse.map(l => ({ ...l }));
+          }
           const preview = $(`disc-preview-${slotKey}`);
           if (preview) preview.textContent = design.name || 'Design loaded';
         } else {
           state.discDesign = { ...state.discDesign, ...design };
+          if (payload.meta) {
+            state.meta = { ...state.meta, ...payload.meta };
+          }
           if (Array.isArray(payload.layers)) {
             state.discDesign.layers = payload.layers.map(l => ({ ...l, target: 'designer-disc' }));
           }
           loadCurrentDiscDesignLayers();
         }
       } else if (payload?.discDesign) {
-        const { key: _k2, layers: _l2, ...design } = payload.discDesign;
+        const { key: _k2, layers: payloadLayers2, ...design } = payload.discDesign;
         if (isSlotImport) {
           state.discs[slotKey] = { ...state.discs[slotKey], ...design };
+          const layersToUse2 = Array.isArray(payloadLayers2) ? payloadLayers2 : (Array.isArray(payload.layers) ? payload.layers : []);
+          if (layersToUse2.length > 0) {
+            state.discs[slotKey].layers = layersToUse2.map(l => ({ ...l }));
+          }
           const preview = $(`disc-preview-${slotKey}`);
           if (preview) preview.textContent = design.name || 'Design loaded';
         } else {
           state.discDesign = { ...state.discDesign, ...design };
+          if (payload.meta) {
+            state.meta = { ...state.meta, ...payload.meta };
+          }
           loadCurrentDiscDesignLayers();
         }
       } else if (payload?.discTemplate?.discs?.[slotKey]) {
@@ -4754,6 +4777,7 @@
 
       if (!isSlotImport && openDesigner) {
         state.appMode = 'designer';
+        syncInputs();
         syncDesignerInputs();
       } else {
         if (!isSlotImport) { state.templateMode = 'disc'; state.appMode = 'template'; }
