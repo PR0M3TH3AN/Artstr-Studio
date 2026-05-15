@@ -2144,6 +2144,23 @@
     </div>
   </div>
 
+  <div class="modal" id="designPreviewModal" aria-hidden="true">
+    <div class="modalCard" style="max-width:min(860px,94vw)">
+      <div class="modalHeader">
+        <div>
+          <h2 id="previewModalTitle">Design Preview</h2>
+          <p id="previewModalMeta" class="subhead"></p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button type="button" id="previewPrintBtn">Print / Save PDF</button>
+          <button type="button" id="previewSaveJsonBtn">Save JSON</button>
+          <button type="button" id="previewModalClose">Close</button>
+        </div>
+      </div>
+      <div id="previewModalContent" style="margin-top:12px;"></div>
+    </div>
+  </div>
+
   <script>
     const $ = (id) => document.getElementById(id);
     const safe$ = (id) => { try { return $(id); } catch { return null; } };
@@ -4599,10 +4616,13 @@
       meta.innerHTML = `<div class="feedCardTitle" title="${escapeHtml(row.title || 'Untitled')}">${escapeHtml(row.title || 'Untitled')}</div><div class="feedCardSub">${escapeHtml([modeLabel, categoryLabel(row.category), row.imdb].filter(Boolean).join(' · '))}</div>${authorHtml}`;
       const actions = document.createElement('div');
       actions.className = 'feedCardActions';
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button'; prevBtn.textContent = 'Preview';
+      prevBtn.addEventListener('click', e => { e.stopPropagation(); openDesignPreview(row); });
       const btn = document.createElement('button');
       btn.type = 'button'; btn.textContent = 'Use';
       btn.addEventListener('click', e => { e.stopPropagation(); onUse(); });
-      actions.append(makeReactionBtn(row), btn);
+      actions.append(makeReactionBtn(row), prevBtn, btn);
       el.append(thumb, meta, actions);
       el.addEventListener('click', onUse);
       return el;
@@ -4859,14 +4879,102 @@
 
       const actions = document.createElement('div');
       actions.style.cssText = 'display:flex;flex-direction:column;gap:4px;align-items:stretch';
+      const prevBtn = document.createElement('button');
+      prevBtn.type = 'button';
+      prevBtn.textContent = 'Preview';
+      prevBtn.addEventListener('click', e => { e.stopPropagation(); openDesignPreview(row); });
       const useBtn = document.createElement('button');
       useBtn.type = 'button';
       useBtn.textContent = 'Use this';
       useBtn.addEventListener('click', onUse);
-      actions.append(makeReactionBtn(row), useBtn);
+      actions.append(makeReactionBtn(row), prevBtn, useBtn);
 
       el.append(thumb, meta, actions);
       return el;
+    }
+
+    function openDesignPreview(row) {
+      $('previewModalTitle').textContent = row.title || 'Untitled Design';
+      $('previewModalMeta').textContent = [row.category, row.imdb].filter(Boolean).join(' · ');
+      const content = $('previewModalContent');
+      content.innerHTML = '';
+      $('designPreviewModal')._row = row;
+
+      const p = row.payload || {};
+      if (p.discDesign) {
+        renderDiscPreviewDOM(content, p);
+      } else {
+        renderTemplatePreviewDOM(content, p);
+      }
+
+      $('designPreviewModal').classList.add('open');
+    }
+
+    function renderDiscPreviewDOM(container, payload) {
+      const disc = payload.discDesign || {};
+      const PREVIEW_SIZE = 420;
+
+      const wrap = document.createElement('div');
+      wrap.style.cssText = `position:relative;width:${PREVIEW_SIZE}px;height:${PREVIEW_SIZE}px;margin:0 auto;background:#111;border:2px solid var(--line);overflow:hidden;`;
+
+      if (disc.src) {
+        const img = document.createElement('img');
+        img.src = disc.src;
+        img.style.cssText = `position:absolute;inset:0;width:100%;height:100%;object-fit:${disc.fit || 'cover'};`;
+        wrap.appendChild(img);
+      }
+
+      const layers = payload.layers || [];
+      layers.forEach(layer => {
+        if (!layer.text && layer.type !== 'image') return;
+        const div = document.createElement('div');
+        div.style.cssText = `position:absolute;font-size:${(layer.size || 14) * (PREVIEW_SIZE / 400)}px;color:${layer.color || '#fff'};font-family:${layer.font || 'sans-serif'};font-weight:${layer.bold ? 'bold' : 'normal'};font-style:${layer.italic ? 'italic' : 'normal'};left:${(layer.x || 0) / 4}px;top:${(layer.y || 0) / 4}px;white-space:pre;pointer-events:none;`;
+        if (layer.type === 'text') div.textContent = layer.text;
+        if (layer.type === 'image' && layer.src) {
+          const imgEl = document.createElement('img');
+          imgEl.src = layer.src;
+          imgEl.style.cssText = `width:${(layer.w || 100) / 4}px;height:auto;`;
+          div.appendChild(imgEl);
+        }
+        wrap.appendChild(div);
+      });
+
+      container.appendChild(wrap);
+
+      if (layers.length) {
+        const info = document.createElement('p');
+        info.className = 'hint';
+        info.style.marginTop = '8px';
+        info.textContent = `${layers.length} layer${layers.length > 1 ? 's' : ''}: ` +
+          layers.map(l => l.text || `[${l.type}]`).join(', ');
+        container.appendChild(info);
+      }
+    }
+
+    function renderTemplatePreviewDOM(container, payload) {
+      const slots = payload.slots || {};
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;align-items:stretch;justify-content:center;flex-wrap:wrap;';
+
+      ['back','spine','front'].forEach(key => {
+        const slot = slots[key] || {};
+        if (!slot.src && !slot.img) return;
+        const img = document.createElement('img');
+        img.src = slot.src || slot.img;
+        img.style.cssText = `max-height:340px;max-width:${key === 'spine' ? '60px' : '260px'};object-fit:contain;border:1px solid var(--line);background:#111;`;
+        img.alt = key;
+        row.appendChild(img);
+      });
+
+      if (!row.children.length && payload.preview) {
+        const img = document.createElement('img');
+        img.src = payload.preview;
+        img.style.cssText = 'max-width:100%;max-height:400px;margin:0 auto;display:block;';
+        container.appendChild(img);
+        return;
+      }
+
+      container.appendChild(row);
     }
 
     async function runNostrSearch() {
@@ -5207,6 +5315,41 @@
         render();
         window.print();
       });
+
+      // Preview modal event listeners
+      $('previewPrintBtn').addEventListener('click', () => {
+        const row = $('designPreviewModal')._row;
+        if (!row) return;
+        const stateSnapshot = JSON.parse(JSON.stringify(state));
+        const p = row.payload || {};
+        if (p.discDesign) {
+          importDiscDesignFromPayload(p, 'a', { openDesigner: false });
+        } else {
+          try { loadProjectFromText(JSON.stringify(p)); } catch(e) { console.error(e); }
+        }
+        $('designPreviewModal').classList.remove('open');
+        $('nostrModal').classList.remove('open');
+        function onAfterPrint() {
+          window.removeEventListener('afterprint', onAfterPrint);
+          Object.assign(state, stateSnapshot);
+          syncInputs();
+          render();
+        }
+        window.addEventListener('afterprint', onAfterPrint);
+        setTimeout(() => { render(); window.print(); }, 350);
+      });
+
+      $('previewSaveJsonBtn').addEventListener('click', () => {
+        const row = $('designPreviewModal')._row;
+        if (!row) return;
+        const name = (row.title || 'design').replace(/[^a-z0-9]/gi, '_');
+        triggerDownload(row.payload, `${name}.json`);
+      });
+
+      $('previewModalClose').addEventListener('click', () => {
+        $('designPreviewModal').classList.remove('open');
+      });
+
       $('saveProjectBtn').addEventListener('click', downloadProject);
       $('closeProjectBtn').addEventListener('click', closeTemplateProject);
       $('designerSaveProjectBtn').addEventListener('click', () => {
