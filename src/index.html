@@ -2558,7 +2558,7 @@
       syncLayerInputs();
       syncDesignerInputs();
       updateBodyClasses();
-      localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify(state));
+      localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify({ ...state, layers: nonGeneratedLayers() }));
     }
 
     function buildSlotControls() {
@@ -2939,6 +2939,16 @@
     }
 
     function renderDiscSlots() {
+      for (const layer of state.layers) {
+        if (String(layer.target || '').startsWith('disc-generated-')) {
+          layer._staleGenerated = true;
+        }
+      }
+
+      if (state.templateMode !== 'disc') {
+        state.layers = state.layers.filter(layer => !layer._staleGenerated);
+      }
+
       for (const slotDef of discTemplate.slots) {
         const designKey = state.discSheet[slotDef.key] || (slotDef.key === 'top' ? 'a' : 'b');
         const disc = state.discDesigns[designKey] || state.discDesigns.a;
@@ -2966,7 +2976,11 @@
         img.style.objectFit = disc.fit;
         img.style.transform =
           `translate(-50%, -50%) translate(${disc.x}%, ${disc.y}%) rotate(${disc.rotate}deg) scale(${disc.zoom})`;
+
+        if (state.templateMode === 'disc') syncGeneratedDiscLayers(slotDef, disc, designKey);
       }
+
+      state.layers = state.layers.filter(layer => !layer._staleGenerated);
 
       discTemplate.spineStrips.forEach((strip, index) => {
         const el = $(`disc-spine-${index + 1}`);
@@ -2987,6 +3001,40 @@
           labelEl.innerHTML = text ? `<span>${escapeHtml(text)}</span>` : '';
         }
       });
+    }
+
+    function syncGeneratedDiscLayers(slotDef, design, designKey) {
+      const sourceLayers = Array.isArray(design?.layers) ? design.layers : [];
+      const slotLeft = slotDef.centerX - discTemplate.discD / 2;
+      const slotTop = slotDef.centerY - discTemplate.discD / 2;
+      const baseZ = 2000 + (slotDef.key === 'top' ? 0 : 100);
+
+      sourceLayers.forEach((layer, index) => {
+        const id = `generated-${slotDef.key}-${designKey}-${layer.id || index}`;
+        const existing = state.layers.find(item => item.id === id);
+        const projected = {
+          ...layer,
+          id,
+          name: layer.name || `${design?.name || designKey} layer`,
+          target: `disc-generated-${slotDef.key}`,
+          x: slotLeft + (Number(layer.x) || 0),
+          y: slotTop + (Number(layer.y) || 0),
+          w: Number(layer.w) || 1,
+          h: Number(layer.h) || 1,
+          z: baseZ + index,
+          _generatedDiscLayer: true,
+          _staleGenerated: false
+        };
+        if (existing) {
+          Object.assign(existing, projected);
+        } else {
+          state.layers.push(projected);
+        }
+      });
+    }
+
+    function nonGeneratedLayers() {
+      return state.layers.filter(layer => !layer._generatedDiscLayer);
     }
 
     function renderJewelSlots() {
@@ -3222,7 +3270,8 @@
           ? layer.target === 'designer-disc'
           : layer.target !== 'designer-disc'
       );
-      if (!visibleLayers.length) {
+      const listedLayers = visibleLayers.filter(layer => !layer._generatedDiscLayer);
+      if (!listedLayers.length) {
         const empty = document.createElement('p');
         empty.className = 'hint';
         empty.textContent = 'No extra layers yet.';
@@ -3230,7 +3279,7 @@
         return;
       }
 
-      const ordered = [...visibleLayers].sort((a, b) => (b.z || 0) - (a.z || 0));
+      const ordered = [...listedLayers].sort((a, b) => (b.z || 0) - (a.z || 0));
       for (const layer of ordered) {
         const item = document.createElement('button');
         item.type = 'button';
@@ -3790,7 +3839,7 @@
         meta: state.meta,
         ui: { zoom: state.zoom, showGuides: state.showGuides, showBleed: state.showBleed, showCrops: state.showCrops, printGuides: state.printGuides, printCrops: state.printCrops },
         coverTemplate: { preset: state.preset, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
-        layers: state.layers.filter(l => {
+        layers: nonGeneratedLayers().filter(l => {
           const target = String(l.target || '');
           return !target.startsWith('disc') && !target.startsWith('jewel');
         })
@@ -3804,7 +3853,7 @@
         meta: state.meta,
         ui: { zoom: state.zoom },
         discTemplate: { config: discTemplate, designs: state.discDesigns, sheet: state.discSheet, spineLabels: state.discSpineLabels },
-        layers: state.layers.filter(l => String(l.target || '').startsWith('disc'))
+        layers: nonGeneratedLayers().filter(l => String(l.target || '').startsWith('disc'))
       };
     }
 
@@ -3815,7 +3864,7 @@
         meta: state.meta,
         ui: { zoom: state.zoom, showGuides: state.showGuides, printGuides: state.printGuides },
         jewelTemplate: { config: jewelTemplate, inserts: state.jewelInserts },
-        layers: state.layers.filter(l => String(l.target || '').startsWith('jewel'))
+        layers: nonGeneratedLayers().filter(l => String(l.target || '').startsWith('jewel'))
       };
     }
 
@@ -3837,7 +3886,7 @@
         coverTemplate: { preset: state.preset, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
         discTemplate: { config: discTemplate, designs: state.discDesigns, sheet: state.discSheet, discs: state.discs, spineLabels: state.discSpineLabels },
         jewelTemplate: { config: jewelTemplate, inserts: state.jewelInserts },
-        layers: state.layers,
+        layers: nonGeneratedLayers(),
         community: { relays: state.community.relays, query: state.community.query, kind: state.community.kind }
       };
     }
@@ -4225,7 +4274,10 @@
       rows.forEach(row => {
         wall.appendChild(buildFeedCard(row, () => {
           if (row.mode === 'disc-design') {
-            importDiscDesignFromPayload(row.payload, $('importDiscTarget')?.value || state.activeDiscDesign || 'a');
+            const target = state.appMode === 'designer'
+              ? ($('designerImportTarget')?.value || state.activeDiscDesign || 'a')
+              : ($('importDiscTarget')?.value || 'a');
+            importDiscDesignFromPayload(row.payload, target, { openDesigner: state.appMode === 'designer' });
           } else {
             loadProjectFromText(JSON.stringify(row.payload));
           }
@@ -4266,7 +4318,10 @@
       rows.slice(0, 60).forEach(row => {
         wall.appendChild(buildFeedCard(row, () => {
           if (row.mode === 'disc-design') {
-            importDiscDesignFromPayload(row.payload, $('importDiscTarget')?.value || state.activeDiscDesign || 'a');
+            const target = state.appMode === 'designer'
+              ? ($('designerImportTarget')?.value || state.activeDiscDesign || 'a')
+              : ($('importDiscTarget')?.value || 'a');
+            importDiscDesignFromPayload(row.payload, target, { openDesigner: state.appMode === 'designer' });
           } else {
             loadProjectFromText(JSON.stringify(row.payload));
           }
@@ -4417,7 +4472,10 @@
       rows.slice(0, 40).forEach(row => {
         out.appendChild(buildResultCard(row, () => {
           if (row.mode === 'disc-design') {
-            importDiscDesignFromPayload(row.payload, $('importDiscTarget')?.value || state.activeDiscDesign || 'a');
+            const target = state.appMode === 'designer'
+              ? ($('designerImportTarget')?.value || state.activeDiscDesign || 'a')
+              : ($('importDiscTarget')?.value || 'a');
+            importDiscDesignFromPayload(row.payload, target, { openDesigner: state.appMode === 'designer' });
           } else {
             loadProjectFromText(JSON.stringify(row.payload));
           }
@@ -4449,9 +4507,10 @@
       }
     }
 
-    function importDiscDesignFromPayload(payload, targetKey) {
+    function importDiscDesignFromPayload(payload, targetKey, options = {}) {
+      const openDesigner = options.openDesigner ?? true;
       const key = targetKey || state.activeDiscDesign || 'a';
-      persistDesignerLayers(state.activeDiscDesign || 'a');
+      if (state.appMode === 'designer') persistDesignerLayers(state.activeDiscDesign || 'a');
       if (payload?.templateMode === 'disc-design' && payload.discDesign) {
         const { key: _k, ...design } = payload.discDesign;
         const importedLayers = Array.isArray(payload.layers)
@@ -4472,9 +4531,16 @@
         const first = Object.values(payload.discDesigns).find(d => d?.src);
         if (first) state.discDesigns[key] = { ...state.discDesigns[key], ...first };
       }
-      state.activeDiscDesign = key;
-      state.appMode = 'designer';
-      loadDesignerLayers(key);
+      if (openDesigner) {
+        state.activeDiscDesign = key;
+        state.appMode = 'designer';
+        loadDesignerLayers(key);
+      } else {
+        state.templateMode = 'disc';
+        state.appMode = 'template';
+        state.discSheet.top = state.discSheet.top || key;
+        state.discSheet.bottom = state.discSheet.bottom || key;
+      }
       syncDiscAssignmentInputs();
       syncDesignerInputs();
       render();
@@ -4502,6 +4568,18 @@
       switchModalTab('Search');
       syncDesignerInputs();
       render();
+      runNostrSearch();
+    }
+
+    function openTemplateDiscDesignNostrSearch() {
+      const target = $('importDiscTarget')?.value || 'a';
+      const designerTarget = $('designerImportTarget');
+      if (designerTarget) designerTarget.value = target;
+      $('nostrType').value = 'disc-design';
+      $('nostrQuery').value = '';
+      $('nostrCategory').value = state.meta.category || '';
+      $('nostrModal').classList.add('open');
+      switchModalTab('Search');
       runNostrSearch();
     }
 
@@ -4832,7 +4910,7 @@
           try {
             const payload = JSON.parse(String(reader.result));
             const target = $('importDiscTarget').value || 'a';
-            importDiscDesignFromPayload(payload, target);
+            importDiscDesignFromPayload(payload, target, { openDesigner: false });
             event.target.value = '';
           } catch {
             alert('Could not read that file as a disc design.');
@@ -4841,9 +4919,7 @@
         reader.readAsText(file);
       });
       $('searchDiscNostrBtn').addEventListener('click', () => {
-        const templateTarget = $('importDiscTarget')?.value;
-        if (templateTarget && $('designerImportTarget')) $('designerImportTarget').value = templateTarget;
-        openDiscDesignNostrSearch();
+        openTemplateDiscDesignNostrSearch();
       });
       $('designerNostrLoadBtn').addEventListener('click', openDiscDesignNostrSearch);
 
