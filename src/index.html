@@ -313,6 +313,8 @@
     #layersFieldset { order: 40; }
     #designerMetadataFieldset { order: 45; }
     #exportFieldset { order: 50; }
+    #printSaveFieldset { order: 55; }
+    #designerPrintSaveFieldset { order: 46; }
     #metadataFieldset { order: 70; }
     #communityFieldset { order: 70; }
     aside > details { order: 90; }
@@ -1390,17 +1392,10 @@
         <button type="button" class="appModeTab" id="modeTabDesigner"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21"/><line x1="3" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21" y2="12"/></svg>Disc Designer</button>
       </div>
 
-      <div class="quickActions designer-only" aria-label="Designer actions">
-        <button type="button" id="designerSaveProjectBtn">Save Design</button>
-        <button type="button" id="designerLoadProjectBtn">Load Design</button>
-        <button type="button" id="designerLoadFileBtn">Load File</button>
-        <input id="discProjectFile" type="file" accept="application/json,.json" hidden />
-      </div>
+
 
       <div class="quickActions template-only" aria-label="Primary actions">
-        <button class="primary" type="button" id="quickPrintBtn">Print / Save PDF</button>
-        <button type="button" id="quickSaveBtn">Save Project</button>
-        <button type="button" id="browseCommunityBtn">Browse Templates</button>
+        <button class="primary" type="button" id="browseCommunityBtn">Browse Templates</button>
       </div>
 
       <fieldset class="workflowStep template-only" id="layoutFieldset">
@@ -1456,7 +1451,7 @@
       <fieldset class="secondaryPanel template-only" id="metadataFieldset">
         <details class="compactDetails">
           <summary data-step="5">Project metadata</summary>
-        <label for="titleField">Title</label><input id="titleField" type="text" placeholder="Movie title" />
+        <label for="titleField">Title *</label><input id="titleField" type="text" placeholder="Movie title" required />
         <label for="imdbField">IMDb ID</label><input id="imdbField" type="text" placeholder="tt1234567" />
         <label for="categoryField">Category</label>
         <select id="categoryField">
@@ -1479,17 +1474,14 @@
         </select>
         <div class="buttonRow">
           <button type="button" id="imdbImportBtn">Import IMDb data</button>
-          <button type="button" id="communityPublishBtn" class="primary">Publish to Nostr</button>
-          <button type="button" id="nostrExportBtn">Copy Nostr event</button>
-          <button type="button" id="nostrImportBtn">Import from Nostr</button>
         </div>
-        <p class="hint">IMDb import uses OMDb-compatible endpoint + API key. Publishing requires a Nostr extension (Alby, nos2x).</p>
+        <p class="hint">IMDb import uses OMDb-compatible endpoint + API key. Title and category are required to save or export.</p>
         </details>
       </fieldset>
 
 
       <fieldset class="workflowStep template-only" id="exportFieldset">
-        <legend data-step="4">Export</legend>
+        <legend data-step="4">Display options</legend>
         <label for="zoom">Preview zoom</label>
         <div class="rangeLine">
           <input id="zoom" type="range" min="20" max="125" step="1" value="60" />
@@ -1503,15 +1495,28 @@
           <label class="toggle cover-toggle"><input id="printGuides" type="checkbox" /> Include guides in PDF</label>
           <label class="toggle cover-toggle"><input id="printCrops" type="checkbox" checked /> Include crop marks in PDF</label>
                   </div>
+        <p class="hint">PDF export opens your browser print dialog. Choose <b>Save as PDF</b>, use <b>100% scale</b>, and disable headers/footers.</p>
+      </fieldset>
 
+      <fieldset class="workflowStep template-only" id="printSaveFieldset">
+        <legend data-step="6">Print &amp; Save</legend>
         <div class="buttonRow">
           <button class="primary" id="printBtn">Print / Save PDF</button>
-          <button id="saveProjectBtn">Save project</button>
+        </div>
+        <div class="buttonRow">
+          <button id="saveProjectBtn">Save project (JSON)</button>
           <button id="loadProjectBtn">Load project</button>
           <input id="projectFile" type="file" accept="application/json,.json" hidden />
         </div>
-
-        <p class="hint">Export PDF opens your print dialog. Choose <b>Save as PDF</b>, use <b>100% scale</b>, and disable browser headers/footers.</p>
+        <details>
+          <summary>Nostr</summary>
+          <div class="buttonRow">
+            <button type="button" id="communityPublishBtn">Publish to Nostr</button>
+            <button type="button" id="nostrExportBtn">Copy Nostr event</button>
+            <button type="button" id="nostrImportBtn">Import from Nostr</button>
+          </div>
+          <p class="hint">Publishing requires a Nostr browser extension (Alby, nos2x). Import restores a template from a pasted Nostr event.</p>
+        </details>
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="coverArtworkFieldset">
@@ -1786,14 +1791,13 @@
       <fieldset class="secondaryPanel designer-only" id="designerMetadataFieldset">
         <details class="compactDetails">
           <summary data-step="3">Project metadata</summary>
-          <label for="designerTitleField">Title</label>
+          <label for="designerTitleField">Title *</label>
           <input id="designerTitleField" type="text" placeholder="Movie, album, or game title" />
           <label for="designerImdbField">IMDb ID</label>
           <input id="designerImdbField" type="text" placeholder="tt1234567" />
-          <label for="designerCategoryField">Category</label>
+          <label for="designerCategoryField">Category *</label>
           <select id="designerCategoryField" class="categorySelect"></select>
           <div class="buttonRow">
-            <button type="button" id="designerPublishBtn" class="primary">Publish to Nostr</button>
             <button type="button" id="designerNostrLoadBtn">Load from Nostr</button>
             <select id="designerImportTarget" aria-label="Load into design slot">
               <option value="a">into Design A</option>
@@ -1802,7 +1806,27 @@
               <option value="d">into Design D</option>
             </select>
           </div>
-          <p class="hint">Disc designs publish as reusable single-disc designs. Load them into any A-D slot before assigning a print sheet.</p>
+          <p class="hint">Title and category are required to save or publish.</p>
+        </details>
+      </fieldset>
+
+      <fieldset class="workflowStep designer-only" id="designerPrintSaveFieldset">
+        <legend data-step="4">Print &amp; Save</legend>
+        <div class="buttonRow">
+          <button class="primary" id="designerPrintBtn">Print / Save PDF</button>
+        </div>
+        <div class="buttonRow">
+          <button type="button" id="designerSaveProjectBtn">Save design (JSON)</button>
+          <button type="button" id="designerLoadFileBtn">Load from file</button>
+          <input id="discProjectFile" type="file" accept="application/json,.json" hidden />
+        </div>
+        <details>
+          <summary>Nostr</summary>
+          <div class="buttonRow">
+            <button type="button" id="designerPublishBtn">Publish to Nostr</button>
+            <button type="button" id="designerLoadProjectBtn">Search Nostr</button>
+          </div>
+          <p class="hint">Disc designs publish as reusable single-disc designs. Publishing requires a Nostr browser extension.</p>
         </details>
       </fieldset>
 
@@ -3689,6 +3713,9 @@
       if (!state.meta.title?.trim()) {
         throw new Error('Add a title in Project Metadata before publishing.');
       }
+      if (!state.meta.category?.trim()) {
+        throw new Error('Select a category in Project Metadata before publishing.');
+      }
       let payload, typeTag;
       if (state.templateMode === 'disc') {
         payload = discSheetPayload();
@@ -3723,6 +3750,9 @@
     async function publishDiscDesignToNostr(key) {
       const design = state.discDesigns[key];
       if (!design?.src) throw new Error('Load an image URL before publishing this disc design.');
+      if (!state.meta.category?.trim()) {
+        throw new Error('Select a category in Project Metadata before publishing.');
+      }
       const payload = discDesignPayload(key);
       const designName = design.name && design.name !== `Design ${key.toUpperCase()}` ? design.name : state.meta.title;
       if (!designName?.trim()) {
@@ -4054,6 +4084,10 @@
     }
 
     function downloadProject() {
+      const title = (state.meta.title || '').trim();
+      const category = (state.meta.category || '').trim();
+      if (!title) { alert('Please enter a title in Project Metadata before saving.'); return; }
+      if (!category) { alert('Please select a category in Project Metadata before saving.'); return; }
       if (state.templateMode === 'disc') {
         triggerDownload(discSheetPayload(), projectFilename('disk'));
       } else if (state.templateMode === 'jewel') {
@@ -4064,6 +4098,10 @@
     }
 
     function downloadSingleDesign() {
+      const title = (state.meta.title || '').trim();
+      const category = (state.meta.category || '').trim();
+      if (!title) { alert('Please enter a title in Project Metadata before saving.'); return; }
+      if (!category) { alert('Please select a category in Project Metadata before saving.'); return; }
       const key = state.activeDiscDesign || 'a';
       const design = state.discDesigns[key];
       if (!design) return;
@@ -4934,6 +4972,8 @@
         render();
         window.print();
       });
+      const dprint = $('designerPrintBtn');
+      if (dprint) dprint.addEventListener('click', () => { render(); window.print(); });
 
       $('saveProjectBtn').addEventListener('click', downloadProject);
       $('designerSaveProjectBtn').addEventListener('click', () => {
@@ -5063,8 +5103,7 @@
       });
       $('designerNostrLoadBtn').addEventListener('click', openDiscDesignNostrSearch);
 
-      $('quickPrintBtn').addEventListener('click', () => $('printBtn').click());
-      $('quickSaveBtn').addEventListener('click', () => $('saveProjectBtn').click());
+
       $('browseCommunityBtn').addEventListener('click', () => { $('nostrModal').classList.add('open'); switchModalTab('New'); });
       $('welcomeSearchBtn').addEventListener('click', runWelcomeSearch);
       $('welcomeSkipBtn').addEventListener('click', dismissWelcomeModal);
