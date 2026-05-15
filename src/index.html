@@ -307,12 +307,13 @@
     #layoutFieldset { order: 10; }
     #coverSizeFieldset { order: 20; }
     #coverArtworkFieldset,
-    #discArtworkFieldset { order: 30; }
+    #discArtworkFieldset,
+    #jewelArtworkFieldset { order: 30; }
     #designerFieldset { order: 15; }
     #layersFieldset { order: 40; }
     #designerMetadataFieldset { order: 45; }
     #exportFieldset { order: 50; }
-    #metadataFieldset { order: 60; }
+    #metadataFieldset { order: 70; }
     #communityFieldset { order: 70; }
     aside > details { order: 90; }
 
@@ -1364,7 +1365,7 @@
 
       <fieldset class="secondaryPanel template-only" id="metadataFieldset">
         <details class="compactDetails">
-          <summary>Project metadata</summary>
+          <summary data-step="5">Project metadata</summary>
         <label for="titleField">Title</label><input id="titleField" type="text" placeholder="Movie title" />
         <label for="imdbField">IMDb ID</label><input id="imdbField" type="text" placeholder="tt1234567" />
         <label for="categoryField">Category</label>
@@ -1398,7 +1399,7 @@
 
 
       <fieldset class="workflowStep template-only" id="exportFieldset">
-        <legend data-step="5">Export</legend>
+        <legend data-step="4">Export</legend>
         <label for="zoom">Preview zoom</label>
         <div class="rangeLine">
           <input id="zoom" type="range" min="20" max="125" step="1" value="60" />
