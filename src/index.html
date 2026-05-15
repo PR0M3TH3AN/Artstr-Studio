@@ -650,6 +650,18 @@
       display: none !important;
     }
 
+    /* Export toggles: fold/safe/trim/bleed/crops only apply to case covers */
+    body.template-disc .cover-toggle,
+    body.template-jewel .cover-toggle {
+      display: none !important;
+    }
+
+    /* Layers: disc position targeting only matters in disc mode */
+    body.template-jewel .layer-controls,
+    body.template-cover .layer-controls {
+      display: none !important;
+    }
+
     .discSlot {
       position: absolute;
       overflow: hidden;
@@ -1485,11 +1497,11 @@
         </div>
 
         <div class="toggles">
-          <label class="toggle"><input id="showGuides" type="checkbox" checked /> Show fold/safe/trim guides on screen</label>
-          <label class="toggle"><input id="showBleed" type="checkbox" checked /> Show bleed shading on screen</label>
-          <label class="toggle"><input id="showCrops" type="checkbox" checked /> Show crop marks on screen</label>
-          <label class="toggle"><input id="printGuides" type="checkbox" /> Include guides in PDF</label>
-          <label class="toggle"><input id="printCrops" type="checkbox" checked /> Include crop marks in PDF</label>
+          <label class="toggle cover-toggle"><input id="showGuides" type="checkbox" checked /> Show fold/safe/trim guides on screen</label>
+          <label class="toggle cover-toggle"><input id="showBleed" type="checkbox" checked /> Show bleed shading on screen</label>
+          <label class="toggle cover-toggle"><input id="showCrops" type="checkbox" checked /> Show crop marks on screen</label>
+          <label class="toggle cover-toggle"><input id="printGuides" type="checkbox" /> Include guides in PDF</label>
+          <label class="toggle cover-toggle"><input id="printCrops" type="checkbox" checked /> Include crop marks in PDF</label>
                   </div>
 
         <div class="buttonRow">
@@ -1676,20 +1688,21 @@
       <fieldset class="workflowStep designer-only" id="layersFieldset">
         <legend data-step="2">Layers</legend>
 
-        <label for="layerTarget">Add layer to</label>
-        <select id="layerTarget">
+        <label for="layerTarget" class="layer-controls">Add layer to</label>
+        <select id="layerTarget" class="layer-controls">
           <option value="disc-top">Disc 1 position</option>
           <option value="disc-bottom">Disc 2 position</option>
         </select>
 
-        <div class="urlRow">
+        <div class="urlRow layer-controls">
           <input id="newLayerUrl" type="url" placeholder="https://example.com/layer.png" />
           <button type="button" class="copyUrlBtn" onclick="copyUrl('newLayerUrl')">Copy</button>
         </div>
-        <div class="buttonRow">
+        <div class="buttonRow layer-controls">
           <button type="button" id="addImageLayerBtn">Add image layer</button>
           <button type="button" id="addTextLayerBtn">Add text layer</button>
         </div>
+        <p class="hint layer-controls">Add image or text layers on top of your disc layout.</p>
 
         <div class="layerList" id="layerList"></div>
 
