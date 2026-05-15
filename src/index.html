@@ -5094,7 +5094,16 @@
       $('designerNostrLoadBtn').addEventListener('click', openDiscDesignNostrSearch);
 
 
-      $('browseCommunityBtn').addEventListener('click', () => { $('nostrModal').classList.add('open'); switchModalTab('New'); });
+      $('browseCommunityBtn').addEventListener('click', () => {
+        for (const t of ['New', 'Popular', 'Mine']) {
+          _feedState[`filter${t}`] = 'any';
+          document.querySelectorAll(`.feedTypeBtn[data-tab="${t}"]`).forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.type === 'any');
+          });
+        }
+        $('nostrModal').classList.add('open');
+        switchModalTab('New');
+      });
       $('designerBrowseCommunityBtn').addEventListener('click', () => {
         for (const t of ['New', 'Popular', 'Mine']) {
           _feedState[`filter${t}`] = 'disc-design';
