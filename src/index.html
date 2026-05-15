@@ -5029,17 +5029,6 @@
       outer.appendChild(discWrap);
       container.appendChild(outer);
 
-      if (layers.length) {
-        const info = document.createElement('p');
-        info.className = 'hint';
-        info.style.marginTop = '8px';
-        info.textContent = `${layers.length} layer${layers.length>1?'s':''}: ` + layers.map(l => {
-          if (l.type === 'image') return l.name || '[Image]';
-          if (l.type === 'text') return l.name || (l.html||l.text||'').replace(/<[^>]+>/g,'').trim() || '[Text]';
-          return l.name || `[${l.type}]`;
-        }).join(', ');
-        container.appendChild(info);
-      }
     }
 
     function renderTemplatePreviewDOM(container, payload) {
