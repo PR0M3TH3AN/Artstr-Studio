@@ -1317,7 +1317,6 @@
         <div class="layoutTabs" role="tablist" aria-label="Template layout">
           <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover</button>
           <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels</button>
-          <button type="button" class="layoutTab" id="mode-jewel" data-template-mode="jewel" role="tab">CD jewel inserts</button>
         </div>
       </fieldset>
 
@@ -2418,7 +2417,7 @@
     }
 
     function syncInputs() {
-      for (const mode of ['cover', 'disc', 'jewel']) {
+      for (const mode of ['cover', 'disc']) {
         const button = $(`mode-${mode}`);
         const active = state.templateMode === mode;
         button.classList.toggle('active', active);
