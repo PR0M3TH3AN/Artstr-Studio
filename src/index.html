@@ -2076,6 +2076,11 @@
       ]
     };
 
+    const discSlotNames = [
+      { key: 'top', label: 'Disc 1' },
+      { key: 'bottom', label: 'Disc 2' }
+    ];
+
     const jewelSlotNames = [
       { key: 'front', label: 'Front insert' },
       { key: 'tray', label: 'Tray insert' }
@@ -5328,7 +5333,6 @@
     function init() {
       restoreAutosave();
       state.appMode = state.appMode || 'template';
-      // removed: old slot assignment
       normalizeDiscState();
       normalizeJewelState();
       populateCategorySelects();
