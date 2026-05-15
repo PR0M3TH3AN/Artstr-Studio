@@ -104,14 +104,50 @@
       padding: 26px;
     }
 
+    .appHeader {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .appLogoRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .appLogo {
+      height: 28px;
+      width: auto;
+      filter: drop-shadow(0 0 4px rgba(0, 217, 255, 0.6)) drop-shadow(0 0 8px rgba(0, 217, 255, 0.3));
+    }
+
     h1 {
       font-size: 0.9rem;
       line-height: 1.2;
-      margin: 0 0 6px;
+      margin: 0;
       font-family: 'Press Start 2P', cursive;
       font-weight: normal;
       letter-spacing: 0.08em;
       white-space: nowrap;
+      background: linear-gradient(90deg, #00d9ff 0%, #0099ff 50%, #00d9ff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow: 0 0 10px rgba(0, 217, 255, 0.5);
+      filter: drop-shadow(0 0 4px rgba(0, 217, 255, 0.6)) drop-shadow(0 0 12px rgba(0, 217, 255, 0.3));
+    }
+
+    .appTagline {
+      font-size: 0.55rem;
+      letter-spacing: 0.15em;
+      color: #00d9ff;
+      text-align: center;
+      text-shadow: 0 0 8px rgba(0, 217, 255, 0.7), 0 0 16px rgba(0, 217, 255, 0.3);
+      font-family: 'VT323', 'Courier New', monospace;
+      font-weight: normal;
+      margin: 0;
+      line-height: 1;
     }
 
     .subhead {
@@ -1435,7 +1471,13 @@
   <div class="app">
     <aside>
       <div class="appTitle">
-        <h1><img src="logo.gif" alt="CaseWrap" style="height: 28px; width: auto; vertical-align: middle; margin-right: 8px;" /> CaseWrap Studio</h1>
+        <div class="appHeader">
+          <div class="appLogoRow">
+            <img src="logo.gif" alt="CaseWrap" class="appLogo" />
+            <h1>CaseWrap</h1>
+          </div>
+          <div class="appTagline">~ DISC & CASE DESIGN STUDIO ~</div>
+        </div>
         <p class="subhead">Design printable case wraps and disc labels, then save, print, or share them on Nostr.</p>
       </div>
 
