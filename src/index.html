@@ -255,6 +255,20 @@
       font-weight: 850;
     }
 
+    .secondaryPanel summary[data-step]::before {
+      content: attr(data-step);
+      display: inline-grid;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      margin-right: 7px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: var(--accent);
+      font-size: .74rem;
+      font-weight: 850;
+    }
+
     .secondaryPanel {
       background: #fbfcfe;
     }
@@ -1573,31 +1587,8 @@
         <p class="hint">Designs A–D created here can be assigned to print positions in the Template tab.</p>
       </fieldset>
 
-      <fieldset class="secondaryPanel designer-only" id="designerMetadataFieldset">
-        <details class="compactDetails">
-          <summary>Project metadata</summary>
-          <label for="designerTitleField">Title</label>
-          <input id="designerTitleField" type="text" placeholder="Movie, album, or game title" />
-          <label for="designerImdbField">IMDb ID</label>
-          <input id="designerImdbField" type="text" placeholder="tt1234567" />
-          <label for="designerCategoryField">Category</label>
-          <select id="designerCategoryField" class="categorySelect"></select>
-          <div class="buttonRow">
-            <button type="button" id="designerPublishBtn" class="primary">Publish to Nostr</button>
-            <button type="button" id="designerNostrLoadBtn">Load from Nostr</button>
-            <select id="designerImportTarget" aria-label="Load into design slot">
-              <option value="a">into Design A</option>
-              <option value="b">into Design B</option>
-              <option value="c">into Design C</option>
-              <option value="d">into Design D</option>
-            </select>
-          </div>
-          <p class="hint">Disc designs publish as reusable single-disc designs. Load them into any A-D slot before assigning a print sheet.</p>
-        </details>
-      </fieldset>
-
-      <fieldset class="workflowStep" id="layersFieldset">
-        <legend data-step="4">Layers</legend>
+      <fieldset class="workflowStep designer-only" id="layersFieldset">
+        <legend data-step="2">Layers</legend>
 
         <label for="layerTarget">Add layer to</label>
         <select id="layerTarget">
@@ -1685,6 +1676,29 @@
         </details>
 
         <p class="hint">Click a layer on the preview to select it. Drag selected image or text layers directly on the page. Text layers are editable in place.</p>
+      </fieldset>
+
+      <fieldset class="secondaryPanel designer-only" id="designerMetadataFieldset">
+        <details class="compactDetails">
+          <summary data-step="3">Project metadata</summary>
+          <label for="designerTitleField">Title</label>
+          <input id="designerTitleField" type="text" placeholder="Movie, album, or game title" />
+          <label for="designerImdbField">IMDb ID</label>
+          <input id="designerImdbField" type="text" placeholder="tt1234567" />
+          <label for="designerCategoryField">Category</label>
+          <select id="designerCategoryField" class="categorySelect"></select>
+          <div class="buttonRow">
+            <button type="button" id="designerPublishBtn" class="primary">Publish to Nostr</button>
+            <button type="button" id="designerNostrLoadBtn">Load from Nostr</button>
+            <select id="designerImportTarget" aria-label="Load into design slot">
+              <option value="a">into Design A</option>
+              <option value="b">into Design B</option>
+              <option value="c">into Design C</option>
+              <option value="d">into Design D</option>
+            </select>
+          </div>
+          <p class="hint">Disc designs publish as reusable single-disc designs. Load them into any A-D slot before assigning a print sheet.</p>
+        </details>
       </fieldset>
 
     </aside>
