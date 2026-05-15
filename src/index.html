@@ -4978,65 +4978,100 @@
 
     function renderDiscPreviewDOM(container, payload) {
       const disc = payload.discDesign || {};
-      const PREVIEW_SIZE = 420;
+      const allLayers = payload.layers || disc.layers || [];
+      const layers = allLayers.filter(l => !l.target || l.target === 'designer-disc' || l._generatedDiscLayer);
 
-      const wrap = document.createElement('div');
-      wrap.style.cssText = `position:relative;width:${PREVIEW_SIZE}px;height:${PREVIEW_SIZE}px;margin:0 auto;background:#111;border:2px solid var(--line);overflow:hidden;`;
+      const DISC_REAL_PX = 4.625 * 96;
+      const PREVIEW_PX = 380;
+      const SCALE = PREVIEW_PX / DISC_REAL_PX;
+      const DISC_D = 4.625;
+      const HOLE_D = 0.69;
+      const holePx = (HOLE_D / DISC_D) * PREVIEW_PX;
+
+      const outer = document.createElement('div');
+      outer.style.cssText = `position:relative;width:${PREVIEW_PX}px;height:${PREVIEW_PX}px;margin:0 auto;`;
+
+      const discWrap = document.createElement('div');
+      discWrap.style.cssText = `position:absolute;inset:0;border-radius:50%;overflow:hidden;background:#111;border:1px solid rgba(17,24,39,.18);`;
 
       if (disc.src) {
         const img = document.createElement('img');
         img.src = disc.src;
-        img.style.cssText = `position:absolute;inset:0;width:100%;height:100%;object-fit:${disc.fit || 'cover'};`;
-        wrap.appendChild(img);
+        img.style.cssText = `position:absolute;left:50%;top:50%;width:100%;height:100%;object-fit:${disc.fit || 'cover'};transform:translate(-50%,-50%) translate(${disc.x||0}%,${disc.y||0}%) rotate(${disc.rotate||0}deg) scale(${disc.zoom||1});`;
+        discWrap.appendChild(img);
       }
 
-      const layers = payload.layers || [];
       layers.forEach(layer => {
-        if (!layer.text && layer.type !== 'image') return;
-        const div = document.createElement('div');
-        div.style.cssText = `position:absolute;font-size:${(layer.size || 14) * (PREVIEW_SIZE / 400)}px;color:${layer.color || '#fff'};font-family:${layer.font || 'sans-serif'};font-weight:${layer.bold ? 'bold' : 'normal'};font-style:${layer.italic ? 'italic' : 'normal'};left:${(layer.x || 0) / 4}px;top:${(layer.y || 0) / 4}px;white-space:pre;pointer-events:none;`;
-        if (layer.type === 'text') div.textContent = layer.text;
-        if (layer.type === 'image' && layer.src) {
-          const imgEl = document.createElement('img');
-          imgEl.src = layer.src;
-          imgEl.style.cssText = `width:${(layer.w || 100) / 4}px;height:auto;`;
-          div.appendChild(imgEl);
+        const el = document.createElement('div');
+        const lx = (layer.x || 0) / DISC_D * 100;
+        const ly = (layer.y || 0) / DISC_D * 100;
+        const lw = (layer.w || DISC_D) / DISC_D * 100;
+        const lh = (layer.h || DISC_D) / DISC_D * 100;
+        el.style.cssText = `position:absolute;left:${lx}%;top:${ly}%;width:${lw}%;height:${lh}%;transform:rotate(${layer.rotate||0}deg);opacity:${layer.opacity !== undefined ? layer.opacity : 1};overflow:hidden;pointer-events:none;box-sizing:border-box;`;
+
+        if (layer.type === 'text') {
+          const fontPx = (layer.fontSize || 14) * (96/72) * SCALE;
+          el.style.cssText += `color:${layer.color||'#fff'};font-size:${fontPx}px;font-weight:${layer.bold?'bold':'normal'};font-style:${layer.italic?'italic':'normal'};text-align:${layer.align||'left'};display:flex;align-items:flex-start;`;
+          el.innerHTML = layer.html || '';
+        } else if (layer.type === 'image' && layer.src) {
+          const img = document.createElement('img');
+          img.src = layer.src;
+          img.style.cssText = 'width:100%;height:100%;object-fit:contain;';
+          el.appendChild(img);
         }
-        wrap.appendChild(div);
+        discWrap.appendChild(el);
       });
 
-      container.appendChild(wrap);
+      const hole = document.createElement('div');
+      hole.style.cssText = `position:absolute;left:50%;top:50%;width:${holePx}px;height:${holePx}px;border-radius:50%;background:#fff;border:1px solid rgba(17,24,39,.28);transform:translate(-50%,-50%);z-index:12;pointer-events:none;`;
+      discWrap.appendChild(hole);
+
+      outer.appendChild(discWrap);
+      container.appendChild(outer);
 
       if (layers.length) {
         const info = document.createElement('p');
         info.className = 'hint';
         info.style.marginTop = '8px';
-        info.textContent = `${layers.length} layer${layers.length > 1 ? 's' : ''}: ` +
-          layers.map(l => l.text || `[${l.type}]`).join(', ');
+        info.textContent = `${layers.length} layer${layers.length>1?'s':''}: ` + layers.map(l => l.name || (l.html||'').replace(/<[^>]+>/g,'').trim() || `[${l.type}]`).join(', ');
         container.appendChild(info);
       }
     }
 
     function renderTemplatePreviewDOM(container, payload) {
-      const slots = payload.slots || {};
+      const ct = payload.coverTemplate || {};
+      const slots = ct.slots || payload.slots || {};
+      const PANEL_H = 200;
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:8px;align-items:stretch;justify-content:center;flex-wrap:wrap;';
+      row.style.cssText = 'display:flex;gap:0;align-items:stretch;justify-content:center;';
 
       ['back','spine','front'].forEach(key => {
         const slot = slots[key] || {};
-        if (!slot.src && !slot.img) return;
+        if (!slot.src) return;
+        const isSpine = key === 'spine';
+        const w = isSpine ? 40 : 180;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = `position:relative;width:${w}px;height:${PANEL_H}px;overflow:hidden;background:#111;border:1px solid var(--line);flex-shrink:0;`;
         const img = document.createElement('img');
-        img.src = slot.src || slot.img;
-        img.style.cssText = `max-height:340px;max-width:${key === 'spine' ? '60px' : '260px'};object-fit:contain;border:1px solid var(--line);background:#111;`;
+        img.src = slot.src;
         img.alt = key;
-        row.appendChild(img);
+        img.style.cssText = `position:absolute;left:50%;top:50%;width:100%;height:100%;object-fit:${slot.fit||'cover'};transform:translate(-50%,-50%) translate(${slot.x||0}%,${slot.y||0}%) rotate(${slot.rotate||0}deg) scale(${slot.zoom||1});`;
+        wrap.appendChild(img);
+        row.appendChild(wrap);
       });
 
-      if (!row.children.length && payload.preview) {
-        const img = document.createElement('img');
-        img.src = payload.preview;
-        img.style.cssText = 'max-width:100%;max-height:400px;margin:0 auto;display:block;';
-        container.appendChild(img);
+      if (!row.children.length) {
+        if (payload.preview) {
+          const img = document.createElement('img');
+          img.src = payload.preview;
+          img.style.cssText = 'max-width:100%;max-height:400px;margin:0 auto;display:block;';
+          container.appendChild(img);
+        } else {
+          const msg = document.createElement('p');
+          msg.className = 'hint';
+          msg.textContent = 'No preview images available for this template.';
+          container.appendChild(msg);
+        }
         return;
       }
 
