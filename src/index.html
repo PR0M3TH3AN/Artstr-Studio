@@ -2013,6 +2013,8 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
+    const safe$ = (id) => { try { return $(id); } catch { return null; } };
+    const on = (id, type, fn) => { const el = $(id); if (el) el.addEventListener(type, fn); };
 
     function copyUrl(id) {
       const input = $(id);
@@ -4108,9 +4110,9 @@
       const payload = discDesignPayload(key);
       const name = (design.name || `Design ${key.toUpperCase()}`)
         .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-      const title = (state.meta.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      const rawTitle = (state.meta.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
       const imdb = state.meta.imdbId ? state.meta.imdbId.replace(/[^a-z0-9]/gi, '').toLowerCase() : '';
-      const filename = [title || name, imdb, 'design', key].filter(Boolean).join('_') + '.json';
+      const filename = [rawTitle || name, imdb, 'design', key].filter(Boolean).join('_') + '.json';
       triggerDownload(payload, filename);
     }
 
