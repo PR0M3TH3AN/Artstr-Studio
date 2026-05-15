@@ -1062,7 +1062,48 @@
 
     .slotGrid {
       display: grid;
+      grid-template-columns: 1fr;
       gap: 8px;
+    }
+
+    .urlRow {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .urlRow input[type="url"] {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .copyUrlBtn {
+      flex-shrink: 0;
+      padding: 8px 10px;
+      font-size: .78rem;
+      white-space: nowrap;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f1f5f9;
+      color: var(--muted);
+      cursor: pointer;
+      transition: background .15s;
+    }
+
+    .copyUrlBtn:hover {
+      background: #e2e8f0;
+      color: var(--ink);
+    }
+
+    body.dark .copyUrlBtn {
+      background: #1e293b;
+      border-color: var(--line);
+      color: var(--muted);
+    }
+
+    body.dark .copyUrlBtn:hover {
+      background: #334155;
+      color: var(--ink);
     }
 
     .rangeLine {
@@ -1436,7 +1477,10 @@
           <summary>Combined wrap image</summary>
 
           <label for="combinedUrl">Image URL</label>
-          <input id="combinedUrl" type="url" placeholder="https://example.com/wrap.jpg" />
+          <div class="urlRow">
+            <input id="combinedUrl" type="url" placeholder="https://example.com/wrap.jpg" />
+            <button type="button" class="copyUrlBtn" onclick="copyUrl('combinedUrl')">Copy</button>
+          </div>
           <div class="buttonRow">
             <button type="button" id="load-combined">Load URL</button>
             <button type="button" class="danger" id="clear-combined">Clear combined image</button>
@@ -1544,7 +1588,10 @@
         <label for="designerName">Design name</label>
         <input id="designerName" type="text" placeholder="e.g. Front of disc" />
         <label for="designerUrl">Image URL</label>
-        <input id="designerUrl" type="url" placeholder="https://example.com/disc.jpg" />
+        <div class="urlRow">
+          <input id="designerUrl" type="url" placeholder="https://example.com/disc.jpg" />
+          <button type="button" class="copyUrlBtn" onclick="copyUrl('designerUrl')">Copy</button>
+        </div>
         <div class="buttonRow">
           <button type="button" id="designerLoadBtn" class="primary">Load image</button>
           <button type="button" id="designerClearBtn" class="danger">Clear</button>
@@ -1597,8 +1644,11 @@
           <option value="disc-bottom">Disc 2 position</option>
         </select>
 
-        <div class="buttonRow">
+        <div class="urlRow">
           <input id="newLayerUrl" type="url" placeholder="https://example.com/layer.png" />
+          <button type="button" class="copyUrlBtn" onclick="copyUrl('newLayerUrl')">Copy</button>
+        </div>
+        <div class="buttonRow">
           <button type="button" id="addImageLayerBtn">Add image layer</button>
           <button type="button" id="addTextLayerBtn">Add text layer</button>
         </div>
@@ -1613,7 +1663,10 @@
 
           <div id="layerImageControls">
             <label for="layerUrl">Image URL</label>
-            <input id="layerUrl" type="url" placeholder="https://example.com/layer.png" />
+            <div class="urlRow">
+              <input id="layerUrl" type="url" placeholder="https://example.com/layer.png" />
+              <button type="button" class="copyUrlBtn" onclick="copyUrl('layerUrl')">Copy</button>
+            </div>
           </div>
 
           <div class="row">
@@ -1885,6 +1938,19 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
+
+    function copyUrl(id) {
+      const input = $(id);
+      if (!input) return;
+      const val = input.value.trim();
+      if (!val) return;
+      try {
+        navigator.clipboard.writeText(val);
+      } catch (err) {
+        input.select();
+        document.execCommand('copy');
+      }
+    }
 
     const SCHEMA_VERSION = 5;
     const MIN_SUPPORTED_SCHEMA_VERSION = 4;
@@ -2586,7 +2652,10 @@
         details.innerHTML = `
           <summary>${label}</summary>
           <label for="url-${key}">Image URL</label>
-          <input id="url-${key}" type="url" placeholder="https://example.com/image.jpg" />
+          <div class="urlRow">
+            <input id="url-${key}" type="url" placeholder="https://example.com/image.jpg" />
+            <button type="button" class="copyUrlBtn" onclick="copyUrl('url-${key}')">Copy</button>
+          </div>
           <div class="buttonRow">
             <button type="button" id="load-${key}">Load URL</button>
             <button type="button" class="danger" id="clear-${key}">Clear image</button>
@@ -2731,7 +2800,10 @@
         details.innerHTML = `
           <summary>${label}</summary>
           <label for="jewel-url-${key}">Image URL</label>
-          <input id="jewel-url-${key}" type="url" placeholder="https://example.com/${key}.jpg" />
+          <div class="urlRow">
+            <input id="jewel-url-${key}" type="url" placeholder="https://example.com/${key}.jpg" />
+            <button type="button" class="copyUrlBtn" onclick="copyUrl('jewel-url-${key}')">Copy</button>
+          </div>
           <div class="buttonRow">
             <button type="button" id="jewel-load-${key}">Load URL</button>
             <button type="button" class="danger" id="jewel-clear-${key}">Clear image</button>
