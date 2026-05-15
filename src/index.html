@@ -330,6 +330,8 @@
 
     body.app-designer .template-only { display: none !important; }
     body.app-template .designer-only { display: none !important; }
+    body.app-designer label[for="layerTarget"],
+    body.app-designer #layerTarget { display: none !important; }
     /* Layers panel hides in Template tab when in disc-sheet mode — disc layers live in the Designer */
     body.app-template.template-disc #layersFieldset { display: none !important; }
 
@@ -597,7 +599,15 @@
       display: none !important;
     }
 
-    body.template-cover #discArtworkFieldset {
+    body.template-jewel .coverOnly,
+    body.template-jewel #coverArtworkFieldset,
+    body.template-jewel #discArtworkFieldset {
+      display: none !important;
+    }
+
+    body.template-cover #discArtworkFieldset,
+    body.template-cover #jewelArtworkFieldset,
+    body.template-disc #jewelArtworkFieldset {
       display: none !important;
     }
 
@@ -675,6 +685,73 @@
       white-space: nowrap;
       max-height: 4.2in;
       overflow: hidden;
+    }
+
+    .jewelLayer {
+      position: absolute;
+      inset: 0;
+      display: none;
+      z-index: 10;
+    }
+
+    body.template-jewel .jewelLayer {
+      display: block;
+    }
+
+    .jewelSlot {
+      position: absolute;
+      overflow: hidden;
+      background: #f8fafc;
+      border: 1px solid rgba(17, 24, 39, .18);
+      z-index: 10;
+    }
+
+    .jewelSlot::before {
+      content: attr(data-label);
+      position: absolute;
+      left: 8px;
+      top: 7px;
+      background: rgba(255,255,255,.85);
+      border: 1px solid rgba(17,24,39,.13);
+      border-radius: 999px;
+      padding: 3px 7px;
+      font-size: 10px;
+      color: #334155;
+      font-weight: 800;
+      z-index: 14;
+      display: var(--label-display, block);
+    }
+
+    .jewelSlot::after {
+      content: "";
+      position: absolute;
+      inset: .125in;
+      border: 1px dashed rgba(37, 99, 235, .85);
+      z-index: 13;
+      pointer-events: none;
+      display: var(--safe-display, block);
+    }
+
+    .jewelSpineGuide {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 0;
+      border-left: 1px dashed rgba(37, 99, 235, .85);
+      z-index: 14;
+      pointer-events: none;
+      display: var(--safe-display, block);
+    }
+
+    .designerLayerOverlay {
+      position: absolute;
+      inset: 0;
+      z-index: 11;
+      pointer-events: none;
+    }
+
+    .designerLayerOverlay .freeLayer {
+      pointer-events: auto;
     }
 
     .layerOverlay {
@@ -1064,6 +1141,7 @@
     .feedTypeBtn.active{background:var(--accent);border-color:var(--accent);color:#fff}
     body.dark .feedTypeBtn{background:#0b1220;color:var(--muted);border-color:var(--line)}
     body.dark .feedTypeBtn.active{color:#fff}
+    .feedCategorySelect{width:auto;min-width:130px;padding:5px 8px;font-size:.78rem}
     .welcomeCard { max-width: 640px; }
 
     @media (max-width: 900px) {
@@ -1125,11 +1203,11 @@
         break-after: avoid;
       }
 
-      .slot, .discSlot {
+      .slot, .discSlot, .jewelSlot {
         border-color: transparent !important;
       }
 
-      .placeholder, .slot::after, .slot::before, .discSlot::before, .foldLine, .trimArea, .bleedFill, .spineText, .discSpineStrip {
+      .placeholder, .slot::after, .slot::before, .discSlot::before, .jewelSlot::before, .jewelSlot::after, .jewelSpineGuide, .foldLine, .trimArea, .bleedFill, .spineText, .discSpineStrip {
         display: none !important;
       }
 
@@ -1138,13 +1216,16 @@
       }
 
       body.print-guides .slot::before,
+      body.print-guides .jewelSlot::after,
+      body.print-guides .jewelSpineGuide,
       body.print-guides .foldLine,
       body.print-guides .trimArea,
       body.print-guides .discSpineStrip {
         display: block !important;
       }
 
-      body.print-guides .discSlot {
+      body.print-guides .discSlot,
+      body.print-guides .jewelSlot {
         border-color: rgba(17, 24, 39, .6) !important;
       }
 
@@ -1203,8 +1284,9 @@
       </div>
 
       <div class="quickActions designer-only" aria-label="Designer actions">
-        <button type="button" id="designerSaveProjectBtn">Save Disc Project</button>
-        <button type="button" id="designerLoadProjectBtn">Load Disc Project</button>
+        <button type="button" id="designerSaveProjectBtn">Save Design</button>
+        <button type="button" id="designerLoadProjectBtn">Load Design</button>
+        <button type="button" id="designerLoadFileBtn">Load File</button>
         <input id="discProjectFile" type="file" accept="application/json,.json" hidden />
       </div>
 
@@ -1219,15 +1301,17 @@
         <div class="layoutTabs" role="tablist" aria-label="Template layout">
           <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover</button>
           <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels</button>
+          <button type="button" class="layoutTab" id="mode-jewel" data-template-mode="jewel" role="tab">CD jewel inserts</button>
         </div>
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="coverSizeFieldset">
-        <legend data-step="2">Size</legend>
-        <label for="preset">Preset</label>
+        <legend data-step="2">Template</legend>
+        <label for="preset">Template preset</label>
         <select id="preset">
           <option value="dvd">DVD case wrap — 10.80 × 7.50 in with bleed</option>
           <option value="bluray">Blu-ray case wrap — 10.18 × 6.08 in with bleed</option>
+          <option value="jewel8693">CD jewel inserts — Avery 8693 / 8943</option>
           <option value="custom">Custom</option>
         </select>
 
@@ -1268,6 +1352,25 @@
           <summary>Project metadata</summary>
         <label for="titleField">Title</label><input id="titleField" type="text" placeholder="Movie title" />
         <label for="imdbField">IMDb ID</label><input id="imdbField" type="text" placeholder="tt1234567" />
+        <label for="categoryField">Category</label>
+        <select id="categoryField">
+          <option value="">Uncategorized</option>
+          <option value="blu-ray">Blu-ray</option>
+          <option value="dvd">DVD</option>
+          <option value="ps1">PS1</option>
+          <option value="ps2">PS2</option>
+          <option value="ps3">PS3</option>
+          <option value="xbox">Xbox</option>
+          <option value="xbox-360">Xbox 360</option>
+          <option value="pc">PC</option>
+          <option value="cd">CD</option>
+          <option value="dreamcast">Dreamcast</option>
+          <option value="gamecube">GameCube</option>
+          <option value="wii">Wii</option>
+          <option value="sega-saturn">Sega Saturn</option>
+          <option value="sega-cd">Sega CD</option>
+          <option value="audio-cd">Audio CD</option>
+        </select>
         <div class="buttonRow">
           <button type="button" id="imdbImportBtn">Import IMDb data</button>
           <button type="button" id="communityPublishBtn" class="primary">Publish to Nostr</button>
@@ -1404,6 +1507,16 @@
         </details>
       </fieldset>
 
+      <fieldset class="workflowStep template-only" id="jewelArtworkFieldset">
+        <legend data-step="3">Jewel Inserts</legend>
+        <div class="miniReadout" id="jewelSizeReadout"></div>
+        <div id="jewelControls" class="slotGrid"></div>
+        <div class="buttonRow">
+          <button type="button" class="danger" id="clearJewelBtn">Clear jewel inserts</button>
+        </div>
+        <p class="hint">Avery 8693 prints two jewel-case inserts on one Letter sheet: a front insert and a tray insert.</p>
+      </fieldset>
+
       <fieldset class="workflowStep designer-only" id="designerFieldset">
         <legend data-step="1">Disc Design</legend>
         <label>Active design</label>
@@ -1455,11 +1568,32 @@
           </div>
         </details>
         <div class="buttonRow" style="margin-top:8px">
-          <button type="button" id="designerSaveDesignBtn">Save Design</button>
-          <button type="button" id="designerPublishBtn">Publish to Nostr</button>
           <button type="button" class="danger" id="clearDiscBtn">Clear all</button>
         </div>
         <p class="hint">Designs A–D created here can be assigned to print positions in the Template tab.</p>
+      </fieldset>
+
+      <fieldset class="secondaryPanel designer-only" id="designerMetadataFieldset">
+        <details class="compactDetails">
+          <summary>Project metadata</summary>
+          <label for="designerTitleField">Title</label>
+          <input id="designerTitleField" type="text" placeholder="Movie, album, or game title" />
+          <label for="designerImdbField">IMDb ID</label>
+          <input id="designerImdbField" type="text" placeholder="tt1234567" />
+          <label for="designerCategoryField">Category</label>
+          <select id="designerCategoryField" class="categorySelect"></select>
+          <div class="buttonRow">
+            <button type="button" id="designerPublishBtn" class="primary">Publish to Nostr</button>
+            <button type="button" id="designerNostrLoadBtn">Load from Nostr</button>
+            <select id="designerImportTarget" aria-label="Load into design slot">
+              <option value="a">into Design A</option>
+              <option value="b">into Design B</option>
+              <option value="c">into Design C</option>
+              <option value="d">into Design D</option>
+            </select>
+          </div>
+          <p class="hint">Disc designs publish as reusable single-disc designs. Load them into any A-D slot before assigning a print sheet.</p>
+        </details>
       </fieldset>
 
       <fieldset class="workflowStep" id="layersFieldset">
@@ -1617,6 +1751,18 @@
               <div class="discSpineLabel" id="disc-spine-label-3" aria-hidden="true"></div>
               <div class="discSpineLabel" id="disc-spine-label-4" aria-hidden="true"></div>
             </div>
+            <div class="jewelLayer" id="jewelLayer" aria-hidden="true">
+              <div class="jewelSlot" data-label="FRONT INSERT" id="jewel-front">
+                <div class="placeholder">Enter front insert image URL</div>
+                <img class="art" id="art-jewel-front" alt="CD jewel front insert art" hidden />
+              </div>
+              <div class="jewelSlot" data-label="TRAY INSERT" id="jewel-tray">
+                <div class="placeholder">Enter tray insert image URL</div>
+                <img class="art" id="art-jewel-tray" alt="CD jewel tray insert art" hidden />
+                <div class="jewelSpineGuide" id="jewel-tray-spine-left" aria-hidden="true"></div>
+                <div class="jewelSpineGuide" id="jewel-tray-spine-right" aria-hidden="true"></div>
+              </div>
+            </div>
             <div class="layerOverlay" id="layerOverlay"></div>
           </section>
         </div>
@@ -1625,6 +1771,7 @@
           <div class="designerDiscWrap" id="designerDiscWrap">
             <div class="placeholder" id="designerPlaceholder">Load an image URL in the sidebar</div>
             <img class="art" id="designerDiscArt" alt="Disc design preview" hidden />
+            <div class="designerLayerOverlay" id="designerLayerOverlay"></div>
             <div class="designerDiscHole"></div>
           </div>
           <div class="designerDiscLabel" id="designerDiscLabel">Design A</div>
@@ -1641,7 +1788,8 @@
       <p style="margin:0 0 12px; font-weight:600">Search first — a community template may already exist for your title:</p>
       <div class="searchGrid">
         <div><label for="welcomeQuery">Title or IMDb ID</label><input id="welcomeQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
-        <div><label for="welcomeType">Type</label><select id="welcomeType"><option value="any">Any type</option><option value="cover">Case cover</option><option value="disc">Disc labels</option></select></div>
+        <div><label for="welcomeType">Type</label><select id="welcomeType"><option value="any">Any type</option><option value="cover">Case cover</option><option value="disc">Disc labels</option><option value="jewel">CD jewel inserts</option></select></div>
+        <div><label for="welcomeCategory">Category</label><select id="welcomeCategory" class="categorySelect"></select></div>
         <div class="buttonRow" style="margin:0"><button type="button" id="welcomeSearchBtn" class="primary">Search</button></div>
       </div>
       <div class="results" id="welcomeResults"></div>
@@ -1670,7 +1818,9 @@
           <button class="feedTypeBtn active" data-tab="New" data-type="any">All</button>
           <button class="feedTypeBtn" data-tab="New" data-type="cover">Case Covers</button>
           <button class="feedTypeBtn" data-tab="New" data-type="disc">Disc Sheets</button>
+          <button class="feedTypeBtn" data-tab="New" data-type="jewel">Jewel Inserts</button>
           <button class="feedTypeBtn" data-tab="New" data-type="disc-design">Disc Designs</button>
+          <select id="feedCategoryNew" class="feedCategorySelect categorySelect" data-tab="New" aria-label="Category filter"></select>
         </div>
         <div class="feedWall" id="feedWallNew"></div>
       </div>
@@ -1680,7 +1830,9 @@
           <button class="feedTypeBtn active" data-tab="Popular" data-type="any">All</button>
           <button class="feedTypeBtn" data-tab="Popular" data-type="cover">Case Covers</button>
           <button class="feedTypeBtn" data-tab="Popular" data-type="disc">Disc Sheets</button>
+          <button class="feedTypeBtn" data-tab="Popular" data-type="jewel">Jewel Inserts</button>
           <button class="feedTypeBtn" data-tab="Popular" data-type="disc-design">Disc Designs</button>
+          <select id="feedCategoryPopular" class="feedCategorySelect categorySelect" data-tab="Popular" aria-label="Category filter"></select>
         </div>
         <div class="feedWall" id="feedWallPopular"></div>
       </div>
@@ -1688,7 +1840,8 @@
       <div id="panelSearch" style="display:none">
         <div class="searchGrid">
           <div><label for="nostrQuery">Title or IMDb ID</label><input id="nostrQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
-          <div><label for="nostrType">Type</label><select id="nostrType"><option value="any">Any</option><option value="cover">Case cover</option><option value="disc">Disc sheet</option><option value="disc-design">Disc design</option></select></div>
+          <div><label for="nostrType">Type</label><select id="nostrType"><option value="any">Any</option><option value="cover">Case cover</option><option value="disc">Disc sheet</option><option value="jewel">CD jewel inserts</option><option value="disc-design">Disc design</option></select></div>
+          <div><label for="nostrCategory">Category</label><select id="nostrCategory" class="categorySelect"></select></div>
           <div class="buttonRow" style="margin:0"><button type="button" id="nostrRunSearch" class="primary">Search</button></div>
         </div>
         <div class="results" id="nostrResults" style="margin-top:10px"></div>
@@ -1699,7 +1852,9 @@
           <button class="feedTypeBtn active" data-tab="Mine" data-type="any">All</button>
           <button class="feedTypeBtn" data-tab="Mine" data-type="cover">Case Covers</button>
           <button class="feedTypeBtn" data-tab="Mine" data-type="disc">Disc Sheets</button>
+          <button class="feedTypeBtn" data-tab="Mine" data-type="jewel">Jewel Inserts</button>
           <button class="feedTypeBtn" data-tab="Mine" data-type="disc-design">Disc Designs</button>
+          <select id="feedCategoryMine" class="feedCategorySelect categorySelect" data-tab="Mine" aria-label="Category filter"></select>
         </div>
         <div class="feedWall" id="feedWallMine"></div>
       </div>
@@ -1716,7 +1871,7 @@
   <script>
     const $ = (id) => document.getElementById(id);
 
-    const SCHEMA_VERSION = 4;
+    const SCHEMA_VERSION = 5;
 
     const presets = {
       dvd: {
@@ -1760,6 +1915,40 @@
       ]
     };
 
+    const jewelTemplate = {
+      sheetW: 8.5,
+      sheetH: 11,
+      product: 'Avery 8693 / 8943',
+      slots: [
+      { key: 'front', label: 'Front insert', x: 1.875, y: 0.5, w: 4.75, h: 4.75 },
+      { key: 'tray', label: 'Tray insert with spines', x: 1.29685, y: 5.9373, w: 5.9063, h: 4.6254, spineW: 0.25 }
+      ]
+    };
+
+    const jewelSlotNames = [
+      { key: 'front', label: 'Front insert' },
+      { key: 'tray', label: 'Tray insert' }
+    ];
+
+    const mediaCategories = [
+      { value: '', label: 'Any category' },
+      { value: 'blu-ray', label: 'Blu-ray' },
+      { value: 'dvd', label: 'DVD' },
+      { value: 'ps1', label: 'PS1' },
+      { value: 'ps2', label: 'PS2' },
+      { value: 'ps3', label: 'PS3' },
+      { value: 'xbox', label: 'Xbox' },
+      { value: 'xbox-360', label: 'Xbox 360' },
+      { value: 'pc', label: 'PC' },
+      { value: 'cd', label: 'CD' },
+      { value: 'dreamcast', label: 'Dreamcast' },
+      { value: 'gamecube', label: 'GameCube' },
+      { value: 'wii', label: 'Wii' },
+      { value: 'sega-saturn', label: 'Sega Saturn' },
+      { value: 'sega-cd', label: 'Sega CD' },
+      { value: 'audio-cd', label: 'Audio CD' }
+    ];
+
     const discDesignNames = [
       { key: 'a', label: 'Design A' },
       { key: 'b', label: 'Design B' },
@@ -1768,7 +1957,7 @@
     ];
 
     const state = {
-      meta: { title: "", imdbId: "", omdbApiKey: "" },
+      meta: { title: "", imdbId: "", omdbApiKey: "", category: "" },
       darkMode: false,
       appMode: 'template',
       activeDiscDesign: 'a',
@@ -1815,6 +2004,10 @@
         bottom: 'b'
       },
       discSpineLabels: { top: '', bottom: '' },
+      jewelInserts: {
+        front: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
+        tray: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }
+      },
       layers: [],
       selectedLayerId: '',
       community: {
@@ -1885,29 +2078,52 @@
         .replace(/'/g, '&#39;');
     }
 
+    function categoryLabel(value) {
+      return mediaCategories.find((item) => item.value === value)?.label || value || '';
+    }
+
+    function populateCategorySelects() {
+      const options = mediaCategories
+        .map((item) => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`)
+        .join('');
+      document.querySelectorAll('.categorySelect').forEach((select) => {
+        select.innerHTML = options;
+      });
+      const metaSelect = $('categoryField');
+      if (metaSelect) {
+        const current = metaSelect.value || state.meta?.category || '';
+        metaSelect.value = mediaCategories.some((item) => item.value === current) ? current : '';
+      }
+    }
+
     function eventTemplateSummary(payload) {
       if (!payload) return { title: 'Untitled', mode: 'template', image: '' };
       const title = payload.meta?.title || payload.title || 'Untitled';
-      const mode = payload.templateMode || (payload.coverTemplate ? 'cover' : 'disc');
+      const mode = payload.templateMode || (payload.coverTemplate ? 'cover' : payload.jewelTemplate ? 'jewel' : 'disc');
+      const category = payload.meta?.category || payload.category || '';
       return {
         title,
         mode,
+        category,
         image: previewFromPayload(payload, mode)
       };
     }
 
     function discDesignPayload(key) {
+      if (key === state.activeDiscDesign) persistDesignerLayers(key);
       const design = state.discDesigns[key];
       if (!design) throw new Error('Disc design not found.');
       if (!design.src) throw new Error('Load an image URL before publishing this disc design.');
+      const { layers: _embeddedLayers, ...discDesign } = design;
       return {
         version: SCHEMA_VERSION,
         meta: state.meta,
         templateMode: 'disc-design',
         discDesign: {
           key,
-          ...design
+          ...discDesign
         },
+        layers: Array.isArray(design.layers) ? design.layers.map(l => ({ ...l, target: 'designer-disc' })) : [],
         discTemplate: {
           config: discTemplate
         },
@@ -1919,10 +2135,15 @@
       const tags = [];
       const title = payload?.meta?.title || payload?.title || '';
       const imdb = payload?.meta?.imdbId || payload?.imdbId || '';
+      const category = payload?.meta?.category || payload?.category || '';
       if (title) tags.push(['title', title]);
       if (imdb) tags.push(['i', imdb]);
       tags.push(['t', 'casewrap']);
       if (typeTag) tags.push(['t', typeTag]);
+      if (category) {
+        tags.push(['category', category]);
+        tags.push(['t', `casewrap-${category}`]);
+      }
       return tags;
     }
 
@@ -2069,8 +2290,10 @@
           x: 0,
           y: 0,
           rotate: 0,
+          layers: [],
           ...(state.discDesigns[key] || {})
         };
+        if (!Array.isArray(state.discDesigns[key].layers)) state.discDesigns[key].layers = [];
       }
 
       state.discSheet = {
@@ -2086,6 +2309,38 @@
       }
     }
 
+    function currentDesignerLayers() {
+      return state.layers.filter(l => l.target === 'designer-disc');
+    }
+
+    function persistDesignerLayers(key = state.activeDiscDesign || 'a') {
+      if (!state.discDesigns[key]) return;
+      state.discDesigns[key].layers = currentDesignerLayers().map(layer => ({ ...layer, target: 'designer-disc' }));
+    }
+
+    function loadDesignerLayers(key = state.activeDiscDesign || 'a') {
+      const layers = Array.isArray(state.discDesigns[key]?.layers) ? state.discDesigns[key].layers : [];
+      state.layers = [
+        ...state.layers.filter(l => l.target !== 'designer-disc'),
+        ...layers.map(layer => ({ ...layer, target: 'designer-disc' }))
+      ];
+    }
+
+    function normalizeJewelState() {
+      state.jewelInserts = state.jewelInserts || {};
+      for (const { key } of jewelSlotNames) {
+        state.jewelInserts[key] = {
+          src: '',
+          fit: 'cover',
+          zoom: 1,
+          x: 0,
+          y: 0,
+          rotate: 0,
+          ...(state.jewelInserts[key] || {})
+        };
+      }
+    }
+
     function templatePayloadFromEvent(event) {
       if (!event) return null;
       if (event.kind === 30078) return safeJsonParse(event.content, null);
@@ -2098,11 +2353,13 @@
 
     function sheetW() {
       if (state.templateMode === 'disc') return discTemplate.sheetW;
+      if (state.templateMode === 'jewel') return jewelTemplate.sheetW;
       return totalTrimW() + state.bleed * 2;
     }
 
     function sheetH() {
       if (state.templateMode === 'disc') return discTemplate.sheetH;
+      if (state.templateMode === 'jewel') return jewelTemplate.sheetH;
       return state.trimH + state.bleed * 2;
     }
 
@@ -2110,12 +2367,21 @@
       if ($('preset').value !== 'custom') {
         $('preset').value = 'custom';
         state.preset = 'custom';
+        state.templateMode = 'cover';
         $('customSizeFields').style.display = '';
       }
     }
 
     function applyPreset(name) {
       state.preset = name;
+      if (name === 'jewel8693') {
+        state.templateMode = 'jewel';
+        $('customSizeFields').style.display = 'none';
+        syncInputs();
+        render();
+        return;
+      }
+      state.templateMode = 'cover';
       if (presets[name]) {
         Object.assign(state, presets[name]);
       }
@@ -2125,14 +2391,14 @@
     }
 
     function syncInputs() {
-      for (const mode of ['cover', 'disc']) {
+      for (const mode of ['cover', 'disc', 'jewel']) {
         const button = $(`mode-${mode}`);
         const active = state.templateMode === mode;
         button.classList.toggle('active', active);
         button.setAttribute('aria-selected', active ? 'true' : 'false');
       }
-      $('preset').value = state.preset;
-      const csf = $('customSizeFields'); if (csf) csf.style.display = state.preset === 'custom' ? '' : 'none';
+      $('preset').value = state.templateMode === 'jewel' ? 'jewel8693' : state.preset;
+      const csf = $('customSizeFields'); if (csf) csf.style.display = state.preset === 'custom' && state.templateMode !== 'jewel' ? '' : 'none';
       $('panelW').value = state.panelW;
       $('trimH').value = state.trimH;
       $('spineW').value = state.spineW;
@@ -2145,6 +2411,10 @@
       const dm=$('darkMode'); if (dm) dm.checked = !!state.darkMode;
       $('titleField').value = state.meta?.title || "";
       $('imdbField').value = state.meta?.imdbId || "";
+      const cf = $('categoryField'); if (cf) cf.value = state.meta?.category || '';
+      const dt = $('designerTitleField'); if (dt) dt.value = state.meta?.title || "";
+      const di = $('designerImdbField'); if (di) di.value = state.meta?.imdbId || "";
+      const dc = $('designerCategoryField'); if (dc) dc.value = state.meta?.category || '';
       $('showBleed').checked = state.showBleed;
       $('showCrops').checked = state.showCrops;
       $('printGuides').checked = state.printGuides;
@@ -2165,6 +2435,7 @@
     function updateBodyClasses() {
       document.body.classList.toggle('template-cover', state.templateMode === 'cover');
       document.body.classList.toggle('template-disc', state.templateMode === 'disc');
+      document.body.classList.toggle('template-jewel', state.templateMode === 'jewel');
       document.body.classList.toggle('hide-guides', !state.showGuides);
       document.body.classList.toggle('hide-bleed', !state.showBleed);
       document.body.classList.toggle('hide-crops', !state.showCrops);
@@ -2207,6 +2478,23 @@
           <b>Disc diameter:</b> ${fmt(discTemplate.discD)} in (${fmt(mm(discTemplate.discD), 1)} mm)<br>
           <b>Disc centers:</b> X ${fmt(4.25)} in; Y ${fmt(3)} in and ${fmt(8)} in from top<br>
           <b>Center hole:</b> ${fmt(discTemplate.holeD)} in (${fmt(mm(discTemplate.holeD), 1)} mm)
+        `;
+      } else if (state.templateMode === 'jewel') {
+        $('projectTitle').textContent = 'CD jewel insert preview';
+        document.querySelector('.printHelp').textContent = 'Avery 8693 / 8943 layout: front and tray inserts on Letter paper.';
+        $('trimReadout').textContent = 'Avery 8693 jewel inserts';
+        $('sheetReadout').textContent = `Letter: ${fmt(sheetW())} × ${fmt(sheetH())} in`;
+        $('jewelSizeReadout').innerHTML = `
+          <b>Avery 8693 / 8943:</b> 2 jewel-case inserts per Letter sheet<br>
+          <b>Front insert:</b> ${fmt(jewelTemplate.slots[0].w)} × ${fmt(jewelTemplate.slots[0].h)} in<br>
+          <b>Tray insert with spines:</b> ${fmt(jewelTemplate.slots[1].w)} × ${fmt(jewelTemplate.slots[1].h)} in<br>
+          <b>Spine guides:</b> ${fmt(jewelTemplate.slots[1].spineW)} in from each tray edge<br>
+          <b>Sheet:</b> ${fmt(jewelTemplate.sheetW)} × ${fmt(jewelTemplate.sheetH)} in
+        `;
+        $('sizeReadout').innerHTML = `
+          <b>Preset:</b> Avery 8693 / 8943 CD jewel-case inserts<br>
+          <b>Sheet:</b> ${fmt(jewelTemplate.sheetW)} × ${fmt(jewelTemplate.sheetH)} in<br>
+          <b>Use:</b> clear standard or slimline jewel cases
         `;
       } else {
         $('projectTitle').textContent = 'Cover preview';
@@ -2252,6 +2540,7 @@
       renderDimensions();
       renderSlots();
       renderDiscSlots();
+      renderJewelSlots();
       renderCombined();
       renderLayers();
       renderDesignerDisc();
@@ -2406,6 +2695,101 @@
       syncDiscAssignmentInputs();
     }
 
+    function buildJewelControls() {
+      const wrap = $('jewelControls');
+      wrap.innerHTML = '';
+
+      for (const { key, label } of jewelSlotNames) {
+        const details = document.createElement('details');
+        details.open = false;
+        details.innerHTML = `
+          <summary>${label}</summary>
+          <label for="jewel-url-${key}">Image URL</label>
+          <input id="jewel-url-${key}" type="url" placeholder="https://example.com/${key}.jpg" />
+          <div class="buttonRow">
+            <button type="button" id="jewel-load-${key}">Load URL</button>
+            <button type="button" class="danger" id="jewel-clear-${key}">Clear image</button>
+          </div>
+
+          <label for="jewel-fit-${key}">Fit</label>
+          <select id="jewel-fit-${key}">
+            <option value="cover">Cover / crop to fill</option>
+            <option value="contain">Contain / no crop</option>
+            <option value="fill">Stretch to fit</option>
+            <option value="none">Natural size</option>
+          </select>
+
+          <label for="jewel-zoom-${key}">Image zoom</label>
+          <div class="rangeLine">
+            <input id="jewel-zoom-${key}" type="range" min="0.1" max="4" step="0.01" />
+            <output id="jewel-zoom-${key}-out"></output>
+          </div>
+
+          <label for="jewel-x-${key}">Move X</label>
+          <div class="rangeLine">
+            <input id="jewel-x-${key}" type="range" min="-100" max="100" step="1" />
+            <output id="jewel-x-${key}-out"></output>
+          </div>
+
+          <label for="jewel-y-${key}">Move Y</label>
+          <div class="rangeLine">
+            <input id="jewel-y-${key}" type="range" min="-100" max="100" step="1" />
+            <output id="jewel-y-${key}-out"></output>
+          </div>
+
+          <label for="jewel-rotate-${key}">Rotate</label>
+          <div class="rangeLine">
+            <input id="jewel-rotate-${key}" type="range" min="-180" max="180" step="1" />
+            <output id="jewel-rotate-${key}-out"></output>
+          </div>
+
+          <div class="buttonRow">
+            <button type="button" id="jewel-reset-${key}">Reset ${label.toLowerCase()}</button>
+          </div>
+        `;
+        wrap.appendChild(details);
+
+        $(`jewel-load-${key}`).addEventListener('click', () => {
+          const raw = $(`jewel-url-${key}`).value.trim();
+          if (!raw) return;
+          try {
+            state.templateMode = 'jewel';
+            state.jewelInserts[key].src = normalizeImageUrl(raw);
+            syncInputs();
+            render();
+          } catch (error) {
+            alert(error.message || 'Invalid image URL.');
+          }
+        });
+
+        $(`jewel-fit-${key}`).addEventListener('change', (event) => {
+          state.jewelInserts[key].fit = event.target.value;
+          render();
+        });
+
+        for (const prop of ['zoom', 'x', 'y', 'rotate']) {
+          $(`jewel-${prop}-${key}`).addEventListener('input', (event) => {
+            state.jewelInserts[key][prop] = Number(event.target.value);
+            syncJewelInputs(key);
+            render();
+          });
+        }
+
+        $(`jewel-reset-${key}`).addEventListener('click', () => {
+          Object.assign(state.jewelInserts[key], { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
+          syncJewelInputs(key);
+          render();
+        });
+
+        $(`jewel-clear-${key}`).addEventListener('click', () => {
+          state.jewelInserts[key].src = '';
+          $(`jewel-url-${key}`).value = '';
+          render();
+        });
+      }
+      syncAllJewelInputs();
+    }
+
     function syncSlotInputs(key) {
       const slot = state.slots[key];
       $(`url-${key}`).value = slot.src || '';
@@ -2438,6 +2822,8 @@
       if (urlEl) urlEl.value = design.src || '';
       const fitEl = $('fit-designer');
       if (fitEl) fitEl.value = design.fit || 'cover';
+      const targetEl = $('designerImportTarget');
+      if (targetEl) targetEl.value = key;
       const zoomEl = $('zoom-designer');
       if (zoomEl) { zoomEl.value = design.zoom ?? 1; $('zoom-designer-out').textContent = `${Math.round((design.zoom ?? 1) * 100)}%`; }
       const xEl = $('x-designer');
@@ -2451,6 +2837,25 @@
     function syncAllDiscInputs() {
       syncDiscAssignmentInputs();
       syncDesignerInputs();
+    }
+
+    function syncJewelInputs(key) {
+      const insert = state.jewelInserts[key];
+      if (!insert) return;
+      $(`jewel-url-${key}`).value = insert.src || '';
+      $(`jewel-fit-${key}`).value = insert.fit || 'cover';
+      $(`jewel-zoom-${key}`).value = insert.zoom ?? 1;
+      $(`jewel-zoom-${key}-out`).textContent = `${Math.round((insert.zoom ?? 1) * 100)}%`;
+      $(`jewel-x-${key}`).value = insert.x ?? 0;
+      $(`jewel-x-${key}-out`).textContent = `${insert.x ?? 0}%`;
+      $(`jewel-y-${key}`).value = insert.y ?? 0;
+      $(`jewel-y-${key}-out`).textContent = `${insert.y ?? 0}%`;
+      $(`jewel-rotate-${key}`).value = insert.rotate ?? 0;
+      $(`jewel-rotate-${key}-out`).textContent = `${insert.rotate ?? 0}°`;
+    }
+
+    function syncAllJewelInputs() {
+      for (const { key } of jewelSlotNames) syncJewelInputs(key);
     }
 
     function syncDiscAssignmentInputs() {
@@ -2573,6 +2978,43 @@
       });
     }
 
+    function renderJewelSlots() {
+      for (const slotDef of jewelTemplate.slots) {
+        const insert = state.jewelInserts[slotDef.key];
+        const slot = $(`jewel-${slotDef.key}`);
+        const img = $(`art-jewel-${slotDef.key}`);
+        const placeholder = slot.querySelector('.placeholder');
+
+        slot.style.left = inches(slotDef.x);
+        slot.style.top = inches(slotDef.y);
+        slot.style.width = inches(slotDef.w);
+        slot.style.height = inches(slotDef.h);
+
+        if (insert?.src) {
+          img.src = insert.src;
+          img.hidden = false;
+          placeholder.style.display = 'none';
+        } else {
+          img.removeAttribute('src');
+          img.hidden = true;
+          placeholder.style.display = state.templateMode === 'jewel' ? 'grid' : 'none';
+        }
+
+        img.style.objectFit = insert?.fit || 'cover';
+        img.style.transform =
+          `translate(-50%, -50%) translate(${insert?.x ?? 0}%, ${insert?.y ?? 0}%) rotate(${insert?.rotate ?? 0}deg) scale(${insert?.zoom ?? 1})`;
+
+        if (slotDef.key === 'tray') {
+          const leftGuide = $('jewel-tray-spine-left');
+          const rightGuide = $('jewel-tray-spine-right');
+          if (leftGuide && rightGuide) {
+            leftGuide.style.left = inches(slotDef.spineW || 0.25);
+            rightGuide.style.right = inches(slotDef.spineW || 0.25);
+          }
+        }
+      }
+    }
+
     function getLayer(id) {
       return state.layers.find((layer) => layer.id === id) || null;
     }
@@ -2595,8 +3037,14 @@
           h: discTemplate.discD
         };
       };
+      const jewel = (key) => {
+        const slot = jewelTemplate.slots.find((item) => item.key === key);
+        return { x: slot.x, y: slot.y, w: slot.w, h: slot.h };
+      };
 
       switch (target) {
+        case 'designer-disc':
+          return { x: 0, y: 0, w: discTemplate.discD, h: discTemplate.discD };
         case 'cover-trim':
           return { x: state.bleed, y: state.bleed, w: totalTrimW(), h: state.trimH };
         case 'back':
@@ -2609,14 +3057,25 @@
           return disc('top');
         case 'disc-bottom':
           return disc('bottom');
+        case 'jewel-front':
+          return jewel('front');
+        case 'jewel-tray':
+          return jewel('tray');
         default:
           return { x: 0, y: 0, w: sheetW(), h: sheetH() };
       }
     }
 
     function applyTargetMode(target) {
+      if (target === 'designer-disc') {
+        state.appMode = 'designer';
+        syncModeTabsUI();
+        return;
+      }
       if (target.startsWith('disc')) {
         state.templateMode = 'disc';
+      } else if (target.startsWith('jewel')) {
+        state.templateMode = 'jewel';
       } else if (target !== 'page') {
         state.templateMode = 'cover';
       }
@@ -2676,17 +3135,31 @@
 
     function renderLayers() {
       const overlay = $('layerOverlay');
+      const designerOverlay = $('designerLayerOverlay');
       overlay.innerHTML = '';
+      if (designerOverlay) designerOverlay.innerHTML = '';
       const ordered = [...state.layers].sort((a, b) => (a.z || 0) - (b.z || 0));
 
       for (const layer of ordered) {
+        const isDesignerLayer = layer.target === 'designer-disc';
+        if (state.appMode === 'designer' && !isDesignerLayer) continue;
+        if (state.appMode !== 'designer' && isDesignerLayer) continue;
+
         const el = document.createElement('div');
         el.className = `freeLayer${layer.id === state.selectedLayerId ? ' selected' : ''}`;
         el.dataset.layerId = layer.id;
-        el.style.left = inches(layer.x);
-        el.style.top = inches(layer.y);
-        el.style.width = inches(layer.w);
-        el.style.height = inches(layer.h);
+        if (isDesignerLayer) {
+          const discD = discTemplate.discD;
+          el.style.left = `${layer.x / discD * 100}%`;
+          el.style.top = `${layer.y / discD * 100}%`;
+          el.style.width = `${layer.w / discD * 100}%`;
+          el.style.height = `${layer.h / discD * 100}%`;
+        } else {
+          el.style.left = inches(layer.x);
+          el.style.top = inches(layer.y);
+          el.style.width = inches(layer.w);
+          el.style.height = inches(layer.h);
+        }
         el.style.opacity = layer.opacity;
         el.style.zIndex = layer.z || 1;
         el.style.transform = `rotate(${layer.rotate || 0}deg)`;
@@ -2725,7 +3198,7 @@
           }
           render();
         });
-        overlay.appendChild(el);
+        (isDesignerLayer ? designerOverlay : overlay).appendChild(el);
       }
       renderLayerList();
     }
@@ -2733,7 +3206,12 @@
     function renderLayerList() {
       const list = $('layerList');
       list.innerHTML = '';
-      if (!state.layers.length) {
+      const visibleLayers = state.layers.filter((layer) =>
+        state.appMode === 'designer'
+          ? layer.target === 'designer-disc'
+          : layer.target !== 'designer-disc'
+      );
+      if (!visibleLayers.length) {
         const empty = document.createElement('p');
         empty.className = 'hint';
         empty.textContent = 'No extra layers yet.';
@@ -2741,7 +3219,7 @@
         return;
       }
 
-      const ordered = [...state.layers].sort((a, b) => (b.z || 0) - (a.z || 0));
+      const ordered = [...visibleLayers].sort((a, b) => (b.z || 0) - (a.z || 0));
       for (const layer of ordered) {
         const item = document.createElement('button');
         item.type = 'button';
@@ -2798,7 +3276,7 @@
       if (event.kind === 30078) {
         const payload = safeJsonParse(event.content, {});
         const summary = eventTemplateSummary(payload);
-        return `${summary.mode} • ${profile?.name || profile?.display_name || shortPubkey(event.pubkey) || 'Unknown'}`;
+        return `${[summary.mode, categoryLabel(summary.category)].filter(Boolean).join(' • ')} • ${profile?.name || profile?.display_name || shortPubkey(event.pubkey) || 'Unknown'}`;
       }
       if (event.kind === 0) {
         return profile?.about || 'Profile update';
@@ -2863,7 +3341,7 @@
                 ${profile?.name ? `<span class="chip">${escapeHtml(profile.name)}</span>` : ''}
               </div>
               <p class="hint">${escapeHtml(event.kind === 30078 ? 'Case or disc template shared on Nostr.' : (event.content || '').slice(0, 360))}</p>
-              ${details ? `<div class="hint"><b>Mode:</b> ${escapeHtml(details.mode)}<br><b>Title:</b> ${escapeHtml(details.title)}</div>` : ''}
+              ${details ? `<div class="hint"><b>Mode:</b> ${escapeHtml(details.mode)}<br><b>Category:</b> ${escapeHtml(categoryLabel(details.category) || 'Uncategorized')}<br><b>Title:</b> ${escapeHtml(details.title)}</div>` : ''}
             </div>
           </div>
           <div class="feedTags">${tags.slice(0, 10).map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join('')}</div>
@@ -3018,6 +3496,12 @@
         if (!previewFromPayload(payload, 'disc')) {
           throw new Error('Assign at least one disc design before publishing.');
         }
+      } else if (state.templateMode === 'jewel') {
+        payload = jewelTemplatePayload();
+        typeTag = 'casewrap-jewel';
+        if (!previewFromPayload(payload, 'jewel')) {
+          throw new Error('Load jewel insert artwork before publishing.');
+        }
       } else {
         payload = coverTemplatePayload();
         typeTag = 'casewrap-cover';
@@ -3031,6 +3515,7 @@
       ];
       const evt = { kind: 30078, created_at: Math.floor(Date.now() / 1000), tags, content: JSON.stringify(payload) };
       const signed = await publishCommunityEvent(evt);
+      cachePublishedTemplateEvent(signed);
       state.community.status = `Published "${state.meta.title}" to Nostr.`;
       return signed;
     }
@@ -3045,8 +3530,7 @@
       }
       const tags = [
         ['d', `${state.meta.imdbId || designName}-${key}`],
-        ['t', 'casewrap'],
-        ['t', 'casewrap-disc-design'],
+        ...getTemplateTags(payload, 'casewrap-disc-design'),
         ['title', designName]
       ];
       if (state.meta.imdbId) tags.push(['i', state.meta.imdbId]);
@@ -3057,8 +3541,17 @@
         content: JSON.stringify(payload)
       };
       const signed = await publishCommunityEvent(evt);
+      cachePublishedTemplateEvent(signed);
       state.community.status = `Published ${designName} to Nostr.`;
       return signed;
+    }
+
+    function cachePublishedTemplateEvent(event) {
+      if (!event || event.kind !== 30078) return;
+      if (!_feedCache.events) _feedCache.events = [];
+      _feedCache.events = [event, ..._feedCache.events.filter(e => e.id !== event.id)];
+      _feedCache.fetchedAt = Date.now();
+      _feedCache.relayKey = splitRelayList(state.community.relays).join(',');
     }
 
     async function publishCommunityNote(text, replyToEvent = null) {
@@ -3230,7 +3723,9 @@
 
       event.preventDefault();
       event.stopPropagation();
-      const sheetRect = $('sheet').getBoundingClientRect();
+      const isDesignerLayer = layer.target === 'designer-disc';
+      const dragHost = isDesignerLayer ? $('designerDiscWrap') : $('sheet');
+      const sheetRect = dragHost.getBoundingClientRect();
       const startX = event.clientX;
       const startY = event.clientY;
       const originX = layer.x;
@@ -3239,12 +3734,17 @@
       el.setPointerCapture(event.pointerId);
 
       const move = (moveEvent) => {
-        const dx = (moveEvent.clientX - startX) / sheetRect.width * sheetW();
-        const dy = (moveEvent.clientY - startY) / sheetRect.height * sheetH();
+        const dx = (moveEvent.clientX - startX) / sheetRect.width * (isDesignerLayer ? discTemplate.discD : sheetW());
+        const dy = (moveEvent.clientY - startY) / sheetRect.height * (isDesignerLayer ? discTemplate.discD : sheetH());
         layer.x = originX + dx;
         layer.y = originY + dy;
-        el.style.left = inches(layer.x);
-        el.style.top = inches(layer.y);
+        if (isDesignerLayer) {
+          el.style.left = `${layer.x / discTemplate.discD * 100}%`;
+          el.style.top = `${layer.y / discTemplate.discD * 100}%`;
+        } else {
+          el.style.left = inches(layer.x);
+          el.style.top = inches(layer.y);
+        }
         syncLayerInputs();
       };
 
@@ -3279,7 +3779,10 @@
         meta: state.meta,
         ui: { zoom: state.zoom, showGuides: state.showGuides, showBleed: state.showBleed, showCrops: state.showCrops, printGuides: state.printGuides, printCrops: state.printCrops },
         coverTemplate: { preset: state.preset, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
-        layers: state.layers.filter(l => !String(l.target || '').startsWith('disc'))
+        layers: state.layers.filter(l => {
+          const target = String(l.target || '');
+          return !target.startsWith('disc') && !target.startsWith('jewel');
+        })
       };
     }
 
@@ -3291,6 +3794,17 @@
         ui: { zoom: state.zoom },
         discTemplate: { config: discTemplate, designs: state.discDesigns, sheet: state.discSheet, spineLabels: state.discSpineLabels },
         layers: state.layers.filter(l => String(l.target || '').startsWith('disc'))
+      };
+    }
+
+    function jewelTemplatePayload() {
+      return {
+        version: SCHEMA_VERSION,
+        templateMode: 'jewel',
+        meta: state.meta,
+        ui: { zoom: state.zoom, showGuides: state.showGuides, printGuides: state.printGuides },
+        jewelTemplate: { config: jewelTemplate, inserts: state.jewelInserts },
+        layers: state.layers.filter(l => String(l.target || '').startsWith('jewel'))
       };
     }
 
@@ -3311,6 +3825,7 @@
         },
         coverTemplate: { preset: state.preset, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
         discTemplate: { config: discTemplate, designs: state.discDesigns, sheet: state.discSheet, discs: state.discs, spineLabels: state.discSpineLabels },
+        jewelTemplate: { config: jewelTemplate, inserts: state.jewelInserts },
         layers: state.layers,
         community: { relays: state.community.relays, query: state.community.query, kind: state.community.kind }
       };
@@ -3341,26 +3856,18 @@
     function downloadProject() {
       if (state.templateMode === 'disc') {
         triggerDownload(discSheetPayload(), projectFilename('disk'));
+      } else if (state.templateMode === 'jewel') {
+        triggerDownload(jewelTemplatePayload(), projectFilename('jewel'));
       } else {
         triggerDownload(coverTemplatePayload(), projectFilename('case'));
       }
-    }
-
-    function downloadDiscProject() {
-      triggerDownload(discSheetPayload(), projectFilename('disk'));
     }
 
     function downloadSingleDesign() {
       const key = state.activeDiscDesign || 'a';
       const design = state.discDesigns[key];
       if (!design) return;
-      const payload = {
-        version: SCHEMA_VERSION,
-        templateMode: 'disc-design',
-        meta: state.meta,
-        discDesign: { key, ...design },
-        discTemplate: { config: discTemplate }
-      };
+      const payload = discDesignPayload(key);
       const name = (design.name || `Design ${key.toUpperCase()}`)
         .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
       const title = (state.meta.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -3372,22 +3879,14 @@
     function loadProjectFromText(text) {
       const parsed = JSON.parse(text);
       if (parsed.version && parsed.templateMode === 'disc-design' && parsed.discDesign) {
-        const key = parsed.discDesign.key && state.discDesigns[parsed.discDesign.key] ? parsed.discDesign.key : 'a';
-        const { key: _discardKey, ...discDesign } = parsed.discDesign;
-        state.discDesigns[key] = {
-          ...state.discDesigns[key],
-          ...discDesign
-        };
-        state.templateMode = 'disc';
-        syncInputs();
-        syncAllDiscInputs();
-        render();
+        const key = parsed.discDesign.key && state.discDesigns[parsed.discDesign.key] ? parsed.discDesign.key : (state.activeDiscDesign || 'a');
+        importDiscDesignFromPayload(parsed, key);
         return;
       }
       const v = parsed.version || 0;
       const mode = parsed.templateMode || parsed.ui?.templateMode || '';
 
-      // v4+ cover-only: restore cover fields, leave disc designs untouched
+      // v5+ cover-only: restore cover fields, leave disc and jewel designs untouched
       if (v >= 4 && mode === 'cover' && !parsed.discTemplate) {
         Object.assign(state, {
           templateMode: 'cover',
@@ -3408,7 +3907,10 @@
           slots: { ...state.slots, ...(parsed.coverTemplate?.slots || {}) },
           combined: { ...state.combined, ...(parsed.coverTemplate?.combined || {}) },
           layers: [
-            ...state.layers.filter(l => String(l.target || '').startsWith('disc')),
+            ...state.layers.filter(l => {
+              const target = String(l.target || '');
+              return target.startsWith('disc') || target.startsWith('jewel');
+            }),
             ...(Array.isArray(parsed.layers) ? parsed.layers : [])
           ],
           selectedLayerId: ''
@@ -3417,7 +3919,7 @@
         return;
       }
 
-      // v4+ disc-only: restore disc fields, leave cover data untouched
+      // v5+ disc-only: restore disc fields, leave cover and jewel data untouched
       if (v >= 4 && mode === 'disc' && !parsed.coverTemplate) {
         const designs = parsed.discTemplate?.designs || {};
         const sheet = parsed.discTemplate?.sheet || {};
@@ -3436,6 +3938,25 @@
         });
         normalizeDiscState();
         syncInputs(); syncAllDiscInputs(); render();
+        return;
+      }
+
+      if (v >= 5 && mode === 'jewel' && parsed.jewelTemplate) {
+        Object.assign(state, {
+          templateMode: 'jewel',
+          meta: { ...state.meta, ...(parsed.meta || {}) },
+          zoom: parsed.ui?.zoom ?? state.zoom,
+          showGuides: parsed.ui?.showGuides ?? state.showGuides,
+          printGuides: parsed.ui?.printGuides ?? state.printGuides,
+          jewelInserts: { ...state.jewelInserts, ...(parsed.jewelTemplate?.inserts || {}) },
+          layers: [
+            ...state.layers.filter(l => !String(l.target || '').startsWith('jewel')),
+            ...(Array.isArray(parsed.layers) ? parsed.layers : [])
+          ],
+          selectedLayerId: ''
+        });
+        normalizeJewelState();
+        syncInputs(); syncAllJewelInputs(); render();
         return;
       }
 
@@ -3465,6 +3986,7 @@
             discDesigns: parsed.discTemplate?.designs || parsed.discDesigns || {},
             discSheet: parsed.discTemplate?.sheet || parsed.discSheet || {},
             discSpineLabels: parsed.discTemplate?.spineLabels || parsed.discSpineLabels || state.discSpineLabels,
+            jewelInserts: parsed.jewelTemplate?.inserts || parsed.jewelInserts || {},
             community: parsed.community || {},
             layers: Array.isArray(parsed.layers) ? parsed.layers : []
           }
@@ -3477,15 +3999,18 @@
         discs: { ...state.discs, ...(source.discs || {}) },
         discDesigns: { ...state.discDesigns, ...(source.discDesigns || {}) },
         discSheet: { ...state.discSheet, ...(source.discSheet || {}) },
+        jewelInserts: { ...state.jewelInserts, ...(source.jewelInserts || {}) },
         community: { ...state.community, ...(source.community || {}) },
         layers: Array.isArray(source.layers) ? source.layers : [],
         selectedLayerId: ''
       };
       Object.assign(state, next);
       normalizeDiscState();
+      normalizeJewelState();
       syncInputs();
       syncAllSlotInputs();
       syncAllDiscInputs();
+      syncAllJewelInputs();
       syncCombinedInputs();
       render();
     }
@@ -3539,31 +4064,34 @@
       }
     }
 
-    const _feedState = { filterNew: 'any', filterPopular: 'any', filterMine: 'any' };
+    const _feedState = { filterNew: 'any', filterPopular: 'any', filterMine: 'any', categoryNew: '', categoryPopular: '', categoryMine: '' };
 
-    function buildRowsFromEvents(events, typeFilter = 'any', query = '', skipVersionFilter = false) {
+    function buildRowsFromEvents(events, typeFilter = 'any', query = '', skipVersionFilter = false, categoryFilter = '') {
       const q = query.trim().toLowerCase();
       const rows = [];
       for (const e of events) {
         let payload = null;
         try { payload = JSON.parse(e.content || '{}'); } catch { continue; }
-        // Only show posts from SCHEMA_VERSION 4 onwards (unless fetching own designs)
+        // Only show posts from the current share schema onwards (unless fetching own designs)
         if (!skipVersionFilter && (payload.version ?? 0) < SCHEMA_VERSION) continue;
         const title = payload.meta?.title || payload.title || '';
         const imdb = payload.meta?.imdbId || '';
-        const mode = payload.templateMode || (payload.coverTemplate ? 'cover' : 'disc');
+        const category = payload.meta?.category || payload.category || '';
+        const mode = payload.templateMode || (payload.coverTemplate ? 'cover' : payload.jewelTemplate ? 'jewel' : 'disc');
         const displayTitle = mode === 'disc-design' ? (payload.discDesign?.name || title || '') : title;
         // Skip completely unidentifiable posts
         if (!displayTitle && !imdb) continue;
         if (typeFilter !== 'any' && mode !== typeFilter) continue;
+        if (categoryFilter && category !== categoryFilter) continue;
         if (q) {
-          const hay = `${displayTitle} ${title} ${imdb} ${(e.tags || []).map(t => t.join(' ')).join(' ')}`.toLowerCase();
+          const hay = `${displayTitle} ${title} ${imdb} ${category} ${(e.tags || []).map(t => t.join(' ')).join(' ')}`.toLowerCase();
           if (!hay.includes(q)) continue;
         }
         rows.push({
           e, payload,
           title: displayTitle || `(${mode})`,
           imdb,
+          category,
           mode,
           preview: previewFromPayload(payload, mode),
           reactions: _feedCache.reactions[e.id] || 0,
@@ -3607,7 +4135,7 @@
       const authorName = authorProfile?.name || authorProfile?.display_name || (row.e?.pubkey ? shortPubkey(row.e.pubkey) : '');
       const authorPic = authorProfile?.picture || authorProfile?.image || '';
       const authorHtml = authorName ? `<div class="feedCardAuthor">${authorPic ? `<img class="feedCardAvatar" src="${escapeHtml(authorPic)}" alt="" onerror="this.remove()" loading="lazy" />` : ''}<span class="feedCardAuthorName">${escapeHtml(authorName)}</span></div>` : '';
-      meta.innerHTML = `<div class="feedCardTitle" title="${escapeHtml(row.title || 'Untitled')}">${escapeHtml(row.title || 'Untitled')}</div><div class="feedCardSub">${escapeHtml([modeLabel, row.imdb].filter(Boolean).join(' · '))}</div>${authorHtml}`;
+      meta.innerHTML = `<div class="feedCardTitle" title="${escapeHtml(row.title || 'Untitled')}">${escapeHtml(row.title || 'Untitled')}</div><div class="feedCardSub">${escapeHtml([modeLabel, categoryLabel(row.category), row.imdb].filter(Boolean).join(' · '))}</div>${authorHtml}`;
       const actions = document.createElement('div');
       actions.className = 'feedCardActions';
       const btn = document.createElement('button');
@@ -3657,6 +4185,7 @@
         return;
       }
       const typeFilter = _feedState.filterMine || 'any';
+      const categoryFilter = _feedState.categoryMine || '';
       wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading your designs…</div>';
       const relays = splitRelayList(state.community.relays);
       const events = await queryRelays(relays, {
@@ -3676,7 +4205,7 @@
           _feedCache.profiles[state.community.myPubkey] = state.community.myProfile;
         }
       }
-      const rows = buildRowsFromEvents(events, typeFilter);
+      const rows = buildRowsFromEvents(events, typeFilter, '', false, categoryFilter);
       rows.sort((a, b) => b.createdAt - a.createdAt);
       wall.innerHTML = '';
       if (!rows.length) {
@@ -3711,7 +4240,8 @@
       wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading…</div>';
       await fetchFeedAndReactions();
       const typeFilter = _feedState[`filter${tab}`] || 'any';
-      let rows = buildRowsFromEvents(_feedCache.events || [], typeFilter);
+      const categoryFilter = _feedState[`category${tab}`] || '';
+      let rows = buildRowsFromEvents(_feedCache.events || [], typeFilter, '', false, categoryFilter);
       if (tab === 'New') {
         rows.sort((a, b) => b.createdAt - a.createdAt);
       } else {
@@ -3752,6 +4282,16 @@
           const any = Object.values(designs).find(d => d?.src);
           if (any) return any.src;
           return payload.discs?.top?.src || payload.discTemplate?.discs?.top?.src || '';
+        }
+
+        if (mode === 'jewel') {
+          return (
+            payload.jewelTemplate?.inserts?.front?.src ||
+            payload.jewelInserts?.front?.src ||
+            payload.jewelTemplate?.inserts?.tray?.src ||
+            payload.jewelInserts?.tray?.src ||
+            ''
+          );
         }
 
         // Cover: front → combined wrap → back (in that priority)
@@ -3807,7 +4347,7 @@
       return btn;
     }
 
-    const MODE_LABELS = { cover: 'Case cover', disc: 'Disc sheet', 'disc-design': 'Disc design' };
+    const MODE_LABELS = { cover: 'Case cover', disc: 'Disc sheet', jewel: 'CD jewel inserts', 'disc-design': 'Disc design' };
 
     function buildResultCard(row, onUse) {
       const el = document.createElement('div');
@@ -3834,7 +4374,7 @@
       thumb.appendChild(fallback);
 
       const meta = document.createElement('div');
-      const sub = [row.imdb, modeLabel].filter(Boolean).join(' · ');
+      const sub = [row.imdb, modeLabel, categoryLabel(row.category)].filter(Boolean).join(' · ');
       const rAuthor = _feedCache.profiles?.[row.e?.pubkey];
       const rAuthorName = rAuthor?.name || rAuthor?.display_name || (row.e?.pubkey ? shortPubkey(row.e.pubkey) : '');
       const rAuthorPic = rAuthor?.picture || rAuthor?.image || '';
@@ -3856,10 +4396,12 @@
     async function runNostrSearch() {
       const q = $('nostrQuery').value.trim();
       const type = $('nostrType').value;
+      const category = $('nostrCategory').value;
       const out = $('nostrResults');
       out.innerHTML = '<div class="hint">Searching…</div>';
+      invalidateFeedCache();
       await fetchFeedAndReactions();
-      let rows = buildRowsFromEvents(_feedCache.events || [], type, q);
+      let rows = buildRowsFromEvents(_feedCache.events || [], type, q, false, category);
       if (q) rows = deduplicateRows(rows);
       rows.sort((a, b) => b.reactions - a.reactions);
       out.innerHTML = rows.length ? '' : '<div class="hint">No templates found.</div>';
@@ -3902,7 +4444,17 @@
       const key = targetKey || state.activeDiscDesign || 'a';
       if (payload?.templateMode === 'disc-design' && payload.discDesign) {
         const { key: _k, ...design } = payload.discDesign;
-        state.discDesigns[key] = { ...state.discDesigns[key], ...design };
+        const importedLayers = Array.isArray(payload.layers)
+          ? payload.layers
+          : Array.isArray(design.layers)
+            ? design.layers
+            : [];
+        delete design.layers;
+        state.discDesigns[key] = {
+          ...state.discDesigns[key],
+          ...design,
+          layers: importedLayers.map(l => ({ ...l, target: 'designer-disc' }))
+        };
       } else if (payload?.discTemplate?.designs) {
         const first = Object.values(payload.discTemplate.designs).find(d => d?.src);
         if (first) state.discDesigns[key] = { ...state.discDesigns[key], ...first };
@@ -3910,9 +4462,32 @@
         const first = Object.values(payload.discDesigns).find(d => d?.src);
         if (first) state.discDesigns[key] = { ...state.discDesigns[key], ...first };
       }
+      state.activeDiscDesign = key;
+      state.appMode = 'designer';
+      loadDesignerLayers(key);
       syncDiscAssignmentInputs();
       syncDesignerInputs();
       render();
+    }
+
+    function askDiscDesignSlot(defaultKey = state.activeDiscDesign || 'a') {
+      const select = $('designerImportTarget') || $('importDiscTarget');
+      const key = select?.value || defaultKey || 'a';
+      return state.discDesigns[key] ? key : 'a';
+    }
+
+    function openDiscDesignNostrSearch() {
+      const target = askDiscDesignSlot();
+      state.activeDiscDesign = target;
+      const importTarget = $('importDiscTarget');
+      if (importTarget) importTarget.value = target;
+      const designerTarget = $('designerImportTarget');
+      if (designerTarget) designerTarget.value = target;
+      $('nostrType').value = 'disc-design';
+      $('nostrQuery').value = state.meta.title || state.discDesigns[target]?.name || '';
+      $('nostrModal').classList.add('open');
+      switchModalTab('Search');
+      runNostrSearch();
     }
 
     function syncModeTabsUI() {
@@ -3926,8 +4501,7 @@
       if (!select) return;
       if (state.appMode === 'designer') {
         select.innerHTML = `
-          <option value="disc-top">Disc 1 position</option>
-          <option value="disc-bottom">Disc 2 position</option>
+          <option value="designer-disc">Current disc design</option>
         `;
       } else {
         select.innerHTML = `
@@ -3936,17 +4510,21 @@
           <option value="back">Back cover</option>
           <option value="spine">Spine</option>
           <option value="front">Front cover</option>
+          <option value="jewel-front">Jewel front insert</option>
+          <option value="jewel-tray">Jewel tray insert</option>
         `;
       }
     }
 
     function switchAppMode(mode) {
+      if (state.appMode === 'designer') persistDesignerLayers();
       state.appMode = mode;
       if (mode === 'designer') {
         if (state.templateMode !== 'disc') {
           state._prevTemplateMode = state.templateMode;
           state.templateMode = 'disc';
         }
+        loadDesignerLayers(state.activeDiscDesign || 'a');
       } else {
         if (state._prevTemplateMode) {
           state.templateMode = state._prevTemplateMode;
@@ -3960,7 +4538,9 @@
     }
 
     function switchActiveDesign(key) {
+      persistDesignerLayers();
       state.activeDiscDesign = key;
+      loadDesignerLayers(key);
       render();
     }
 
@@ -3972,10 +4552,11 @@
     async function runWelcomeSearch() {
       const q = $('welcomeQuery').value.trim();
       const type = $('welcomeType').value;
+      const category = $('welcomeCategory').value;
       const out = $('welcomeResults');
       out.innerHTML = '<div class="hint">Searching relays…</div>';
       await fetchFeedAndReactions();
-      let rows = buildRowsFromEvents(_feedCache.events || [], type, q);
+      let rows = buildRowsFromEvents(_feedCache.events || [], type, q, false, category);
       if (q) rows = deduplicateRows(rows);
       rows.sort((a, b) => b.reactions - a.reactions);
       out.innerHTML = rows.length ? '' : '<div class="hint">No templates found. Start from scratch below.</div>';
@@ -3988,9 +4569,15 @@
     }
 
     function attachEvents() {
-      for (const mode of ['cover', 'disc']) {
+      for (const mode of ['cover', 'disc', 'jewel']) {
         $(`mode-${mode}`).addEventListener('click', () => {
           state.templateMode = mode;
+          if (mode === 'jewel') {
+            state.preset = 'jewel8693';
+          } else if (mode === 'cover' && state.preset === 'jewel8693') {
+            state.preset = 'dvd';
+            Object.assign(state, presets.dvd);
+          }
           syncInputs();
           render();
         });
@@ -4020,6 +4607,10 @@
 
       $("titleField").addEventListener("input", (e)=>{state.meta.title=e.target.value; render();});
       $("imdbField").addEventListener("input", (e)=>{state.meta.imdbId=e.target.value; render();});
+      $("categoryField").addEventListener("change", (e)=>{state.meta.category=e.target.value; render();});
+      $("designerTitleField").addEventListener("input", (e)=>{state.meta.title=e.target.value; render();});
+      $("designerImdbField").addEventListener("input", (e)=>{state.meta.imdbId=e.target.value; render();});
+      $("designerCategoryField").addEventListener("change", (e)=>{state.meta.category=e.target.value; render();});
 
       $("imdbImportBtn").addEventListener("click", async ()=>{
         const imdb = state.meta.imdbId.trim();
@@ -4033,8 +4624,16 @@
 
       $("nostrExportBtn").addEventListener("click", async ()=>{
         if (!window.nostr) return alert("No Nostr extension found");
-        const payload = state.templateMode === 'disc' ? discSheetPayload() : coverTemplatePayload();
-        const typeTag = state.templateMode === 'disc' ? 'casewrap-disc' : 'casewrap-cover';
+        const payload = state.templateMode === 'disc'
+          ? discSheetPayload()
+          : state.templateMode === 'jewel'
+            ? jewelTemplatePayload()
+            : coverTemplatePayload();
+        const typeTag = state.templateMode === 'disc'
+          ? 'casewrap-disc'
+          : state.templateMode === 'jewel'
+            ? 'casewrap-jewel'
+            : 'casewrap-cover';
         const tags = [
           ['d', state.meta.imdbId || state.meta.title || 'template'],
           ...getTemplateTags(payload, typeTag)
@@ -4070,6 +4669,14 @@
         });
       });
 
+      document.querySelectorAll('.feedCategorySelect').forEach(select => {
+        select.addEventListener('change', () => {
+          const tab = select.dataset.tab;
+          _feedState[`category${tab}`] = select.value;
+          if (tab === 'Mine') loadMyDesigns(); else loadFeedTab(tab);
+        });
+      });
+
       $("nostrImportBtn").addEventListener("click", ()=>{
         const raw = prompt("Paste Nostr event JSON"); if (!raw) return;
         try { const evt = JSON.parse(raw); if (evt.content) loadProjectFromText(evt.content); } catch { alert("Bad event JSON"); }
@@ -4096,15 +4703,21 @@
       });
 
       $('saveProjectBtn').addEventListener('click', downloadProject);
-      $('designerSaveProjectBtn').addEventListener('click', downloadDiscProject);
-      $('designerLoadProjectBtn').addEventListener('click', () => $('discProjectFile').click());
+      $('designerSaveProjectBtn').addEventListener('click', downloadSingleDesign);
+      $('designerLoadProjectBtn').addEventListener('click', openDiscDesignNostrSearch);
+      $('designerLoadFileBtn').addEventListener('click', () => {
+        const target = askDiscDesignSlot();
+        state.activeDiscDesign = target;
+        $('discProjectFile').click();
+      });
       $('discProjectFile').addEventListener('change', (event) => {
         const file = event.target.files && event.target.files[0];
         if (!file) return;
         const reader = new FileReader();
         reader.onload = () => {
           try {
-            loadProjectFromText(String(reader.result));
+            const payload = JSON.parse(String(reader.result));
+            importDiscDesignFromPayload(payload, state.activeDiscDesign || 'a');
           } catch {
             alert('Could not load that disc project file.');
           }
@@ -4173,8 +4786,6 @@
         render();
       });
 
-      $('designerSaveDesignBtn').addEventListener('click', downloadSingleDesign);
-
       $('designerPublishBtn').addEventListener('click', async () => {
         try {
           await publishDiscDesignToNostr(state.activeDiscDesign);
@@ -4203,10 +4814,11 @@
         reader.readAsText(file);
       });
       $('searchDiscNostrBtn').addEventListener('click', () => {
-        $('nostrType').value = 'disc-design';
-        $('nostrModal').classList.add('open');
-        switchModalTab('Search');
+        const templateTarget = $('importDiscTarget')?.value;
+        if (templateTarget && $('designerImportTarget')) $('designerImportTarget').value = templateTarget;
+        openDiscDesignNostrSearch();
       });
+      $('designerNostrLoadBtn').addEventListener('click', openDiscDesignNostrSearch);
 
       $('quickPrintBtn').addEventListener('click', () => $('printBtn').click());
       $('quickSaveBtn').addEventListener('click', () => $('saveProjectBtn').click());
@@ -4300,8 +4912,19 @@
       $('clearDiscBtn').addEventListener('click', () => {
         for (const { key } of discDesignNames) {
           state.discDesigns[key].src = '';
+          state.discDesigns[key].layers = [];
         }
+        state.layers = state.layers.filter(l => l.target !== 'designer-disc');
         $('designerUrl').value = '';
+        render();
+      });
+
+      $('clearJewelBtn').addEventListener('click', () => {
+        for (const { key } of jewelSlotNames) {
+          state.jewelInserts[key].src = '';
+          const input = $(`jewel-url-${key}`);
+          if (input) input.value = '';
+        }
         render();
       });
 
@@ -4407,11 +5030,13 @@
           discs: { ...state.discs, ...(parsed.discs || {}) },
           discDesigns: { ...state.discDesigns, ...(parsed.discDesigns || parsed.discTemplate?.designs || {}) },
           discSheet: { ...state.discSheet, ...(parsed.discSheet || parsed.discTemplate?.sheet || {}) },
+          jewelInserts: { ...state.jewelInserts, ...(parsed.jewelInserts || parsed.jewelTemplate?.inserts || {}) },
           community: { ...state.community, ...(parsed.community || {}) },
           layers: Array.isArray(parsed.layers) ? parsed.layers : [],
           selectedLayerId: ''
         });
         normalizeDiscState();
+        normalizeJewelState();
       } catch (error) {
         console.warn('Autosave restore failed', error);
       }
@@ -4422,16 +5047,20 @@
       state.appMode = state.appMode || 'template';
       state.activeDiscDesign = state.activeDiscDesign || 'a';
       normalizeDiscState();
+      normalizeJewelState();
+      populateCategorySelects();
       if (!localStorage.getItem('casewrap-welcomed')) {
         $('welcomeModal').classList.add('open');
       }
       buildSlotControls();
       buildDiscControls();
+      buildJewelControls();
       attachEvents();
       updateLayerTargetOptions();
       syncInputs();
       syncAllSlotInputs();
       syncAllDiscInputs();
+      syncAllJewelInputs();
       syncCombinedInputs();
       syncCommunityInputs();
       syncDesignerInputs();

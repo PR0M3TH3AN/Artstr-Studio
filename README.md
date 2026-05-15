@@ -1,13 +1,14 @@
 # CaseWrap Studio
 
 CaseWrap Studio is a static print-layout editor for physical media packaging.
-It handles DVD and Blu-ray case wraps, Avery 8960-style disc labels, and freeform image/text layers.
+It handles DVD and Blu-ray case wraps, Avery 8960-style disc labels, Avery 8693 jewel-case inserts, and freeform image/text layers.
 
 ## What it supports
 
 - Separate front, spine, and back artwork
 - One combined wrap image
 - Avery 8960 / 8944 disc-label layouts
+- Avery 8693 / 8943 CD jewel-case inserts, including a wider tray insert with side spine guides
 - Reusable disc designs that can be assigned to either Avery sheet position
 - Additional image layers
 - Editable text layers
@@ -49,9 +50,13 @@ If a URL stops working later, the image will no longer render. For permanent res
 - `Import from Nostr` restores the template from a copied event
 - The Community panel can refresh a relay-backed feed, open a selected template, publish the current design, and interact with selected posts
 - Disc designs are separate from the printable Avery sheet, so one sheet can print two different designs or two copies of the same design
+- CD jewel inserts are a separate template mode, so front/tray insert artwork can be saved and shared apart from disc-label sheets
+- Template/design payloads are published as Nostr kind `30078` app data events with `casewrap` tags; ordinary replies, reactions, reposts, follows, and profiles use standard Nostr kinds `1`, `7`, `6`, `3`, and `0`
+- Nostr posts can be categorized for filtering: Blu-ray, DVD, PS1, PS2, PS3, Xbox, Xbox 360, PC, CD, Dreamcast, GameCube, Wii, Sega Saturn, Sega CD, and Audio CD
 
 ## Notes
 
 - The app is static and does not need a backend
 - Local browser autosave is still available
+- Nostr template/design payloads currently use schema version 5
 - Older saved projects that contain embedded data URLs may still load, but new work should use remote URLs only
