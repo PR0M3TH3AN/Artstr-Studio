@@ -3807,6 +3807,7 @@
     async function publishCommunityNote(text, replyToEvent = null) {
       const content = String(text || '').trim();
       if (!content) throw new Error('Enter a note first.');
+      if (!state.community.myPubkey) throw new Error('Sign in with Nostr to post notes or replies.');
       const tags = [['t', 'casewrap']];
       if (replyToEvent?.id) {
         tags.push(['e', replyToEvent.id]);
@@ -3824,6 +3825,7 @@
     }
 
     async function likeSelectedCommunityEvent() {
+      if (!state.community.myPubkey) throw new Error('Sign in with Nostr to react to posts.');
       const event = currentCommunityEvent();
       if (!event) throw new Error('Select a post first.');
       const evt = {
@@ -4984,6 +4986,10 @@
       });
 
       $('communityPublishBtn').addEventListener('click', async () => {
+        if (!state.community.myPubkey) {
+          alert('Please sign in with Nostr (top right) before publishing.');
+          return;
+        }
         try {
           await publishCurrentTemplateToNostr();
           alert('Published to Nostr.');
@@ -5093,6 +5099,10 @@
       });
 
       $('designerPublishBtn').addEventListener('click', async () => {
+        if (!state.community.myPubkey) {
+          alert('Please sign in with Nostr (top right) before publishing.');
+          return;
+        }
         try {
           await publishDiscDesignToNostr(state.activeDiscDesign);
           alert(`${state.discDesigns[state.activeDiscDesign].name || 'Design'} published to Nostr.`);
