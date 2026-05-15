@@ -4921,6 +4921,7 @@
         import1Btn.addEventListener('click', () => {
           importDiscDesignFromPayload(p, 'top', { openDesigner: false });
           state.appMode = 'template';
+          state.templateMode = 'case';
           syncInputs();
           render();
           $('designPreviewModal').classList.remove('open');
@@ -4934,6 +4935,7 @@
         import2Btn.addEventListener('click', () => {
           importDiscDesignFromPayload(p, 'bottom', { openDesigner: false });
           state.appMode = 'template';
+          state.templateMode = 'case';
           syncInputs();
           render();
           $('designPreviewModal').classList.remove('open');
