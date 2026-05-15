@@ -2151,8 +2151,7 @@
           <h2 id="previewModalTitle">Design Preview</h2>
           <p id="previewModalMeta" class="subhead"></p>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <button type="button" id="previewPrintBtn">Print / Save PDF</button>
+        <div id="previewModalActions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <button type="button" id="previewSaveJsonBtn">Save JSON</button>
           <button type="button" id="previewModalClose">Close</button>
         </div>
@@ -4901,6 +4900,71 @@
       $('designPreviewModal')._row = row;
 
       const p = row.payload || {};
+      const isDiscDesign = !!p.discDesign && !p.slots;
+
+      // Rebuild action buttons based on design type
+      const actionsDiv = $('previewModalActions');
+      const saveJsonBtn = $('previewSaveJsonBtn');
+      const closeBtn = $('previewModalClose');
+
+      // Clear dynamic buttons, keep Save JSON and Close
+      while (actionsDiv.children.length > 2) {
+        actionsDiv.removeChild(actionsDiv.children[0]);
+      }
+
+      if (isDiscDesign) {
+        // For disc designs, show import buttons
+        const import1Btn = document.createElement('button');
+        import1Btn.type = 'button';
+        import1Btn.textContent = 'Import into Disk 1';
+        import1Btn.id = 'previewImport1Btn';
+        import1Btn.addEventListener('click', () => {
+          importDiscDesignFromPayload(p, 'top', { openDesigner: false });
+          state.appMode = 'template';
+          syncInputs();
+          render();
+          $('designPreviewModal').classList.remove('open');
+          $('nostrModal').classList.remove('open');
+        });
+
+        const import2Btn = document.createElement('button');
+        import2Btn.type = 'button';
+        import2Btn.textContent = 'Import into Disk 2';
+        import2Btn.id = 'previewImport2Btn';
+        import2Btn.addEventListener('click', () => {
+          importDiscDesignFromPayload(p, 'bottom', { openDesigner: false });
+          state.appMode = 'template';
+          syncInputs();
+          render();
+          $('designPreviewModal').classList.remove('open');
+          $('nostrModal').classList.remove('open');
+        });
+
+        actionsDiv.insertBefore(import2Btn, saveJsonBtn);
+        actionsDiv.insertBefore(import1Btn, saveJsonBtn);
+      } else {
+        // For templates, show print button
+        const printBtn = document.createElement('button');
+        printBtn.type = 'button';
+        printBtn.textContent = 'Print / Save PDF';
+        printBtn.id = 'previewPrintBtn';
+        printBtn.addEventListener('click', () => {
+          const stateSnapshot = JSON.parse(JSON.stringify(state));
+          try { loadProjectFromText(JSON.stringify(p)); } catch(e) { console.error(e); }
+          $('designPreviewModal').classList.remove('open');
+          $('nostrModal').classList.remove('open');
+          function onAfterPrint() {
+            window.removeEventListener('afterprint', onAfterPrint);
+            Object.assign(state, stateSnapshot);
+            syncInputs();
+            render();
+          }
+          window.addEventListener('afterprint', onAfterPrint);
+          setTimeout(() => { render(); window.print(); }, 350);
+        });
+        actionsDiv.insertBefore(printBtn, saveJsonBtn);
+      }
+
       if (p.discDesign) {
         renderDiscPreviewDOM(content, p);
       } else {
@@ -5317,28 +5381,6 @@
       });
 
       // Preview modal event listeners
-      $('previewPrintBtn').addEventListener('click', () => {
-        const row = $('designPreviewModal')._row;
-        if (!row) return;
-        const stateSnapshot = JSON.parse(JSON.stringify(state));
-        const p = row.payload || {};
-        if (p.discDesign) {
-          importDiscDesignFromPayload(p, 'a', { openDesigner: false });
-        } else {
-          try { loadProjectFromText(JSON.stringify(p)); } catch(e) { console.error(e); }
-        }
-        $('designPreviewModal').classList.remove('open');
-        $('nostrModal').classList.remove('open');
-        function onAfterPrint() {
-          window.removeEventListener('afterprint', onAfterPrint);
-          Object.assign(state, stateSnapshot);
-          syncInputs();
-          render();
-        }
-        window.addEventListener('afterprint', onAfterPrint);
-        setTimeout(() => { render(); window.print(); }, 350);
-      });
-
       $('previewSaveJsonBtn').addEventListener('click', () => {
         const row = $('designPreviewModal')._row;
         if (!row) return;
