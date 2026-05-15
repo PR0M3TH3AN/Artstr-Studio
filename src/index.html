@@ -352,19 +352,6 @@
 
     body.dark .appModeTab.active { color: #fff; }
 
-    .designTabs {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 6px;
-      margin-top: 4px;
-    }
-
-    .designTab.active {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-    }
-
     body.app-designer .template-only { display: none !important; }
     body.app-template .designer-only { display: none !important; }
     body.app-designer label[for="layerTarget"],
@@ -1630,7 +1617,7 @@
         <legend data-step="3">Disc Layout</legend>
         <div class="miniReadout" id="discSizeReadout"></div>
         <div id="discControls" class="slotGrid"></div>
-        <p class="hint">Create disc designs in the Disc Designer tab, then assign them to print positions here.</p>
+        <p class="hint">Import saved disc designs into each print position from file or Nostr.</p>
         <details style="margin-top:10px">
           <summary style="font-weight:700;font-size:.86rem;cursor:pointer">Spine strip labels (optional)</summary>
           <div class="row" style="margin-top:8px">
@@ -1659,13 +1646,6 @@
 
       <fieldset class="workflowStep designer-only" id="designerFieldset">
         <legend data-step="1">Disc Design</legend>
-        <label>Active design</label>
-        <div class="designTabs">
-          <button type="button" class="designTab active" id="designTab-a">A</button>
-          <button type="button" class="designTab" id="designTab-b">B</button>
-          <button type="button" class="designTab" id="designTab-c">C</button>
-          <button type="button" class="designTab" id="designTab-d">D</button>
-        </div>
         <label for="designerName">Design name</label>
         <input id="designerName" type="text" placeholder="e.g. Front of disc" />
         <label for="designerUrl">Image URL</label>
@@ -2120,18 +2100,10 @@
       { value: 'audio-cd', label: 'Audio CD' }
     ];
 
-    const discDesignNames = [
-      { key: 'a', label: 'Design A' },
-      { key: 'b', label: 'Design B' },
-      { key: 'c', label: 'Design C' },
-      { key: 'd', label: 'Design D' }
-    ];
-
     const state = {
       meta: { title: "", imdbId: "", omdbApiKey: "", category: "" },
       darkMode: false,
       appMode: 'template',
-      activeDiscDesign: 'a',
       templateMode: 'cover',
       preset: 'dvd',
       panelW: presets.dvd.panelW,
@@ -2164,16 +2136,7 @@
         top: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
         bottom: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }
       },
-      discDesigns: {
-        a: { name: 'Design A', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
-        b: { name: 'Design B', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
-        c: { name: 'Design C', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
-        d: { name: 'Design D', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }
-      },
-      discSheet: {
-        top: 'a',
-        bottom: 'b'
-      },
+      discDesign: { name: '', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
       discSpineLabels: { top: '', bottom: '' },
       jewelInserts: {
         front: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
@@ -2290,24 +2253,18 @@
       };
     }
 
-    function discDesignPayload(key) {
-      if (key === state.activeDiscDesign) persistDesignerLayers(key);
-      const design = state.discDesigns[key];
-      if (!design) throw new Error('Disc design not found.');
-      if (!design.src) throw new Error('Load an image URL before publishing this disc design.');
-      const { layers: _embeddedLayers, ...discDesign } = design;
+    function discDesignPayload() {
+      persistCurrentDiscDesign();
+      const design = state.discDesign;
+      if (!design?.src) throw new Error('Load an image URL before publishing this disc design.');
+      const layers = currentDesignerLayers();
       return {
         version: SCHEMA_VERSION,
         meta: state.meta,
         templateMode: 'disc-design',
-        discDesign: {
-          key,
-          ...discDesign
-        },
-        layers: Array.isArray(design.layers) ? design.layers.map(l => ({ ...l, target: 'designer-disc' })) : [],
-        discTemplate: {
-          config: discTemplate
-        },
+        discDesign: { ...design },
+        layers: layers.map(l => ({ ...l, target: 'designer-disc' })),
+        discTemplate: { config: discTemplate },
         community: { relays: state.community.relays, query: state.community.query, kind: state.community.kind }
       };
     }
@@ -2462,45 +2419,43 @@
     }
 
     function normalizeDiscState() {
-      for (const { key, label } of discDesignNames) {
-        state.discDesigns[key] = {
-          name: label,
-          src: '',
-          fit: 'cover',
-          zoom: 1,
-          x: 0,
-          y: 0,
-          rotate: 0,
-          layers: [],
-          ...(state.discDesigns[key] || {})
-        };
-        if (!Array.isArray(state.discDesigns[key].layers)) state.discDesigns[key].layers = [];
-      }
-
-      state.discSheet = {
-        top: state.discSheet?.top || 'a',
-        bottom: state.discSheet?.bottom || 'b'
+      state.discDesign = {
+        name: '',
+        src: '',
+        fit: 'cover',
+        zoom: 1,
+        x: 0,
+        y: 0,
+        rotate: 0,
+        layers: [],
+        ...state.discDesign
       };
-
-      if (state.discs?.top?.src && !state.discDesigns.a.src) {
-        Object.assign(state.discDesigns.a, { name: 'Design A', ...state.discs.top });
+      if (!Array.isArray(state.discDesign.layers)) state.discDesign.layers = [];
+      // Backward compat: if old discs.top has an image, load it into discDesign
+      if (state.discs?.top?.src && !state.discDesign.src) {
+        Object.assign(state.discDesign, { name: state.discs.top.name || '', ...state.discs.top });
       }
-      if (state.discs?.bottom?.src && !state.discDesigns.b.src) {
-        Object.assign(state.discDesigns.b, { name: 'Design B', ...state.discs.bottom });
+      // Backward compat: if old discDesigns.a has an image, load it
+      if (state.discDesigns?.a?.src && !state.discDesign.src) {
+        Object.assign(state.discDesign, { name: state.discDesign.name || '', ...state.discDesign });
       }
+      state.discs = {
+        top: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
+        bottom: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
+        ...state.discs
+      };
     }
 
     function currentDesignerLayers() {
       return state.layers.filter(l => l.target === 'designer-disc');
     }
 
-    function persistDesignerLayers(key = state.activeDiscDesign || 'a') {
-      if (!state.discDesigns[key]) return;
-      state.discDesigns[key].layers = currentDesignerLayers().map(layer => ({ ...layer, target: 'designer-disc' }));
+    function persistCurrentDiscDesign() {
+      state.discDesign.layers = currentDesignerLayers();
     }
 
-    function loadDesignerLayers(key = state.activeDiscDesign || 'a') {
-      const layers = Array.isArray(state.discDesigns[key]?.layers) ? state.discDesigns[key].layers : [];
+    function loadCurrentDiscDesignLayers() {
+      const layers = Array.isArray(state.discDesign?.layers) ? state.discDesign.layers : [];
       state.layers = [
         ...state.layers.filter(l => l.target !== 'designer-disc'),
         ...layers.map(layer => ({ ...layer, target: 'designer-disc' }))
@@ -2629,11 +2584,10 @@
 
     function renderDimensions() {
       if (state.appMode === 'designer') {
-        const key = state.activeDiscDesign || 'a';
-        const design = state.discDesigns[key];
-        const name = design?.name && design.name !== `Design ${key.toUpperCase()}` ? design.name : `Design ${key.toUpperCase()}`;
+        const design = state.discDesign;
+        const showName = (design?.name?.trim()) || 'New Design';
         $('projectTitle').textContent = `Disc Designer`;
-        document.querySelector('.printHelp').textContent = name;
+        document.querySelector('.printHelp').textContent = showName;
         $('trimReadout').textContent = `${fmt(discTemplate.discD)} in disc`;
         $('sheetReadout').textContent = `Hole: ${fmt(discTemplate.holeD)} in`;
         return;
@@ -2831,52 +2785,7 @@
     }
 
     function buildDiscControls() {
-      const wrap = $('discControls');
-      wrap.innerHTML = '';
-
-      const row = document.createElement('div');
-      row.className = 'row';
-      row.innerHTML = `
-        <div>
-          <label for="disc-sheet-top">Disc 1 design</label>
-          <select id="disc-sheet-top"></select>
-        </div>
-        <div>
-          <label for="disc-sheet-bottom">Disc 2 design</label>
-          <select id="disc-sheet-bottom"></select>
-        </div>
-      `;
-      wrap.appendChild(row);
-
-      for (const slot of discTemplate.slots) {
-        const select = $(`disc-sheet-${slot.key}`);
-        select.addEventListener('change', (event) => {
-          state.discSheet[slot.key] = event.target.value;
-          render();
-        });
-      }
-
-      const importRow = document.createElement('div');
-      importRow.style.marginTop = '12px';
-      importRow.innerHTML = `
-        <label style="font-size:.8rem;font-weight:650;color:#374151;display:block;margin-bottom:5px">Import a disc design</label>
-        <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center">
-          <select id="importDiscTarget">
-            <option value="a">into Design A</option>
-            <option value="b">into Design B</option>
-            <option value="c">into Design C</option>
-            <option value="d">into Design D</option>
-          </select>
-          <div class="buttonRow" style="margin:0;flex-wrap:nowrap">
-            <button type="button" id="importDiscFileBtn">From file</button>
-            <button type="button" id="searchDiscNostrBtn">Search Nostr</button>
-            <input id="discDesignFile" type="file" accept="application/json,.json" hidden />
-          </div>
-        </div>
-      `;
-      wrap.appendChild(importRow);
-
-      syncDiscAssignmentInputs();
+      buildDiscImportUI();
     }
 
     function buildJewelControls() {
@@ -2996,15 +2905,9 @@
     }
 
     function syncDesignerInputs() {
-      const key = state.activeDiscDesign || 'a';
-      const design = state.discDesigns[key];
-      if (!design) return;
-      for (const k of ['a', 'b', 'c', 'd']) {
-        const tab = $(`designTab-${k}`);
-        if (tab) tab.classList.toggle('active', k === key);
-      }
+      const design = state.discDesign;
       const nameEl = $('designerName');
-      if (nameEl) nameEl.value = design.name || `Design ${key.toUpperCase()}`;
+      if (nameEl) nameEl.value = design.name || '';
       const urlEl = $('designerUrl');
       if (urlEl) urlEl.value = design.src || '';
       const fitEl = $('fit-designer');
@@ -3020,7 +2923,7 @@
     }
 
     function syncAllDiscInputs() {
-      syncDiscAssignmentInputs();
+      buildDiscImportUI();
       syncDesignerInputs();
     }
 
@@ -3043,19 +2946,121 @@
       for (const { key } of jewelSlotNames) syncJewelInputs(key);
     }
 
-    function syncDiscAssignmentInputs() {
-      for (const { key } of discTemplate.slots) {
-        const select = $(`disc-sheet-${key}`);
-        if (!select) continue;
-        const current = state.discSheet[key] || (key === 'top' ? 'a' : 'b');
-        select.innerHTML = discDesignNames
-          .map((design) => {
-            const item = state.discDesigns[design.key];
-            const label = item?.name || design.label;
-            return `<option value="${design.key}">${escapeHtml(label)}</option>`;
-          })
-          .join('');
-        select.value = current;
+        function buildDiscImportUI() {
+      // Replaced dropdowns with import buttons
+      const wrap = $('discControls');
+      if (!wrap) return;
+      wrap.innerHTML = `
+        <p class="hint">Import saved disc designs into each print position from file or Nostr.</p>
+      `;
+      for (const { key, label } of discSlotNames) {
+        const details = document.createElement('details');
+        details.open = false;
+        details.innerHTML = `
+          <summary>${label}</summary>
+          <div class="buttonRow">
+            <button type="button" id="disc-import-${key}">Load from file</button>
+            <button type="button" id="disc-nostr-${key}">Search Nostr</button>
+          </div>
+          <div class="miniReadout" id="disc-preview-${key}">No design loaded</div>
+          <label>Fit</label>
+          <select id="disc-fit-${key}">
+            <option value="cover">Cover / crop to fill</option>
+            <option value="contain">Contain / no crop</option>
+            <option value="fill">Stretch to fit</option>
+          </select>
+          <label for="disc-zoom-${key}">Zoom</label>
+          <div class="rangeLine">
+            <input id="disc-zoom-${key}" type="range" min="0.1" max="4" step="0.01" />
+            <output id="disc-zoom-${key}-out"></output>
+          </div>
+          <label for="disc-x-${key}">Move X</label>
+          <div class="rangeLine">
+            <input id="disc-x-${key}" type="range" min="-100" max="100" step="1" />
+            <output id="disc-x-${key}-out"></output>
+          </div>
+          <label for="disc-y-${key}">Move Y</label>
+          <div class="rangeLine">
+            <input id="disc-y-${key}" type="range" min="-100" max="100" step="1" />
+            <output id="disc-y-${key}-out"></output>
+          </div>
+          <label for="disc-rotate-${key}">Rotate</label>
+          <div class="rangeLine">
+            <input id="disc-rotate-${key}" type="range" min="-180" max="180" step="1" />
+            <output id="disc-rotate-${key}-out"></output>
+          </div>
+        `;
+        wrap.appendChild(details);
+      }
+      attachDiscImportEvents();
+      syncDiscTemplateInputs();
+    }
+
+    function attachDiscImportEvents() {
+      for (const { key } of discSlotNames) {
+        const btn = $(`disc-import-${key}`);
+        if (btn) btn.addEventListener('click', () => {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = 'application/json,.json';
+          input.addEventListener('change', (e) => {
+            const file = e.target.files?.[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+              try {
+                const parsed = JSON.parse(String(reader.result));
+                if (parsed?.discDesign) {
+                  const { key: _k, layers: _l, ...design } = parsed.discDesign;
+                  state.discs[key] = { ...state.discs[key], ...design };
+                  if (state.templateMode !== 'disc') state.templateMode = 'disc';
+                  syncInputs(); render();
+                  const preview = $(`disc-preview-${key}`);
+                  if (preview) preview.textContent = design.name || 'Design loaded';
+                } else if (parsed?.discTemplate?.discs?.[key]) {
+                  state.discs[key] = parsed.discTemplate.discs[key];
+                  render();
+                  const preview = $(`disc-preview-${key}`);
+                  if (preview) preview.textContent = 'Loaded from project';
+                }
+              } catch { alert('Could not load disc design from this file.'); }
+            };
+            reader.readAsText(file);
+          });
+          input.click();
+        });
+        const nostrBtn = $(`disc-nostr-${key}`);
+        if (nostrBtn) nostrBtn.addEventListener('click', () => {
+          $('nostrType').value = 'disc-design';
+          $('nostrModal').classList.add('open');
+          state._discImportTargetSlot = key;
+        });
+        for (const prop of ['fit', 'zoom', 'x', 'y', 'rotate']) {
+          const el = $(`disc-${prop}-${key}`);
+          if (el) el.addEventListener('input', (e) => {
+            state.discs[key][prop] = prop === 'fit' ? e.target.value : Number(e.target.value);
+            const out = $(`disc-${prop}-${key}-out`);
+            if (out && prop !== 'fit') out.textContent = prop === 'rotate' ? `${e.target.value}°` : `${e.target.value}${prop === 'zoom' ? '%' : '%'}`;
+            render();
+          });
+          if (el && prop === 'fit') el.addEventListener('change', (e) => {
+            state.discs[key].fit = e.target.value;
+            render();
+          });
+        }
+      }
+    }
+
+    function syncDiscTemplateInputs() {
+      for (const { key } of discSlotNames) {
+        const disc = state.discs[key] || {};
+        const preview = $(`disc-preview-${key}`);
+        if (preview) preview.textContent = disc.src ? (disc.name || 'Design loaded') : 'No design loaded';
+        const fitEl = $(`disc-fit-${key}`);
+        if (fitEl) fitEl.value = disc.fit || 'cover';
+        const zOut = $(`disc-zoom-${key}-out`); if(zOut) zOut.textContent = `${Math.round((disc.zoom ?? 1) * 100)}%`;
+        const xOut = $(`disc-x-${key}-out`); if(xOut) xOut.textContent = `${disc.x ?? 0}%`;
+        const yOut = $(`disc-y-${key}-out`); if(yOut) yOut.textContent = `${disc.y ?? 0}%`;
+        const rOut = $(`disc-rotate-${key}-out`); if(rOut) rOut.textContent = `${disc.rotate ?? 0}°`;
       }
     }
 
@@ -3124,8 +3129,7 @@
       }
 
       for (const slotDef of discTemplate.slots) {
-        const designKey = state.discSheet[slotDef.key] || (slotDef.key === 'top' ? 'a' : 'b');
-        const disc = state.discDesigns[designKey] || state.discDesigns.a;
+        const disc = state.discs[slotDef.key] || {};
         const slot = $(`disc-${slotDef.key}`);
         const img = $(`art-disc-${slotDef.key}`);
         const placeholder = slot.querySelector('.placeholder');
@@ -3147,11 +3151,11 @@
           placeholder.style.display = state.templateMode === 'disc' ? 'grid' : 'none';
         }
 
-        img.style.objectFit = disc.fit;
+        img.style.objectFit = disc.fit || 'cover';
         img.style.transform =
-          `translate(-50%, -50%) translate(${disc.x}%, ${disc.y}%) rotate(${disc.rotate}deg) scale(${disc.zoom})`;
+          `translate(-50%, -50%) translate(${disc.x ?? 0}%, ${disc.y ?? 0}%) rotate(${disc.rotate ?? 0}deg) scale(${disc.zoom ?? 1})`;
 
-        if (state.templateMode === 'disc') syncGeneratedDiscLayers(slotDef, disc, designKey);
+        if (state.templateMode === 'disc') syncGeneratedDiscLayers(slotDef, disc, slotDef.key);
       }
 
       state.layers = state.layers.filter(layer => !layer._staleGenerated);
@@ -3759,19 +3763,19 @@
       return signed;
     }
 
-    async function publishDiscDesignToNostr(key) {
-      const design = state.discDesigns[key];
+    async function publishDiscDesignToNostr() {
+      const design = state.discDesign;
       if (!design?.src) throw new Error('Load an image URL before publishing this disc design.');
       if (!state.meta.category?.trim()) {
         throw new Error('Select a category in Project Metadata before publishing.');
       }
       const payload = discDesignPayload(key);
-      const designName = design.name && design.name !== `Design ${key.toUpperCase()}` ? design.name : state.meta.title;
+      const designName = (design.name || '').trim() || state.meta.title;
       if (!designName?.trim()) {
         throw new Error('Add a title in Project Metadata or a custom design name before publishing.');
       }
       const tags = [
-        ['d', `${state.meta.imdbId || designName}-${key}`],
+        ['d', `${state.meta.imdbId || designName}`],
         ...getTemplateTags(payload, 'casewrap-disc-design'),
         ['title', designName]
       ];
@@ -4036,7 +4040,7 @@
         templateMode: 'disc',
         meta: state.meta,
         ui: { zoom: state.zoom },
-        discTemplate: { config: discTemplate, designs: state.discDesigns, sheet: state.discSheet, spineLabels: state.discSpineLabels },
+        discTemplate: { config: discTemplate, discs: state.discs, spineLabels: state.discSpineLabels },
         layers: nonGeneratedLayers().filter(l => String(l.target || '').startsWith('disc'))
       };
     }
@@ -4065,10 +4069,12 @@
           printCrops: state.printCrops,
           templateMode: state.templateMode,
           appMode: state.appMode,
-          activeDiscDesign: state.activeDiscDesign
+          templateMode: state.templateMode
         },
         coverTemplate: { preset: state.preset, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
-        discTemplate: { config: discTemplate, designs: state.discDesigns, sheet: state.discSheet, discs: state.discs, spineLabels: state.discSpineLabels },
+        discs: state.discs,
+        discDesign: state.discDesign,
+        discTemplate: { config: discTemplate, discs: state.discs, spineLabels: state.discSpineLabels },
         jewelTemplate: { config: jewelTemplate, inserts: state.jewelInserts },
         layers: nonGeneratedLayers(),
         community: { relays: state.community.relays, query: state.community.query, kind: state.community.kind }
@@ -4116,23 +4122,21 @@
       const category = (state.meta.category || '').trim();
       if (!title) { alert('Please enter a title in Project Metadata before saving.'); return; }
       if (!category) { alert('Please select a category in Project Metadata before saving.'); return; }
-      const key = state.activeDiscDesign || 'a';
-      const design = state.discDesigns[key];
-      if (!design) return;
-      const payload = discDesignPayload(key);
-      const name = (design.name || `Design ${key.toUpperCase()}`)
+      const design = state.discDesign;
+      if (!design?.src) return;
+      const payload = discDesignPayload();
+      const name = (design.name || 'disc_design')
         .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
       const rawTitle = (state.meta.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
       const imdb = state.meta.imdbId ? state.meta.imdbId.replace(/[^a-z0-9]/gi, '').toLowerCase() : '';
-      const filename = [rawTitle || name, imdb, 'design', key].filter(Boolean).join('_') + '.json';
+      const filename = [rawTitle || name, imdb, 'disc-design'].filter(Boolean).join('_') + '.json';
       triggerDownload(payload, filename);
     }
 
     function loadProjectFromText(text) {
       const parsed = JSON.parse(text);
       if (parsed.version && parsed.templateMode === 'disc-design' && parsed.discDesign) {
-        const key = parsed.discDesign.key && state.discDesigns[parsed.discDesign.key] ? parsed.discDesign.key : (state.activeDiscDesign || 'a');
-        importDiscDesignFromPayload(parsed, key);
+        importDiscDesignFromPayload(parsed, 'a');
         return;
       }
       const v = parsed.version || 0;
@@ -4179,8 +4183,7 @@
         Object.assign(state, {
           templateMode: 'disc',
           meta: { ...state.meta, ...(parsed.meta || {}) },
-          discDesigns: { ...state.discDesigns, ...designs },
-          discSheet: { ...state.discSheet, ...sheet },
+          discs: { ...state.discs }, // backward compat: old designs/sheet merged
           ...(spineLabels ? { discSpineLabels: { ...state.discSpineLabels, ...spineLabels } } : {}),
           layers: [
             ...state.layers.filter(l => !String(l.target || '').startsWith('disc')),
@@ -4218,7 +4221,7 @@
             meta: parsed.meta || state.meta,
             templateMode: parsed.ui?.templateMode || parsed.coverTemplate?.templateMode || state.templateMode,
             appMode: parsed.ui?.appMode || state.appMode,
-            activeDiscDesign: parsed.ui?.activeDiscDesign || state.activeDiscDesign,
+            // activeDiscDesign removed in single-design model
             zoom: parsed.ui?.zoom ?? state.zoom,
             showGuides: parsed.ui?.showGuides ?? state.showGuides,
             showBleed: parsed.ui?.showBleed ?? state.showBleed,
@@ -4235,8 +4238,7 @@
             slots: parsed.coverTemplate?.slots || {},
             combined: parsed.coverTemplate?.combined || {},
             discs: parsed.discTemplate?.discs || {},
-            discDesigns: parsed.discTemplate?.designs || parsed.discDesigns || {},
-            discSheet: parsed.discTemplate?.sheet || parsed.discSheet || {},
+            // backward compat: old discDesigns merged into discs below
             discSpineLabels: parsed.discTemplate?.spineLabels || parsed.discSpineLabels || state.discSpineLabels,
             jewelInserts: parsed.jewelTemplate?.inserts || parsed.jewelInserts || {},
             community: parsed.community || {},
@@ -4249,8 +4251,7 @@
         slots: { ...state.slots, ...(source.slots || {}) },
         combined: { ...state.combined, ...(source.combined || {}) },
         discs: { ...state.discs, ...(source.discs || {}) },
-        discDesigns: { ...state.discDesigns, ...(source.discDesigns || {}) },
-        discSheet: { ...state.discSheet, ...(source.discSheet || {}) },
+        // backward compat handled in normalizeDiscState
         jewelInserts: { ...state.jewelInserts, ...(source.jewelInserts || {}) },
         community: { ...state.community, ...(source.community || {}) },
         layers: Array.isArray(source.layers) ? source.layers : [],
@@ -4476,8 +4477,8 @@
         wall.appendChild(buildFeedCard(row, () => {
           if (row.mode === 'disc-design') {
             const target = state.appMode === 'designer'
-              ? (state.activeDiscDesign || 'a')
-              : ($('importDiscTarget')?.value || 'a');
+              ? ('a')
+              : (state._discImportTargetSlot || 'top');
             importDiscDesignFromPayload(row.payload, target, { openDesigner: state.appMode === 'designer' });
           } else {
             loadProjectFromText(JSON.stringify(row.payload));
@@ -4520,8 +4521,8 @@
         wall.appendChild(buildFeedCard(row, () => {
           if (row.mode === 'disc-design') {
             const target = state.appMode === 'designer'
-              ? (state.activeDiscDesign || 'a')
-              : ($('importDiscTarget')?.value || 'a');
+              ? ('a')
+              : (state._discImportTargetSlot || 'top');
             importDiscDesignFromPayload(row.payload, target, { openDesigner: state.appMode === 'designer' });
           } else {
             loadProjectFromText(JSON.stringify(row.payload));
@@ -4540,8 +4541,8 @@
         }
 
         if (mode === 'disc') {
-          const designs = payload.discTemplate?.designs || payload.discDesigns || {};
-          const sheet = payload.discTemplate?.sheet || payload.discSheet || {};
+          // backward compat: extract first design from old payload
+          const legacyDesigns = payload.discTemplate?.designs || payload.discDesigns || {};
           // Prefer the assigned top-slot design, then try every design in order
           const topKey = sheet.top;
           if (topKey && designs[topKey]?.src) return designs[topKey].src;
@@ -4674,8 +4675,8 @@
         out.appendChild(buildResultCard(row, () => {
           if (row.mode === 'disc-design') {
             const target = state.appMode === 'designer'
-              ? (state.activeDiscDesign || 'a')
-              : ($('importDiscTarget')?.value || 'a');
+              ? ('a')
+              : (state._discImportTargetSlot || 'top');
             importDiscDesignFromPayload(row.payload, target, { openDesigner: state.appMode === 'designer' });
           } else {
             loadProjectFromText(JSON.stringify(row.payload));
@@ -4686,16 +4687,15 @@
     }
 
     function renderDesignerDisc() {
-      const key = state.activeDiscDesign || 'a';
-      const design = state.discDesigns[key];
+      const design = state.discDesign;
       const img = $('designerDiscArt');
       const placeholder = $('designerPlaceholder');
       const label = $('designerDiscLabel');
       if (label) {
         const title = (state.meta.title || '').trim();
-        const custom = design?.name && design.name !== `Design ${key.toUpperCase()}` ? ` — ${design.name}` : '';
-        const titlePrefix = title ? `${title} / ` : '';
-        label.textContent = `${titlePrefix}Design ${key.toUpperCase()}${custom}`;
+        const name = (design?.name || '').trim();
+        const prefix = title ? `${title} / ` : '';
+        label.textContent = `${prefix}${name || 'New Design'}`;
       }
       if (design?.src) {
         img.src = design.src;
@@ -4712,56 +4712,54 @@
 
     function importDiscDesignFromPayload(payload, targetKey, options = {}) {
       const openDesigner = options.openDesigner ?? true;
-      const key = targetKey || state.activeDiscDesign || 'a';
-      if (state.appMode === 'designer') persistDesignerLayers(state.activeDiscDesign || 'a');
+      if (state.appMode === 'designer') persistCurrentDiscDesign();
+      // If we have a slot target (from per-slot import buttons), import directly into the slot
+      const slotKey = state._discImportTargetSlot || targetKey;
+      const isSlotImport = slotKey === 'top' || slotKey === 'bottom';
+
       if (payload?.templateMode === 'disc-design' && payload.discDesign) {
-        const { key: _k, ...design } = payload.discDesign;
-        const importedLayers = Array.isArray(payload.layers)
-          ? payload.layers
-          : Array.isArray(design.layers)
-            ? design.layers
-            : [];
-        delete design.layers;
-        state.discDesigns[key] = {
-          ...state.discDesigns[key],
-          ...design,
-          layers: importedLayers.map(l => ({ ...l, target: 'designer-disc' }))
-        };
-      } else if (payload?.discTemplate?.designs) {
-        const first = Object.values(payload.discTemplate.designs).find(d => d?.src);
-        if (first) state.discDesigns[key] = { ...state.discDesigns[key], ...first };
-      } else if (payload?.discDesigns) {
-        const first = Object.values(payload.discDesigns).find(d => d?.src);
-        if (first) state.discDesigns[key] = { ...state.discDesigns[key], ...first };
+        const { key: _k, layers: _l, ...design } = payload.discDesign;
+        if (isSlotImport) {
+          state.discs[slotKey] = { ...state.discs[slotKey], ...design };
+          const preview = $(`disc-preview-${slotKey}`);
+          if (preview) preview.textContent = design.name || 'Design loaded';
+        } else {
+          state.discDesign = { ...state.discDesign, ...design };
+          if (Array.isArray(payload.layers)) {
+            state.discDesign.layers = payload.layers.map(l => ({ ...l, target: 'designer-disc' }));
+          }
+          loadCurrentDiscDesignLayers();
+        }
+      } else if (payload?.discDesign) {
+        const { key: _k2, layers: _l2, ...design } = payload.discDesign;
+        if (isSlotImport) {
+          state.discs[slotKey] = { ...state.discs[slotKey], ...design };
+          const preview = $(`disc-preview-${slotKey}`);
+          if (preview) preview.textContent = design.name || 'Design loaded';
+        } else {
+          state.discDesign = { ...state.discDesign, ...design };
+          loadCurrentDiscDesignLayers();
+        }
+      } else if (payload?.discTemplate?.discs?.[slotKey]) {
+        state.discs[slotKey] = payload.discTemplate.discs[slotKey];
+        const preview = $(`disc-preview-${slotKey}`);
+        if (preview) preview.textContent = 'Loaded from project';
       }
-      if (openDesigner) {
-        state.activeDiscDesign = key;
+      state._discImportTargetSlot = null;
+
+      if (!isSlotImport && openDesigner) {
         state.appMode = 'designer';
-        loadDesignerLayers(key);
+        syncDesignerInputs();
       } else {
-        state.templateMode = 'disc';
-        state.appMode = 'template';
-        state.discSheet.top = state.discSheet.top || key;
-        state.discSheet.bottom = state.discSheet.bottom || key;
+        if (!isSlotImport) { state.templateMode = 'disc'; state.appMode = 'template'; }
+        buildDiscImportUI();
       }
-      syncDiscAssignmentInputs();
-      syncDesignerInputs();
       render();
     }
 
-    function askDiscDesignSlot(defaultKey = state.activeDiscDesign || 'a') {
-      const select = $('importDiscTarget');
-      const key = select?.value || defaultKey || 'a';
-      return state.discDesigns[key] ? key : 'a';
-    }
-
     function openDiscDesignNostrSearch() {
-      const target = askDiscDesignSlot();
-      persistDesignerLayers(state.activeDiscDesign || 'a');
-      state.activeDiscDesign = target;
-      loadDesignerLayers(target);
-      const importTarget = $('importDiscTarget');
-      if (importTarget) importTarget.value = target;
+      persistCurrentDiscDesign();
+      loadCurrentDiscDesignLayers();
       $('nostrType').value = 'disc-design';
       $('nostrQuery').value = '';
       $('nostrCategory').value = state.meta.category || '';
@@ -4773,7 +4771,7 @@
     }
 
     function openTemplateDiscDesignNostrSearch() {
-      const target = $('importDiscTarget')?.value || 'a';
+      const target = state._discImportTargetSlot || 'top';
       $('nostrType').value = 'disc-design';
       $('nostrQuery').value = '';
       $('nostrCategory').value = state.meta.category || '';
@@ -4809,14 +4807,14 @@
     }
 
     function switchAppMode(mode) {
-      if (state.appMode === 'designer') persistDesignerLayers();
+      if (state.appMode === 'designer') persistCurrentDiscDesign();
       state.appMode = mode;
       if (mode === 'designer') {
         if (state.templateMode !== 'disc') {
           state._prevTemplateMode = state.templateMode;
           state.templateMode = 'disc';
         }
-        loadDesignerLayers(state.activeDiscDesign || 'a');
+        loadCurrentDiscDesignLayers();
       } else {
         if (state._prevTemplateMode) {
           state.templateMode = state._prevTemplateMode;
@@ -4826,13 +4824,6 @@
       updateLayerTargetOptions();
       syncModeTabsUI();
       syncInputs();
-      render();
-    }
-
-    function switchActiveDesign(key) {
-      persistDesignerLayers();
-      state.activeDiscDesign = key;
-      loadDesignerLayers(key);
       render();
     }
 
@@ -5002,10 +4993,8 @@
       });
       $('designerLoadProjectBtn').addEventListener('click', openDiscDesignNostrSearch);
       $('designerLoadFileBtn').addEventListener('click', () => {
-        const target = askDiscDesignSlot();
-        persistDesignerLayers(state.activeDiscDesign || 'a');
-        state.activeDiscDesign = target;
-        loadDesignerLayers(target);
+        persistCurrentDiscDesign();
+        loadCurrentDiscDesignLayers();
         syncDesignerInputs();
         render();
         $('discProjectFile').click();
@@ -5017,7 +5006,7 @@
         reader.onload = () => {
           try {
             const payload = JSON.parse(String(reader.result));
-            importDiscDesignFromPayload(payload, state.activeDiscDesign || 'a');
+            importDiscDesignFromPayload(payload, 'a');
           } catch {
             alert('Could not load that disc project file.');
           }
@@ -5029,15 +5018,10 @@
       $('modeTabTemplate').addEventListener('click', () => switchAppMode('template'));
       $('modeTabDesigner').addEventListener('click', () => switchAppMode('designer'));
 
-      // Disc designer: design A/B/C/D tabs
-      for (const key of ['a', 'b', 'c', 'd']) {
-        $(`designTab-${key}`).addEventListener('click', () => switchActiveDesign(key));
-      }
-
       // Disc designer: image/position controls
       $('designerName').addEventListener('input', (e) => {
-        state.discDesigns[state.activeDiscDesign].name = e.target.value;
-        syncDiscAssignmentInputs();
+        state.discDesign.name = e.target.value;
+        buildDiscImportUI();
         render();
       });
 
@@ -5045,7 +5029,7 @@
         const raw = $('designerUrl').value.trim();
         if (!raw) return;
         try {
-          state.discDesigns[state.activeDiscDesign].src = normalizeImageUrl(raw);
+          state.discDesign.src = normalizeImageUrl(raw);
           render();
         } catch (error) {
           alert(error.message || 'Invalid image URL.');
@@ -5053,28 +5037,28 @@
       });
 
       $('designerClearBtn').addEventListener('click', () => {
-        state.discDesigns[state.activeDiscDesign].src = '';
-        state.discDesigns[state.activeDiscDesign].layers = [];
+        state.discDesign.src = '';
+        state.discDesign.layers = [];
         state.layers = state.layers.filter(l => l.target !== 'designer-disc');
         $('designerUrl').value = '';
         render();
       });
 
       $('fit-designer').addEventListener('change', (e) => {
-        state.discDesigns[state.activeDiscDesign].fit = e.target.value;
+        state.discDesign.fit = e.target.value;
         render();
       });
 
       for (const prop of ['zoom', 'x', 'y', 'rotate']) {
         $(`${prop}-designer`).addEventListener('input', (e) => {
-          state.discDesigns[state.activeDiscDesign][prop] = Number(e.target.value);
+          state.discDesign[prop] = Number(e.target.value);
           syncDesignerInputs();
           render();
         });
       }
 
       $('designerResetBtn').addEventListener('click', () => {
-        Object.assign(state.discDesigns[state.activeDiscDesign], { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
+        Object.assign(state.discDesign, { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
         syncDesignerInputs();
         render();
       });
@@ -5094,33 +5078,11 @@
           return;
         }
         try {
-          await publishDiscDesignToNostr(state.activeDiscDesign);
-          alert(`${state.discDesigns[state.activeDiscDesign].name || 'Design'} published to Nostr.`);
+          await publishDiscDesignToNostr();
+          alert(`${state.discDesign.name || 'Design'} published to Nostr.`);
         } catch (error) {
           alert(error.message || 'Could not publish.');
         }
-      });
-
-      // Disc layout import (template tab)
-      $('importDiscFileBtn').addEventListener('click', () => $('discDesignFile').click());
-      $('discDesignFile').addEventListener('change', (event) => {
-        const file = event.target.files && event.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const payload = JSON.parse(String(reader.result));
-            const target = $('importDiscTarget').value || 'a';
-            importDiscDesignFromPayload(payload, target, { openDesigner: false });
-            event.target.value = '';
-          } catch {
-            alert('Could not read that file as a disc design.');
-          }
-        };
-        reader.readAsText(file);
-      });
-      $('searchDiscNostrBtn').addEventListener('click', () => {
-        openTemplateDiscDesignNostrSearch();
       });
 
       $('browseCommunityBtn').addEventListener('click', () => {
@@ -5231,10 +5193,8 @@
       });
 
       $('clearDiscBtn').addEventListener('click', () => {
-        for (const { key } of discDesignNames) {
-          state.discDesigns[key].src = '';
-          state.discDesigns[key].layers = [];
-        }
+        state.discDesign.src = '';
+        state.discDesign.layers = [];
         state.layers = state.layers.filter(l => l.target !== 'designer-disc');
         $('designerUrl').value = '';
         render();
@@ -5349,8 +5309,7 @@
           slots: { ...state.slots, ...(parsed.slots || {}) },
           combined: { ...state.combined, ...(parsed.combined || {}) },
           discs: { ...state.discs, ...(parsed.discs || {}) },
-          discDesigns: { ...state.discDesigns, ...(parsed.discDesigns || parsed.discTemplate?.designs || {}) },
-          discSheet: { ...state.discSheet, ...(parsed.discSheet || parsed.discTemplate?.sheet || {}) },
+          // backward compat: old disc designs loaded via normalizeDiscState
           jewelInserts: { ...state.jewelInserts, ...(parsed.jewelInserts || parsed.jewelTemplate?.inserts || {}) },
           community: { ...state.community, ...(parsed.community || {}) },
           layers: Array.isArray(parsed.layers) ? parsed.layers : [],
@@ -5359,7 +5318,7 @@
         normalizeDiscState();
         normalizeJewelState();
         if ((parsed.appMode || parsed.ui?.appMode) === 'designer') {
-          loadDesignerLayers(parsed.activeDiscDesign || parsed.ui?.activeDiscDesign || state.activeDiscDesign || 'a');
+          loadCurrentDiscDesignLayers();
         }
       } catch (error) {
         console.warn('Autosave restore failed', error);
@@ -5369,7 +5328,7 @@
     function init() {
       restoreAutosave();
       state.appMode = state.appMode || 'template';
-      state.activeDiscDesign = state.activeDiscDesign || 'a';
+      // removed: old slot assignment
       normalizeDiscState();
       normalizeJewelState();
       populateCategorySelects();
