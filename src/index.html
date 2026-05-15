@@ -8,7 +8,7 @@
     @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
     @page { size: 11in 8.5in; margin: 0; }
       body.dark {
-      --bg:#0b0f14; --panel:#121821; --ink:#e5e7eb; --muted:#9aa4b2; --line:#2c3443; --accent:#60a5fa;
+      --bg:#0a0e27; --panel:#1a1f3a; --ink:#e0f7ff; --muted:#6ba3d0; --line:#2a3f5f; --accent:#00d9ff;
       background-image: none;
     }
     body.dark aside, body.dark fieldset, body.dark details, body.dark .pill, body.dark .previewShell { background: var(--panel); color: var(--ink); border-color: var(--line); }
@@ -21,16 +21,16 @@
   </style>
   <style>
     :root {
-      --bg: #f4f5f7;
+      --bg: #e8f4f8;
       --noise: none;
-      --panel: #ffffff;
-      --ink: #111827;
-      --muted: #6b7280;
-      --line: #d1d5db;
-      --accent: #2563eb;
-      --warn: #dc2626;
-      --ok: #15803d;
-      --shadow: 0 18px 50px rgba(15, 23, 42, .12);
+      --panel: #f0fbff;
+      --ink: #0a2540;
+      --muted: #4a7ba7;
+      --line: #b8d9eb;
+      --accent: #00b8e6;
+      --warn: #ff006e;
+      --ok: #00d084;
+      --shadow: 0 4px 8px rgba(0, 88, 150, .15);
 
       --sheet-w: 10.0in;
       --sheet-h: 7.5in;
@@ -98,11 +98,12 @@
     }
 
     fieldset {
-      border: 1px solid var(--line);
-      border-radius: 8px;
+      border: 2px solid var(--line);
+      border-radius: 0px;
       margin: 0;
       padding: 14px;
       background: #fff;
+      box-shadow: 2px 2px 0px rgba(0, 0, 0, 0.1);
     }
 
     legend {
@@ -132,8 +133,8 @@
 
     input[type="number"], input[type="text"], input[type="url"], textarea, select {
       width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 8px;
+      border: 2px solid var(--line);
+      border-radius: 0px;
       padding: 8px 10px;
       background: #fff;
       color: var(--ink);
@@ -165,8 +166,8 @@
     }
 
     button {
-      border: 1px solid var(--line);
-      border-radius: 2px;
+      border: 2px solid var(--line);
+      border-radius: 0px;
       padding: 8px 11px;
       background: #fff;
       color: var(--ink);
@@ -175,6 +176,7 @@
       font-size: .8rem;
       font-family: 'VT323', 'Courier New', monospace;
       letter-spacing: 0.05em;
+      box-shadow: 1px 1px 0px rgba(0, 0, 0, 0.1);
     }
 
     button.primary {
@@ -198,7 +200,7 @@
     }
 
     .layoutTab {
-      border-radius: 8px;
+      border-radius: 0px;
       padding: 10px;
     }
 
@@ -227,7 +229,7 @@
 
     details {
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 0px;
       padding: 10px 12px;
       margin-top: 10px;
       background: #fafafa;
@@ -259,7 +261,7 @@
       width: 22px;
       height: 22px;
       margin-right: 7px;
-      border-radius: 999px;
+      border-radius: 0px;
       background: #eef2ff;
       color: var(--accent);
       font-size: .74rem;
@@ -273,7 +275,7 @@
       width: 22px;
       height: 22px;
       margin-right: 7px;
-      border-radius: 999px;
+      border-radius: 0px;
       background: #eef2ff;
       color: var(--accent);
       font-size: .74rem;
@@ -344,7 +346,7 @@
       font-size: 1.15rem;
       line-height: 1.2;
       padding: 12px 10px;
-      border-radius: 8px;
+      border-radius: 0px;
       border: none;
       background: transparent;
       font-variant-numeric: tabular-nums;
@@ -458,7 +460,7 @@
     .pill {
       border: 1px solid var(--line);
       background: #fff;
-      border-radius: 8px;
+      border-radius: 0px;
       padding: 7px 10px;
       box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
       transition: opacity .15s;
@@ -488,7 +490,7 @@
     .previewShell {
       background: #e5e7eb;
       border: 1px solid #cbd5e1;
-      border-radius: 8px;
+      border-radius: 0px;
       padding: 24px;
       overflow: auto;
       min-height: calc(100vh - 112px);
@@ -563,7 +565,7 @@
       top: 7px;
       background: rgba(255,255,255,.85);
       border: 1px solid rgba(17,24,39,.13);
-      border-radius: 999px;
+      border-radius: 0px;
       padding: 3px 7px;
       font-size: 10px;
       color: #334155;
@@ -707,7 +709,7 @@
       transform: translateX(-50%);
       background: rgba(255,255,255,.85);
       border: 1px solid rgba(17,24,39,.13);
-      border-radius: 999px;
+      border-radius: 0px;
       padding: 3px 7px;
       font-size: 10px;
       color: #334155;
@@ -792,7 +794,7 @@
       top: 7px;
       background: rgba(255,255,255,.85);
       border: 1px solid rgba(17,24,39,.13);
-      border-radius: 999px;
+      border-radius: 0px;
       padding: 3px 7px;
       font-size: 10px;
       color: #334155;
@@ -885,7 +887,7 @@
 
     .communityCard {
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 0px;
       padding: 12px;
       background: rgba(127,127,127,.06);
       display: grid;
@@ -916,7 +918,7 @@
 
     .feedItem {
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 0px;
       background: #fff;
       padding: 10px;
       display: grid;
@@ -961,7 +963,7 @@
 
     .chip {
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 0px;
       padding: 3px 8px;
       font-size: .72rem;
       color: var(--muted);
@@ -982,7 +984,7 @@
 
     .threadItem {
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 0px;
       padding: 8px 10px;
       background: rgba(127,127,127,.05);
       display: grid;
@@ -991,7 +993,7 @@
 
     .profileCard {
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 0px;
       padding: 10px;
       background: rgba(127,127,127,.05);
       display: grid;
@@ -1001,7 +1003,7 @@
     .avatar {
       width: 36px;
       height: 36px;
-      border-radius: 999px;
+      border-radius: 0px;
       object-fit: cover;
       border: 1px solid var(--line);
       background: #f8fafc;
@@ -1010,7 +1012,7 @@
 
     .layerItem {
       width: 100%;
-      border-radius: 8px;
+      border-radius: 0px;
       display: flex;
       justify-content: space-between;
       gap: 8px;
@@ -1047,7 +1049,7 @@
     .textTools button {
       width: 38px;
       padding: 8px 0;
-      border-radius: 8px;
+      border-radius: 0px;
     }
 
     body.dragging-layer {
@@ -1130,7 +1132,7 @@
     .miniReadout {
       margin-top: 8px;
       padding: 10px;
-      border-radius: 8px;
+      border-radius: 0px;
       background: #f8fafc;
       border: 1px solid var(--line);
       color: #475569;
@@ -1161,7 +1163,7 @@
       font-size: .78rem;
       white-space: nowrap;
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 0px;
       background: #f1f5f9;
       color: var(--muted);
       cursor: pointer;
