@@ -2552,6 +2552,8 @@
         myPubkey: '',
         myProfile: null,
         myFollows: [],
+        mutedPubkeys: [],
+        muteListSyncedAt: 0,
         relayHealth: loadRelayHealth(),
         lastPublish: null,
         status: 'Refresh the feed when you want to browse Nostr templates.'
@@ -5052,12 +5054,97 @@
       return signed;
     }
 
+    function arraysEqualAsSets(left = [], right = []) {
+      const a = new Set(left || []);
+      const b = new Set(right || []);
+      if (a.size !== b.size) return false;
+      for (const item of a) {
+        if (!b.has(item)) return false;
+      }
+      return true;
+    }
+
+    function muteListTags(pubkeys = []) {
+      return [...new Set((pubkeys || []).map(normalizePubkey).filter(Boolean))]
+        .sort()
+        .map((pubkey) => ['p', pubkey]);
+    }
+
+    function mutedPubkeysFromEvent(event) {
+      if (!event || event.kind !== 10000) return [];
+      return [...new Set(
+        (event.tags || [])
+          .filter((tag) => tag[0] === 'p' && tag[1])
+          .map((tag) => normalizePubkey(tag[1]))
+          .filter(Boolean)
+      )];
+    }
+
+    async function fetchMuteList(pubkey = state.community.myPubkey) {
+      const normalized = normalizePubkey(pubkey);
+      if (!normalized) return [];
+      const relays = splitRelayList(state.community.relays);
+      const events = await queryRelays(relays, {
+        kinds: [10000],
+        authors: [normalized],
+        limit: 20
+      }, { timeoutMs: 3500 });
+      const latest = [...events]
+        .filter((event) => event.kind === 10000 && event.pubkey === normalized)
+        .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0] || null;
+      return mutedPubkeysFromEvent(latest);
+    }
+
+    async function publishMuteList(mutedPubkeys = [..._blockedAuthors]) {
+      const pubkey = normalizePubkey(state.community.myPubkey);
+      if (!pubkey) throw new Error('Sign in with Nostr first.');
+      const tags = muteListTags(mutedPubkeys);
+      const evt = {
+        kind: 10000,
+        created_at: Math.floor(Date.now() / 1000),
+        tags,
+        content: ''
+      };
+      const signed = await publishCommunityEvent(evt);
+      state.community.mutedPubkeys = tags.map((tag) => tag[1]);
+      state.community.muteListSyncedAt = Date.now();
+      return signed;
+    }
+
+    async function syncMuteListOnLogin(pubkey = state.community.myPubkey) {
+      const normalized = normalizePubkey(pubkey);
+      if (!normalized) return [];
+      const remoteMuted = await fetchMuteList(normalized);
+      const merged = [...new Set([...remoteMuted, ..._blockedAuthors])].sort();
+      _blockedAuthors.clear();
+      for (const blocked of merged) _blockedAuthors.add(blocked);
+      saveBlockedAuthors();
+      renderBlockedAuthors();
+      state.community.mutedPubkeys = merged;
+      state.community.muteListSyncedAt = Date.now();
+      if (!arraysEqualAsSets(remoteMuted, merged)) {
+        await publishMuteList(merged);
+        state.community.status = `Mute list synced to relays (${merged.length} blocked author${merged.length === 1 ? '' : 's'}).`;
+      }
+      return merged;
+    }
+
+    async function syncLocalBlocksToMuteList(actionLabel = 'update') {
+      if (!normalizePubkey(state.community.myPubkey)) return null;
+      const muted = [..._blockedAuthors].sort();
+      await publishMuteList(muted);
+      state.community.status = `Mute list synced after ${actionLabel} (${muted.length} blocked author${muted.length === 1 ? '' : 's'}).`;
+      return muted;
+    }
+
     async function loadCommunityIdentity() {
       const pubkey = await getNostrPublicKey();
       state.community.myPubkey = pubkey || '';
       if (!pubkey) {
         state.community.myProfile = null;
         state.community.myFollows = [];
+        state.community.mutedPubkeys = [];
+        state.community.muteListSyncedAt = 0;
         syncCommunityInputs();
         return;
       }
@@ -5082,8 +5169,16 @@
       state.community.myFollows = contactEvent
         ? (contactEvent.tags || []).filter((tag) => tag[0] === 'p' && tag[1]).map((tag) => tag[1])
         : [];
+      try {
+        await syncMuteListOnLogin(pubkey);
+      } catch (error) {
+        state.community.status = 'Signed in, but mute-list sync could not be loaded.';
+      }
       syncCommunityInputs();
       updateNostrWidget();
+      if ($('nostrModal')?.classList.contains('open')) {
+        await refreshCommunityView();
+      }
     }
 
     function updateCommunityProfileReadout() {
@@ -5767,6 +5862,12 @@
           removeBlockMeta(pubkey);
           saveBlockedAuthors();
           renderBlockedAuthors();
+          try {
+            await syncLocalBlocksToMuteList('unblock');
+          } catch (error) {
+            state.community.status = 'Author unblocked locally, but mute-list sync failed.';
+            alert(error.message || 'Could not sync mute list to relays.');
+          }
           await refreshCommunityView();
         });
         row.appendChild(btn);
@@ -5788,6 +5889,11 @@
       saveBlockedAuthors();
       saveBlockMeta(normalized, source);
       renderBlockedAuthors();
+      try {
+        await syncLocalBlocksToMuteList('block');
+      } catch (error) {
+        state.community.status = 'Author blocked locally, but mute-list sync failed.';
+      }
       await refreshCommunityView();
       const undo = confirm('Author blocked. Click OK to undo.');
       if (undo && _lastBlockedPubkey === normalized) {
@@ -5795,6 +5901,11 @@
         removeBlockMeta(normalized);
         saveBlockedAuthors();
         renderBlockedAuthors();
+        try {
+          await syncLocalBlocksToMuteList('undo');
+        } catch (error) {
+          state.community.status = 'Undo applied locally, but mute-list sync failed.';
+        }
         await refreshCommunityView();
       }
     }
