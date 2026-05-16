@@ -1481,7 +1481,13 @@
     .resultAuthorName{font-size:.68rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
     /* Feed type filter pills */
-    .feedTypeFilter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+    .feedTypeFilter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+    .feedTrustToggle{display:none;align-items:center;gap:5px;font-size:.78rem;color:var(--muted);margin-left:auto;white-space:nowrap;user-select:none}
+    .feedTrustToggle select{font-size:.75rem;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:4px;padding:3px 6px;cursor:pointer}
+    body.dark .feedTrustToggle select{background:#0b1220}
+    body.nostr-logged-in .feedTrustToggle{display:flex}
+    .feedTrustBadge{font-size:.62rem;background:rgba(0,184,230,.12);color:var(--accent);border:1px solid rgba(0,184,230,.25);border-radius:4px;padding:1px 5px;margin-left:5px;white-space:nowrap;flex-shrink:0}
+    body.dark .feedTrustBadge{background:rgba(0,217,255,.1);border-color:rgba(0,217,255,.2)}
     .feedTypeBtn{border:1px solid var(--line);border-radius:20px;padding:4px 13px;background:#fff;color:var(--muted);cursor:pointer;font-size:.78rem;font-weight:700}
     .feedTypeBtn.active{background:var(--accent);border-color:var(--accent);color:#fff}
     body.dark .feedTypeBtn{background:#0b1220;color:var(--muted);border-color:var(--line)}
@@ -2287,6 +2293,13 @@
             <option value="zh">Chinese</option>
             <option value="other">Other</option>
           </select>
+          <label class="feedTrustToggle" title="Filter by web-of-trust">Trust:
+            <select id="trustFilterNew">
+              <option value="all">All</option>
+              <option value="trusted">Follows</option>
+              <option value="extended">Follows + Extended</option>
+            </select>
+          </label>
         </div>
         <div class="feedLoadStatus" id="feedStatusNew" hidden></div>
         <div class="feedWall" id="feedWallNew"></div>
@@ -2313,6 +2326,13 @@
             <option value="zh">Chinese</option>
             <option value="other">Other</option>
           </select>
+          <label class="feedTrustToggle" title="Filter by web-of-trust">Trust:
+            <select id="trustFilterPopular">
+              <option value="all">All</option>
+              <option value="trusted">Follows</option>
+              <option value="extended">Follows + Extended</option>
+            </select>
+          </label>
         </div>
         <div class="feedLoadStatus" id="feedStatusPopular" hidden></div>
         <div class="feedWall" id="feedWallPopular"></div>
@@ -2369,6 +2389,32 @@
     </div>
   </div>
 
+
+  <div class="modal" id="reportModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:420px">
+      <h2 style="font-size:1rem;margin:0 0 14px;font-family:inherit">Report template</h2>
+      <label style="display:block;margin-bottom:10px">Reason
+        <select id="reportReason" style="display:block;width:100%;margin-top:4px">
+          <option value="spam">Spam</option>
+          <option value="nudity">Nudity / explicit content</option>
+          <option value="illegal">Illegal content</option>
+          <option value="impersonation">Impersonation</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
+      <label style="display:block;margin-bottom:10px">Note <span class="hint" style="font-size:.75rem">(optional)</span>
+        <textarea id="reportNote" rows="2" placeholder="Any details…" style="display:block;width:100%;margin-top:4px;resize:vertical"></textarea>
+      </label>
+      <label style="display:flex;align-items:center;gap:7px;margin-bottom:14px;cursor:pointer">
+        <input type="checkbox" id="reportAlsoBlock" style="accent-color:var(--accent)"> Also block this author
+      </label>
+      <div class="buttonRow" style="margin:0">
+        <button type="button" id="reportSubmitBtn" class="primary">Send report</button>
+        <button type="button" id="reportCancelBtn">Cancel</button>
+      </div>
+      <p class="hint" id="reportStatus" style="margin-top:10px;min-height:1.2em"></p>
+    </div>
+  </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
@@ -2557,6 +2603,8 @@
         myPubkey: '',
         myProfile: null,
         myFollows: [],
+        myExtendedFollows: new Set(),
+        hop2FetchedAt: 0,
         mutedPubkeys: [],
         muteListSyncedAt: 0,
         relayHealth: loadRelayHealth(),
@@ -5146,6 +5194,64 @@
       return merged;
     }
 
+    const HOP2_CACHE_TTL_MS = 15 * 60 * 1000;
+    const HOP2_MAX_HOP1_NODES = 500;
+
+    function hop2CacheKey(pubkey) { return `casewrap:wot:hop2:${pubkey}`; }
+
+    function loadCachedHop2(pubkey) {
+      try {
+        const raw = sessionStorage.getItem(hop2CacheKey(pubkey));
+        if (!raw) return null;
+        const { pubkeys, fetchedAt } = JSON.parse(raw);
+        if (Date.now() - fetchedAt > HOP2_CACHE_TTL_MS) return null;
+        return new Set(pubkeys);
+      } catch { return null; }
+    }
+
+    function saveCachedHop2(pubkey, set) {
+      try {
+        sessionStorage.setItem(hop2CacheKey(pubkey), JSON.stringify({ pubkeys: [...set], fetchedAt: Date.now() }));
+      } catch {}
+    }
+
+    async function fetchHop2Follows() {
+      const myPubkey = normalizePubkey(state.community.myPubkey);
+      if (!myPubkey || !state.community.myFollows.length) {
+        state.community.myExtendedFollows = new Set();
+        return;
+      }
+      const cached = loadCachedHop2(myPubkey);
+      if (cached) {
+        state.community.myExtendedFollows = cached;
+        state.community.hop2FetchedAt = Date.now();
+        return;
+      }
+      const hop1 = state.community.myFollows.slice(0, HOP2_MAX_HOP1_NODES);
+      const relays = splitRelayList(state.community.relays);
+      const BATCH = 50;
+      const extended = new Set();
+      const followsSet = new Set(state.community.myFollows);
+      const batches = [];
+      for (let i = 0; i < hop1.length; i += BATCH) batches.push(hop1.slice(i, i + BATCH));
+      const resultSets = await Promise.all(
+        batches.map(authors => queryRelays(relays, { kinds: [3], authors, limit: 500 }, { timeoutMs: 5000 }))
+      );
+      for (const events of resultSets) {
+        for (const e of events) {
+          for (const tag of (e.tags || [])) {
+            if (tag[0] === 'p' && tag[1]) {
+              const pk = normalizePubkey(tag[1]);
+              if (pk && pk !== myPubkey && !followsSet.has(pk)) extended.add(pk);
+            }
+          }
+        }
+      }
+      state.community.myExtendedFollows = extended;
+      state.community.hop2FetchedAt = Date.now();
+      saveCachedHop2(myPubkey, extended);
+    }
+
     async function syncLocalBlocksToMuteList(actionLabel = 'update') {
       if (!normalizePubkey(state.community.myPubkey)) return null;
       const muted = [..._blockedAuthors].sort();
@@ -5191,6 +5297,7 @@
       } catch (error) {
         state.community.status = 'Signed in, but mute-list sync could not be loaded.';
       }
+      fetchHop2Follows().catch(() => {});
       syncCommunityInputs();
       updateNostrWidget();
       if ($('nostrModal')?.classList.contains('open')) {
@@ -5864,7 +5971,33 @@
       }
     }
 
-    const _feedState = { filterNew: 'any', filterPopular: 'any', filterMine: 'any', categoryNew: '', categoryPopular: '', categoryMine: '', languageNew: '', languagePopular: '', languageMine: '' };
+    const _feedState = { filterNew: 'any', filterPopular: 'any', filterMine: 'any', categoryNew: '', categoryPopular: '', categoryMine: '', languageNew: '', languagePopular: '', languageMine: '', trustFilterNew: 'all', trustFilterPopular: 'all' };
+
+    const TIER_WEIGHT = { self: 0, trusted: 1, extended: 2, unknown: 3 };
+
+    function trustTierForPubkey(pubkey) {
+      const normalized = normalizePubkey(pubkey);
+      if (!normalized) return 'unknown';
+      const myPubkey = normalizePubkey(state.community.myPubkey);
+      if (!myPubkey) return 'unknown';
+      if (normalized === myPubkey) return 'self';
+      if (state.community.myFollows.includes(normalized)) return 'trusted';
+      if (state.community.myExtendedFollows?.has(normalized)) return 'extended';
+      return 'unknown';
+    }
+
+    function updateTrustToggles() {
+      const loggedIn = !!normalizePubkey(state.community.myPubkey);
+      document.body.classList.toggle('nostr-logged-in', loggedIn);
+      if (!loggedIn) {
+        _feedState.trustFilterNew = 'all';
+        _feedState.trustFilterPopular = 'all';
+        const selNew = $('trustFilterNew');
+        const selPop = $('trustFilterPopular');
+        if (selNew) selNew.value = 'all';
+        if (selPop) selPop.value = 'all';
+      }
+    }
     const _blockedAuthors = new Set();
     let _lastBlockedPubkey = '';
 
@@ -5990,6 +6123,64 @@
         await refreshCommunityView();
       }
     }
+    let _reportTarget = null;
+
+    function openReportModal(eventId, authorPubkey) {
+      _reportTarget = { eventId, authorPubkey };
+      const modal = $('reportModal');
+      const status = $('reportStatus');
+      const submitBtn = $('reportSubmitBtn');
+      if (!modal) return;
+      $('reportReason').value = 'spam';
+      $('reportNote').value = '';
+      $('reportAlsoBlock').checked = false;
+      if (status) { status.textContent = ''; status.style.color = ''; }
+      if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send report'; }
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeReportModal() {
+      const modal = $('reportModal');
+      if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+      _reportTarget = null;
+    }
+
+    async function submitReport() {
+      if (!_reportTarget) return;
+      if (!window.nostr) { alert('Install a Nostr extension (like Alby or nos2x) to send reports.'); return; }
+      const { eventId, authorPubkey } = _reportTarget;
+      const reason = $('reportReason')?.value || 'other';
+      const note = ($('reportNote')?.value || '').trim();
+      const alsoBlock = $('reportAlsoBlock')?.checked;
+      const statusEl = $('reportStatus');
+      const submitBtn = $('reportSubmitBtn');
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending…'; }
+      try {
+        const evt = {
+          kind: 1984,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [
+            ['e', eventId, reason],
+            ['p', authorPubkey]
+          ],
+          content: note
+        };
+        const signed = await signNostrEvent(evt);
+        await publishToRelays(signed);
+        if (statusEl) { statusEl.textContent = 'Report sent.'; statusEl.style.color = 'var(--ok)'; }
+        if (alsoBlock && authorPubkey) {
+          closeReportModal();
+          await blockAuthor(authorPubkey, 'report');
+        } else {
+          setTimeout(closeReportModal, 1200);
+        }
+      } catch (e) {
+        if (statusEl) { statusEl.textContent = e.message || 'Could not send report.'; statusEl.style.color = 'var(--warn)'; }
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send report'; }
+      }
+    }
+
     const _feedPagination = {
       New: { rows: [], rendered: 0, chunk: 24, initialized: false },
       Popular: { rows: [], rendered: 0, chunk: 24, initialized: false }
@@ -6072,7 +6263,8 @@
           address,
           preview: previewFromPayload(payload, mode),
           reactions: _feedCache.reactions[e.id] || 0,
-          createdAt: e.created_at || 0
+          createdAt: e.created_at || 0,
+          trust: trustTierForPubkey(e.pubkey)
         };
         if (address) {
           if (!existing) {
@@ -6122,7 +6314,13 @@
       const authorProfile = _feedCache.profiles?.[row.e?.pubkey] || null;
       const authorName = authorProfile?.name || authorProfile?.display_name || (row.e?.pubkey ? shortPubkey(row.e.pubkey) : '');
       const authorPic = authorProfile?.picture || authorProfile?.image || '';
-      const authorHtml = authorName ? `<div class="feedCardAuthor">${authorPic ? `<img class="feedCardAvatar" src="${escapeHtml(authorPic)}" alt="" onerror="this.remove()" loading="lazy" />` : ''}<span class="feedCardAuthorName">${escapeHtml(authorName)}</span></div>` : '';
+      const loggedIn = !!normalizePubkey(state.community.myPubkey);
+      const trustBadgeHtml = loggedIn && row.trust === 'trusted'
+        ? '<span class="feedTrustBadge">Following</span>'
+        : loggedIn && row.trust === 'extended'
+          ? '<span class="feedTrustBadge" style="opacity:.7">2nd°</span>'
+          : '';
+      const authorHtml = authorName ? `<div class="feedCardAuthor">${authorPic ? `<img class="feedCardAvatar" src="${escapeHtml(authorPic)}" alt="" onerror="this.remove()" loading="lazy" />` : ''}<span class="feedCardAuthorName">${escapeHtml(authorName)}</span>${trustBadgeHtml}</div>` : '';
       meta.innerHTML = `<div class="feedCardTitle" title="${escapeHtml(row.title || 'Untitled')}">${escapeHtml(row.title || 'Untitled')}</div><div class="feedCardSub">${escapeHtml([modeLabel, categoryLabel(row.category), row.imdb].filter(Boolean).join(' · '))}</div>${authorHtml}`;
       const actions = document.createElement('div');
       actions.className = 'feedCardActions';
@@ -6140,7 +6338,15 @@
         e.stopPropagation();
         await blockAuthor(row.e?.pubkey, 'card');
       });
-      actions.append(makeReactionBtn(row), prevBtn, btn, blockBtn);
+      const reportBtn = document.createElement('button');
+      reportBtn.type = 'button';
+      reportBtn.textContent = 'Report';
+      reportBtn.title = 'Report this template';
+      reportBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        openReportModal(row.e?.id, row.e?.pubkey);
+      });
+      actions.append(makeReactionBtn(row), prevBtn, btn, blockBtn, reportBtn);
       el.append(thumb, meta, actions);
       el.addEventListener('click', () => openDesignPreview(row));
       return el;
@@ -6165,6 +6371,7 @@
         loginBtn.style.display = '';
         profileBtn.style.display = 'none';
       }
+      updateTrustToggles();
     }
 
     async function nostrLogin() {
@@ -6315,11 +6522,14 @@
         const categoryFilter = _feedState[`category${tab}`] || '';
         const languageFilter = _feedState[`language${tab}`] || '';
         let rows = buildRowsFromEvents(_feedCache.events || [], typeFilter, '', false, categoryFilter, languageFilter);
+        const trustFilter = _feedState[`trustFilter${tab}`] || 'all';
+        if (trustFilter === 'trusted') rows = rows.filter(r => r.trust === 'self' || r.trust === 'trusted');
+        else if (trustFilter === 'extended') rows = rows.filter(r => r.trust === 'self' || r.trust === 'trusted' || r.trust === 'extended');
         if (tab === 'New') {
-          rows.sort((a, b) => b.createdAt - a.createdAt);
+          rows.sort((a, b) => (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust]) || (b.createdAt - a.createdAt));
         } else {
           rows = deduplicateRows(rows);
-          rows.sort((a, b) => (b.reactions - a.reactions) || (b.createdAt - a.createdAt));
+          rows.sort((a, b) => (b.reactions - a.reactions) || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust]) || (b.createdAt - a.createdAt));
         }
         updateFeedStatus(tab, rows.length);
         if (!rows.length) {
@@ -7506,6 +7716,14 @@
         });
       });
 
+      ['New', 'Popular'].forEach(tab => {
+        const sel = $(`trustFilter${tab}`);
+        if (sel) sel.addEventListener('change', () => {
+          _feedState[`trustFilter${tab}`] = sel.value;
+          loadFeedTab(tab);
+        });
+      });
+
       $('relayList').addEventListener('change', async (event) => {
         state.community.relays = event.target.value.trim() || state.community.relays;
         invalidateFeedCache();
@@ -7944,9 +8162,13 @@
       syncDesignerInputs();
       updateNostrWidget();
       render();
+      $('reportSubmitBtn').addEventListener('click', submitReport);
+      $('reportCancelBtn').addEventListener('click', closeReportModal);
+      $('reportModal').addEventListener('click', e => { if (e.target === $('reportModal')) closeReportModal(); });
     }
 
     init();
   </script>
+
 </body>
 </html>
