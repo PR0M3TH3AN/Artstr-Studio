@@ -2290,7 +2290,7 @@
       <details id="nostrRelayDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
         <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">Relay settings</summary>
         <label for="relayList" style="margin-top:8px;display:block;font-size:.8rem;font-weight:650;color:#374151">Nostr relays</label>
-        <input id="relayList" type="text" placeholder="wss://relay.damus.io, wss://nos.lol" style="margin-top:4px" />
+        <input id="relayList" type="text" placeholder="wss://relay.damus.io, wss://nos.lol, wss://relay.primal.net, wss://relay.snort.social, wss://relay.nostr.band, wss://relay.nos.social" style="margin-top:4px" />
         <p class="hint">Separate multiple relays with commas. Changing relays clears the template cache.</p>
       </details>
     </div>
@@ -2399,6 +2399,15 @@
       { value: 'audio-cd', label: 'Audio CD' }
     ];
 
+    const DEFAULT_NOSTR_RELAYS = [
+      'wss://relay.damus.io',
+      'wss://nos.lol',
+      'wss://relay.primal.net',
+      'wss://relay.snort.social',
+      'wss://relay.nostr.band',
+      'wss://relay.nos.social'
+    ];
+
     const state = {
       meta: { title: "", imdbId: "", omdbApiKey: "", category: "", language: "en" },
       darkMode: false,
@@ -2435,6 +2444,10 @@
         top: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
         bottom: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }
       },
+      discMeta: {
+        top: { title: '', imdbId: '', category: '', language: 'en' },
+        bottom: { title: '', imdbId: '', category: '', language: 'en' }
+      },
       discDesign: { name: '', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
       discSpineLabels: { top: '', bottom: '' },
       jewelInserts: {
@@ -2444,7 +2457,7 @@
       layers: [],
       selectedLayerId: '',
       community: {
-        relays: 'wss://relay.damus.io, wss://nos.lol',
+        relays: DEFAULT_NOSTR_RELAYS.join(', '),
         query: '',
         kind: 'templates',
         feed: [],
@@ -2470,6 +2483,26 @@
 
     function fmt(n, digits = 3) {
       return Number(n).toFixed(digits).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+    }
+
+    function filenamePart(value, fallback = '') {
+      const slug = String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+      return slug || fallback;
+    }
+
+    function projectFileStem(kind, variant = '') {
+      const title = filenamePart(state.meta.title, 'untitled');
+      const imdb = state.meta.imdbId
+        ? state.meta.imdbId.replace(/[^a-z0-9]/gi, '').toLowerCase()
+        : '';
+      const fileCategory = filenamePart(state.meta.category);
+      const fileKind = filenamePart(kind || templateTypeForMode());
+      const fileVariant = filenamePart(variant);
+      return [title, fileCategory, fileKind, fileVariant, imdb].filter(Boolean).join('_');
     }
 
     function normalizeImageUrl(raw) {
@@ -2541,6 +2574,14 @@
 
     function eventTemplateSummary(payload) {
       if (!payload) return { title: 'Untitled', mode: 'template', image: '' };
+      if (isDeletedTemplatePayload(payload)) {
+        return {
+          title: 'Deleted template',
+          mode: normalizeTemplateMode(payload),
+          category: payload.meta?.category || payload.category || '',
+          image: ''
+        };
+      }
       const title = payload.meta?.title || payload.title || 'Untitled';
       const mode = normalizeTemplateMode(payload);
       const category = payload.meta?.category || payload.category || '';
@@ -2599,7 +2640,8 @@
       if (raw === 'jewel-inserts') return 'jewel';
       if (raw === 'disc-design') return 'disc-design';
       if (raw === 'cover' || raw === 'disc' || raw === 'jewel') return raw;
-      if (payload.discDesign) return 'disc-design';
+      if (payload.discTemplate || payload.discMeta) return 'disc';
+      if (payload.discDesign && !payload.discTemplate) return 'disc-design';
       if (payload.coverTemplate || payload.slots || payload.combined) return 'cover';
       if (payload.jewelTemplate || payload.jewelInserts) return 'jewel';
       return 'disc';
@@ -2611,6 +2653,51 @@
       const preset = state.preset === 'jewel8693' ? 'dvd' : (state.preset || 'custom');
       if (preset === 'dvd' || preset === 'bluray') return preset;
       return 'custom-case-cover';
+    }
+
+    function templateTypeForPayload(payload = {}) {
+      return payload?.templateType || templateTypeForMode(normalizeTemplateMode(payload));
+    }
+
+    function templateEventDValue(event, payload = {}) {
+      const tags = Array.isArray(event?.tags) ? event.tags : [];
+      const dTag = tags.find((tag) => tag[0] === 'd' && tag[1]);
+      return dTag?.[1] || payload?.meta?.imdbId || payload?.meta?.title || payload?.title || '';
+    }
+
+    function templateEventAddress(event, payload = {}) {
+      const dValue = templateEventDValue(event, payload);
+      if (!dValue || !event?.pubkey) return event?.id || '';
+      return `${event.kind || 30078}:${event.pubkey}:${dValue}`;
+    }
+
+    function isDeletedTemplatePayload(payload = {}) {
+      return payload?.status === 'deleted'
+        || payload?.deleted === true
+        || payload?.tombstone === true;
+    }
+
+    function templateDeleteTargets(event) {
+      if (!event || event.kind !== 5) return [];
+      const pubkey = event.pubkey || '';
+      const tags = Array.isArray(event.tags) ? event.tags : [];
+      const kTags = tags.filter((tag) => tag[0] === 'k' && tag[1]).map((tag) => tag[1]);
+      const targets = [];
+      for (const tag of tags) {
+        if (tag[0] === 'e' && tag[1]) {
+          targets.push({ type: 'event', value: tag[1], pubkey });
+        }
+        if (tag[0] === 'a' && tag[1]) {
+          targets.push({ type: 'address', value: tag[1], pubkey });
+        }
+      }
+      return targets.filter((target) => {
+        if (target.type === 'address') {
+          const [kind, targetPubkey] = String(target.value).split(':');
+          return targetPubkey && targetPubkey === pubkey && (kTags.length === 0 || kTags.includes(kind));
+        }
+        return target.pubkey && target.value;
+      });
     }
 
     function getCommunityProfile() {
@@ -2661,7 +2748,7 @@
     }
 
     async function queryRelays(relays, filters, { timeoutMs = 3500 } = {}) {
-      const relayList = relays.length ? relays : ['wss://relay.damus.io'];
+      const relayList = relays.length ? relays : DEFAULT_NOSTR_RELAYS;
       const events = new Map();
 
       await Promise.all(relayList.map((relay) => new Promise((resolve) => {
@@ -2772,6 +2859,7 @@
         bottom: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
         ...state.discs
       };
+      state.discMeta = normalizeDiscMeta(state.discMeta);
     }
 
     function currentDesignerLayers() {
@@ -2803,6 +2891,78 @@
           ...(state.jewelInserts[key] || {})
         };
       }
+    }
+
+    function normalizeDiscMeta(meta = {}) {
+      return {
+        top: { title: '', imdbId: '', category: '', language: 'en', ...(meta.top || {}) },
+        bottom: { title: '', imdbId: '', category: '', language: 'en', ...(meta.bottom || {}) }
+      };
+    }
+
+    function discSlotMetaFromPayload(payload, slotKey, design = {}) {
+      const templateMeta = payload?.discTemplate?.meta || payload?.discMeta || {};
+      const slotMeta = templateMeta?.[slotKey] || {};
+      const designMeta = design?.meta || payload?.discDesign?.meta || {};
+      const sharedMeta = payload?.meta || {};
+      return {
+        title: slotMeta.title || designMeta.title || sharedMeta.title || design.name || '',
+        imdbId: slotMeta.imdbId || designMeta.imdbId || sharedMeta.imdbId || '',
+        category: slotMeta.category || designMeta.category || sharedMeta.category || '',
+        language: slotMeta.language || designMeta.language || sharedMeta.language || 'en'
+      };
+    }
+
+    function preferredDiscProjectTitle() {
+      const topTitle = state.discMeta?.top?.title?.trim();
+      const bottomTitle = state.discMeta?.bottom?.title?.trim();
+      return topTitle || bottomTitle || '';
+    }
+
+    function preferredDiscProjectImdb() {
+      const topImdb = state.discMeta?.top?.imdbId?.trim();
+      const bottomImdb = state.discMeta?.bottom?.imdbId?.trim();
+      return topImdb || bottomImdb || '';
+    }
+
+    function preferredDiscProjectCategory() {
+      const topCategory = state.discMeta?.top?.category?.trim();
+      const bottomCategory = state.discMeta?.bottom?.category?.trim();
+      return topCategory || bottomCategory || '';
+    }
+
+    function preferredDiscProjectLanguage() {
+      const topLanguage = state.discMeta?.top?.language?.trim();
+      const bottomLanguage = state.discMeta?.bottom?.language?.trim();
+      return topLanguage || bottomLanguage || 'en';
+    }
+
+    function syncProjectMetaFromDiscMeta() {
+      if (state.templateMode !== 'disc') return;
+      const nextTitle = preferredDiscProjectTitle();
+      const nextImdb = preferredDiscProjectImdb();
+      const nextCategory = preferredDiscProjectCategory();
+      const nextLanguage = preferredDiscProjectLanguage();
+      state.meta.title = nextTitle;
+      state.meta.imdbId = nextImdb;
+      state.meta.category = nextCategory;
+      state.meta.language = nextLanguage;
+      const titleField = $('titleField');
+      if (titleField) titleField.value = nextTitle;
+      const imdbField = $('imdbField');
+      if (imdbField) imdbField.value = nextImdb;
+      const categoryField = $('categoryField');
+      if (categoryField) categoryField.value = nextCategory;
+      const languageField = $('languageField');
+      if (languageField) languageField.value = nextLanguage;
+      const designerTitleField = $('designerTitleField');
+      if (designerTitleField) designerTitleField.value = nextTitle;
+      const designerImdbField = $('designerImdbField');
+      if (designerImdbField) designerImdbField.value = nextImdb;
+      const designerCategoryField = $('designerCategoryField');
+      if (designerCategoryField) designerCategoryField.value = nextCategory;
+      const designerLanguageField = $('designerLanguageField');
+      if (designerLanguageField) designerLanguageField.value = nextLanguage;
     }
 
     function templatePayloadFromEvent(event) {
@@ -2881,6 +3041,9 @@
       const di = $('designerImdbField'); if (di) di.value = state.meta?.imdbId || "";
       const dc = $('designerCategoryField'); if (dc) dc.value = state.meta?.category || '';
       const dl = $('designerLanguageField'); if (dl) dl.value = state.meta?.language || 'en';
+      const metadataFieldset = $('metadataFieldset');
+      if (metadataFieldset) metadataFieldset.style.display = state.templateMode === 'disc' ? 'none' : '';
+      if (state.templateMode === 'disc') syncProjectMetaFromDiscMeta();
       $('showBleed').checked = state.showBleed;
       $('showCrops').checked = state.showCrops;
       $('printGuides').checked = state.printGuides;
@@ -3366,54 +3529,107 @@
       for (const { key } of jewelSlotNames) syncJewelInputs(key);
     }
 
-        function buildDiscImportUI() {
+    function buildDiscImportUI() {
       // Replaced dropdowns with import buttons
       const wrap = $('discControls');
       if (!wrap) return;
-      wrap.innerHTML = `
-        <p class="hint">Import saved disc designs into each print position from file or Nostr.</p>
-      `;
+      wrap.innerHTML = `<p class="hint">Import saved disc designs into each print position from file or Nostr.</p>`;
       for (const { key, label } of discSlotNames) {
-        const details = document.createElement('details');
-        details.open = false;
-        details.innerHTML = `
-          <summary>${label}</summary>
-          <div class="buttonRow">
-            <button type="button" id="disc-import-${key}">Load from file</button>
-            <button type="button" id="disc-nostr-${key}">Search Nostr</button>
-          </div>
-          <div class="miniReadout" id="disc-preview-${key}">No design loaded</div>
-          <label>Fit</label>
-          <select id="disc-fit-${key}">
-            <option value="cover">Cover / crop to fill</option>
-            <option value="contain">Contain / no crop</option>
-            <option value="fill">Stretch to fit</option>
-          </select>
-          <label for="disc-zoom-${key}">Zoom</label>
-          <div class="rangeLine">
-            <input id="disc-zoom-${key}" type="range" min="0.1" max="4" step="0.01" />
-            <output id="disc-zoom-${key}-out"></output>
-          </div>
-          <label for="disc-x-${key}">Move X</label>
-          <div class="rangeLine">
-            <input id="disc-x-${key}" type="range" min="-100" max="100" step="1" />
-            <output id="disc-x-${key}-out"></output>
-          </div>
-          <label for="disc-y-${key}">Move Y</label>
-          <div class="rangeLine">
-            <input id="disc-y-${key}" type="range" min="-100" max="100" step="1" />
-            <output id="disc-y-${key}-out"></output>
-          </div>
-          <label for="disc-rotate-${key}">Rotate</label>
-          <div class="rangeLine">
-            <input id="disc-rotate-${key}" type="range" min="-180" max="180" step="1" />
-            <output id="disc-rotate-${key}-out"></output>
-          </div>
+        const block = document.createElement('div');
+        block.className = 'discSlotGroup';
+        block.innerHTML = `
+          <details open>
+            <summary>${label} image</summary>
+            <div class="buttonRow">
+              <button type="button" id="disc-import-${key}">Load from file</button>
+              <button type="button" id="disc-nostr-${key}">Search Nostr</button>
+            </div>
+            <div class="miniReadout" id="disc-preview-${key}">No design loaded</div>
+            <label>Fit</label>
+            <select id="disc-fit-${key}">
+              <option value="cover">Cover / crop to fill</option>
+              <option value="contain">Contain / no crop</option>
+              <option value="fill">Stretch to fit</option>
+            </select>
+            <label for="disc-zoom-${key}">Zoom</label>
+            <div class="rangeLine">
+              <input id="disc-zoom-${key}" type="range" min="0.1" max="4" step="0.01" />
+              <output id="disc-zoom-${key}-out"></output>
+            </div>
+            <label for="disc-x-${key}">Move X</label>
+            <div class="rangeLine">
+              <input id="disc-x-${key}" type="range" min="-100" max="100" step="1" />
+              <output id="disc-x-${key}-out"></output>
+            </div>
+            <label for="disc-y-${key}">Move Y</label>
+            <div class="rangeLine">
+              <input id="disc-y-${key}" type="range" min="-100" max="100" step="1" />
+              <output id="disc-y-${key}-out"></output>
+            </div>
+            <label for="disc-rotate-${key}">Rotate</label>
+            <div class="rangeLine">
+              <input id="disc-rotate-${key}" type="range" min="-180" max="180" step="1" />
+              <output id="disc-rotate-${key}-out"></output>
+            </div>
+          </details>
+          <details>
+            <summary>${label} metadata</summary>
+            <label for="disc-title-${key}">Name</label>
+            <input id="disc-title-${key}" type="text" placeholder="e.g. Feature Film" />
+            <label for="disc-imdb-${key}">IMDb ID</label>
+            <input id="disc-imdb-${key}" type="text" placeholder="tt1234567" />
+            <label for="disc-category-${key}">Category</label>
+            <input id="disc-category-${key}" type="text" placeholder="e.g. DVD" />
+            <label for="disc-language-${key}">Language</label>
+            <select id="disc-language-${key}">
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="pt">Portuguese</option>
+              <option value="it">Italian</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+              <option value="zh">Chinese</option>
+              <option value="other">Other</option>
+            </select>
+            <div class="miniReadout" id="disc-meta-preview-${key}"></div>
+          </details>
         `;
-        wrap.appendChild(details);
+        wrap.appendChild(block);
       }
+      attachDiscMetaEvents();
       attachDiscImportEvents();
       syncDiscTemplateInputs();
+    }
+
+    function attachDiscMetaEvents() {
+      for (const { key } of discSlotNames) {
+        const titleEl = $(`disc-title-${key}`);
+        if (titleEl) titleEl.addEventListener('input', (e) => {
+          state.discMeta[key].title = e.target.value;
+          syncProjectMetaFromDiscMeta();
+          syncDiscTemplateInputs();
+        });
+        const imdbEl = $(`disc-imdb-${key}`);
+        if (imdbEl) imdbEl.addEventListener('input', (e) => {
+          state.discMeta[key].imdbId = e.target.value;
+          syncProjectMetaFromDiscMeta();
+          syncDiscTemplateInputs();
+        });
+        const categoryEl = $(`disc-category-${key}`);
+        if (categoryEl) categoryEl.addEventListener('input', (e) => {
+          state.discMeta[key].category = e.target.value;
+          syncDiscTemplateInputs();
+          syncProjectMetaFromDiscMeta();
+        });
+        const languageEl = $(`disc-language-${key}`);
+        if (languageEl) languageEl.addEventListener('change', (e) => {
+          state.discMeta[key].language = e.target.value;
+          syncProjectMetaFromDiscMeta();
+          syncDiscTemplateInputs();
+        });
+      }
     }
 
     function attachDiscImportEvents() {
@@ -3432,16 +3648,22 @@
                 if (parsed?.discDesign) {
                   const { key: _k, layers: payloadLayers, ...design } = parsed.discDesign;
                   state.discs[key] = { ...state.discs[key], ...design };
+                  state.discMeta[key] = { ...state.discMeta[key], ...discSlotMetaFromPayload(parsed, key, design) };
                   const layersToUse = Array.isArray(payloadLayers) ? payloadLayers : (Array.isArray(parsed.layers) ? parsed.layers : []);
                   if (layersToUse.length > 0) {
                     state.discs[key].layers = layersToUse.map(l => ({ ...l }));
                   }
                   if (state.templateMode !== 'disc') state.templateMode = 'disc';
-                  syncInputs(); render();
+                  syncInputs();
+                  syncAllDiscInputs();
+                  render();
                   const preview = $(`disc-preview-${key}`);
                   if (preview) preview.textContent = design.name || 'Design loaded';
                 } else if (parsed?.discTemplate?.discs?.[key]) {
                   state.discs[key] = parsed.discTemplate.discs[key];
+                  state.discMeta[key] = { ...state.discMeta[key], ...discSlotMetaFromPayload(parsed, key, parsed.discTemplate.discs[key]) };
+                  syncProjectMetaFromDiscMeta();
+                  syncAllDiscInputs();
                   render();
                   const preview = $(`disc-preview-${key}`);
                   if (preview) preview.textContent = 'Loaded from project';
@@ -3482,6 +3704,17 @@
     function syncDiscTemplateInputs() {
       for (const { key } of discSlotNames) {
         const disc = state.discs[key] || {};
+        const meta = state.discMeta?.[key] || {};
+        const titleEl = $(`disc-title-${key}`);
+        if (titleEl) titleEl.value = meta.title || '';
+        const imdbEl = $(`disc-imdb-${key}`);
+        if (imdbEl) imdbEl.value = meta.imdbId || '';
+        const categoryEl = $(`disc-category-${key}`);
+        if (categoryEl) categoryEl.value = meta.category || '';
+        const languageEl = $(`disc-language-${key}`);
+        if (languageEl) languageEl.value = meta.language || 'en';
+        const metaPreview = $(`disc-meta-preview-${key}`);
+        if (metaPreview) metaPreview.textContent = `${meta.title || 'Untitled'} · ${meta.imdbId || 'no IMDb'} · ${meta.category || 'Uncategorized'} · ${meta.language || 'en'}`;
         const preview = $(`disc-preview-${key}`);
         if (preview) preview.textContent = disc.src ? (disc.name || 'Design loaded') : 'No design loaded';
         const fitEl = $(`disc-fit-${key}`);
@@ -3899,9 +4132,9 @@
     function communityKindKinds() {
       switch (state.community.kind) {
         case 'templates':
-          return [30078];
+          return [30078, 5];
         case 'disc-designs':
-          return [30078];
+          return [30078, 5];
         case 'notes':
           return [1];
         case 'profiles':
@@ -3924,6 +4157,7 @@
       if (!event) return 'Untitled';
       if (event.kind === 30078) {
         const payload = safeJsonParse(event.content, {});
+        if (isDeletedTemplatePayload(payload)) return 'Deleted template';
         return eventTemplateSummary(payload).title || 'Untitled';
       }
       if (event.kind === 0) {
@@ -3938,6 +4172,9 @@
       const profile = communityEventProfile(event);
       if (event.kind === 30078) {
         const payload = safeJsonParse(event.content, {});
+        if (isDeletedTemplatePayload(payload)) {
+          return `Deleted • ${profile?.name || profile?.display_name || shortPubkey(event.pubkey) || 'Unknown'}`;
+        }
         const summary = eventTemplateSummary(payload);
         return `${[summary.mode, categoryLabel(summary.category)].filter(Boolean).join(' • ')} • ${profile?.name || profile?.display_name || shortPubkey(event.pubkey) || 'Unknown'}`;
       }
@@ -3951,6 +4188,7 @@
       if (!event) return '';
       if (event.kind === 30078) {
         const payload = safeJsonParse(event.content, {});
+        if (isDeletedTemplatePayload(payload)) return '';
         return previewFromPayload(payload, normalizeTemplateMode(payload));
       }
       const profile = safeJsonParse(event.content, {});
@@ -4109,7 +4347,7 @@
       const relays = splitRelayList(state.community.relays);
       const kinds = communityKindKinds();
       const filter = { kinds, limit: 120 };
-      if (kinds.length === 1 && kinds[0] === 30078) filter['#t'] = ['casewrap'];
+      if (kinds.includes(30078)) filter['#t'] = ['casewrap'];
       const items = await queryRelays(relays, filter, { timeoutMs: 4000 });
       const q = state.community.query.trim().toLowerCase();
       const filtered = items.filter((event) => {
@@ -4146,6 +4384,122 @@
       const signed = await signNostrEvent(event);
       await publishToRelays(signed);
       return signed;
+    }
+
+    function buildTemplateTombstonePayload(payload, { reason = '', deletedAt = Math.floor(Date.now() / 1000), deletedBy = '' } = {}) {
+      const next = JSON.parse(JSON.stringify(payload || {}));
+      const meta = { ...(next.meta || {}) };
+      next.meta = meta;
+      next.deleted = true;
+      next.status = 'deleted';
+      next.deletedAt = deletedAt;
+      next.deletedBy = deletedBy || next.deletedBy || '';
+      next.deletedReason = reason || next.deletedReason || '';
+      next.templateType = templateTypeForPayload(next);
+      return next;
+    }
+
+    function buildTemplateDeletionTags(row, payload, reason = '') {
+      const evt = row?.e || {};
+      const templateType = templateTypeForPayload(payload);
+      const dValue = templateEventDValue(evt, payload);
+      const typeTag = payload?.templateMode === 'disc-design'
+        ? 'casewrap-disc-design'
+        : payload?.templateMode === 'disc'
+          ? 'casewrap-disc'
+          : payload?.templateMode === 'jewel'
+            ? 'casewrap-jewel'
+            : 'casewrap-cover';
+      const tags = [
+        ['t', 'casewrap'],
+        ['t', typeTag],
+        ['template_type', templateType]
+      ];
+      if (payload?.meta?.title) tags.push(['title', payload.meta.title]);
+      if (payload?.meta?.imdbId) tags.push(['i', payload.meta.imdbId]);
+      if (payload?.meta?.category) tags.push(['category', payload.meta.category]);
+      if (payload?.meta?.language) tags.push(['language', payload.meta.language]);
+      if (dValue) {
+        tags.push(['d', dValue]);
+        tags.push(['a', `${evt.kind || 30078}:${evt.pubkey || ''}:${dValue}`]);
+      }
+      if (evt?.id) tags.push(['e', evt.id]);
+      tags.push(['k', String(evt.kind || 30078)]);
+      if (reason) tags.push(['reason', reason]);
+      return tags;
+    }
+
+    async function publishTemplateDeletion(row, reason = '') {
+      const payload = row?.payload || {};
+      const evt = row?.e || {};
+      if (!evt?.id || evt.kind !== 30078) {
+        throw new Error('Only published templates can be tombstoned.');
+      }
+      const pubkey = await getNostrPublicKey();
+      if (!pubkey) {
+        throw new Error('Sign in with Nostr before deleting a template.');
+      }
+      if (evt.pubkey !== pubkey) {
+        throw new Error('You can only delete your own published templates.');
+      }
+      const deletedAt = Math.floor(Date.now() / 1000);
+      const tombstonePayload = buildTemplateTombstonePayload(payload, { reason, deletedAt, deletedBy: pubkey });
+      const deleteTags = buildTemplateDeletionTags(row, payload, reason);
+      const deleteEvent = {
+        kind: 5,
+        created_at: deletedAt,
+        tags: deleteTags,
+        content: reason || 'Deleted by author.'
+      };
+      const tombstoneEvent = {
+        kind: 30078,
+        created_at: deletedAt,
+        tags: evt.tags ? evt.tags.map((tag) => [...tag]) : deleteTags.filter((tag) => tag[0] !== 'e' && tag[0] !== 'a' && tag[0] !== 'k' && tag[0] !== 'reason'),
+        content: JSON.stringify(tombstonePayload)
+      };
+
+      if (!tombstoneEvent.tags.some((tag) => tag[0] === 'd' && tag[1])) {
+        const dValue = templateEventDValue(evt, payload);
+        if (dValue) tombstoneEvent.tags.unshift(['d', dValue]);
+      }
+
+      const signedDelete = await publishCommunityEvent(deleteEvent);
+      const signedTombstone = await publishCommunityEvent(tombstoneEvent);
+      cachePublishedTemplateEvent(signedDelete);
+      cachePublishedTemplateEvent(signedTombstone);
+      state.community.status = 'Template deleted and tombstoned.';
+      return { signedDelete, signedTombstone };
+    }
+
+    function addPreviewDeleteButton(actionsDiv, row, insertBeforeNode) {
+      if (!actionsDiv || !row?.e || row.e.kind !== 30078) return;
+      if (!state.community.myPubkey || row.e.pubkey !== state.community.myPubkey) return;
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'danger';
+      deleteBtn.textContent = 'Delete / Tombstone';
+      deleteBtn.addEventListener('click', async () => {
+        const reason = prompt('Optional deletion reason:', '') || '';
+        if (!confirm('Publish a deletion request and tombstone this template?')) return;
+        const activeTabId = document.querySelector('.modalTab.active')?.id || '';
+        try {
+          await publishTemplateDeletion(row, reason.trim());
+          closeNostrPreview();
+          $('nostrModal').classList.remove('open');
+          if (activeTabId === 'tabMine') {
+            await loadMyDesigns();
+          } else if (activeTabId === 'tabPopular') {
+            await loadFeedTab('Popular');
+          } else if (activeTabId === 'tabSearch') {
+            await runNostrSearch();
+          } else {
+            await loadFeedTab('New');
+          }
+        } catch (error) {
+          alert(error.message || 'Could not delete this template.');
+        }
+      });
+      actionsDiv.insertBefore(deleteBtn, insertBeforeNode);
     }
 
     async function publishCurrentTemplateToNostr() {
@@ -4216,7 +4570,7 @@
     }
 
     function cachePublishedTemplateEvent(event) {
-      if (!event || event.kind !== 30078) return;
+      if (!event || (event.kind !== 30078 && event.kind !== 5)) return;
       if (!_feedCache.events) _feedCache.events = [];
       _feedCache.events = [event, ..._feedCache.events.filter(e => e.id !== event.id)];
       _feedCache.fetchedAt = Date.now();
@@ -4478,7 +4832,8 @@
         templateType,
         meta: state.meta,
         ui: { zoom: state.zoom },
-        discTemplate: { templateType, config: discTemplate, discs: state.discs, spineLabels: state.discSpineLabels },
+        discMeta: state.discMeta,
+        discTemplate: { templateType, config: discTemplate, discs: state.discs, spineLabels: state.discSpineLabels, meta: state.discMeta },
         layers: nonGeneratedLayers().filter(l => String(l.target || '').startsWith('disc'))
       };
     }
@@ -4514,22 +4869,92 @@
         },
         coverTemplate: { preset: state.preset, templateType: templateTypeForMode('cover'), panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
         discs: state.discs,
-        discDesign: state.discDesign,
-        discTemplate: { templateType: templateTypeForMode('disc'), config: discTemplate, discs: state.discs, spineLabels: state.discSpineLabels },
+        discMeta: state.discMeta,
+        ...(state.templateMode === 'disc-design' ? { discDesign: state.discDesign } : {}),
+        discTemplate: { templateType: templateTypeForMode('disc'), config: discTemplate, discs: state.discs, spineLabels: state.discSpineLabels, meta: state.discMeta },
         jewelTemplate: { templateType: templateTypeForMode('jewel'), preset: 'jewel8693', config: jewelTemplate, inserts: state.jewelInserts },
         layers: nonGeneratedLayers(),
         community: { relays: state.community.relays, query: state.community.query, kind: state.community.kind }
       };
     }
 
-    function projectFilename(type) {
-      const title = (state.meta.title || 'untitled')
-        .trim().toLowerCase()
-        .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-      const imdb = state.meta.imdbId
-        ? state.meta.imdbId.replace(/[^a-z0-9]/gi, '').toLowerCase()
-        : '';
-      return [title, imdb, type].filter(Boolean).join('_') + '.json';
+    function projectFilename(kind, variant = '') {
+      return `${projectFileStem(kind, variant)}.json`;
+    }
+
+    function discProjectFilename() {
+      return `${discProjectStem()}.json`;
+    }
+
+    function discProjectStem() {
+      const top = state.discMeta?.top || {};
+      const bottom = state.discMeta?.bottom || {};
+      const projectTitle = filenamePart(state.meta.title, 'untitled');
+      const projectCategory = filenamePart(state.meta.category, 'uncategorized');
+      const disc1Title = filenamePart(top.title, 'disc1');
+      const disc1Category = filenamePart(top.category, 'uncategorized');
+      const disc2Title = filenamePart(bottom.title, 'disc2');
+      const disc2Category = filenamePart(bottom.category, 'uncategorized');
+      const imdb = state.meta.imdbId ? state.meta.imdbId.replace(/[^a-z0-9]/gi, '').toLowerCase() : '';
+      return [projectTitle, projectCategory, 'disc_label_sheet', disc1Title, disc1Category, disc2Title, disc2Category, imdb]
+        .filter(Boolean)
+        .join('_');
+    }
+
+    function currentSaveStem() {
+      if (state.templateMode === 'disc') return discProjectStem();
+      if (state.templateMode === 'jewel') return projectFileStem('cd_jewel_case', 'jewel8693');
+      return projectFileStem('case_cover', state.preset);
+    }
+
+    function previewSaveStem(payload = {}, row = null) {
+      const mode = row?.mode || normalizeTemplateMode(payload);
+      if (mode === 'disc') {
+        const meta = payload.discMeta || payload.discTemplate?.meta || {};
+        const top = meta.top || {};
+        const bottom = meta.bottom || {};
+        const projectTitle = filenamePart(payload.meta?.title || row?.title || 'untitled', 'untitled');
+        const projectCategory = filenamePart(payload.meta?.category || row?.category || 'uncategorized', 'uncategorized');
+        const disc1Title = filenamePart(top.title, 'disc1');
+        const disc1Category = filenamePart(top.category, 'uncategorized');
+        const disc2Title = filenamePart(bottom.title, 'disc2');
+        const disc2Category = filenamePart(bottom.category, 'uncategorized');
+        const imdb = filenamePart(payload.meta?.imdbId || row?.imdb || '');
+        return [projectTitle, projectCategory, 'disc_label_sheet', disc1Title, disc1Category, disc2Title, disc2Category, imdb]
+          .filter(Boolean)
+          .join('_');
+      }
+      if (mode === 'jewel') {
+        const title = filenamePart(payload.meta?.title || row?.title || 'untitled', 'untitled');
+        const category = filenamePart(payload.meta?.category || row?.category || 'uncategorized', 'uncategorized');
+        const imdb = payload.meta?.imdbId ? payload.meta.imdbId.replace(/[^a-z0-9]/gi, '').toLowerCase() : '';
+        return [title, category, 'cd_jewel_case', 'jewel8693', imdb].filter(Boolean).join('_');
+      }
+      if (mode === 'cover') {
+        const title = filenamePart(payload.meta?.title || row?.title || 'untitled', 'untitled');
+        const category = filenamePart(payload.meta?.category || row?.category || 'uncategorized', 'uncategorized');
+        const preset = payload.coverTemplate?.preset || row?.payload?.coverTemplate?.preset || payload.templateType || state.preset;
+        const imdb = payload.meta?.imdbId ? payload.meta.imdbId.replace(/[^a-z0-9]/gi, '').toLowerCase() : '';
+        return [title, category, 'case_cover', filenamePart(preset), imdb].filter(Boolean).join('_');
+      }
+      return projectFileStem(row?.payload?.templateType || mode || 'template');
+    }
+
+    function currentPdfTitle() {
+      return currentSaveStem();
+    }
+
+    function printWithCurrentFilename() {
+      const previousTitle = document.title;
+      const nextTitle = currentPdfTitle();
+      const restoreTitle = () => {
+        document.title = previousTitle;
+        window.removeEventListener('afterprint', restoreTitle);
+      };
+      window.addEventListener('afterprint', restoreTitle);
+      document.title = nextTitle;
+      render();
+      setTimeout(() => window.print(), 50);
     }
 
     function triggerDownload(payload, filename) {
@@ -4550,11 +4975,11 @@
       if (!title) { alert('Please enter a title in Project Metadata before saving.'); return; }
       if (!category) { alert('Please select a category in Project Metadata before saving.'); return; }
       if (state.templateMode === 'disc') {
-        triggerDownload(discSheetPayload(), projectFilename('disk'));
+        triggerDownload(discSheetPayload(), discProjectFilename());
       } else if (state.templateMode === 'jewel') {
-        triggerDownload(jewelTemplatePayload(), projectFilename('jewel'));
+        triggerDownload(jewelTemplatePayload(), projectFilename('cd_jewel_case', 'jewel8693'));
       } else {
-        triggerDownload(coverTemplatePayload(), projectFilename('case'));
+        triggerDownload(coverTemplatePayload(), projectFilename('case_cover', state.preset));
       }
     }
 
@@ -4568,9 +4993,10 @@
       const payload = discDesignPayload();
       const name = (design.name || 'disc_design')
         .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-      const rawTitle = (state.meta.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      const rawTitle = filenamePart(state.meta.title);
+      const fileCategory = filenamePart(state.meta.category);
       const imdb = state.meta.imdbId ? state.meta.imdbId.replace(/[^a-z0-9]/gi, '').toLowerCase() : '';
-      const filename = [rawTitle || name, imdb, 'disc-design'].filter(Boolean).join('_') + '.json';
+      const filename = [rawTitle || name, fileCategory, 'disc_design', imdb].filter(Boolean).join('_') + '.json';
       triggerDownload(payload, filename);
     }
 
@@ -4611,6 +5037,7 @@
       const hasContent = state.discs.top?.src || state.discs.bottom?.src || state.combined?.src || Object.values(state.slots || {}).some(s => s?.src);
       if (!hasContent) {
         state.discs = { top: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, bottom: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
+        state.discMeta = normalizeDiscMeta();
         state.slots = { back: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, spine: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, front: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
         state.combined = { src: '' };
         state.meta = { title: "", imdbId: "", omdbApiKey: "", category: "", language: "en" };
@@ -4622,6 +5049,7 @@
         downloadProject();
       }
       state.discs = { top: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, bottom: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
+      state.discMeta = normalizeDiscMeta();
       state.slots = { back: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, spine: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, front: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
       state.combined = { src: '' };
       state.meta = { title: "", imdbId: "", omdbApiKey: "", category: "", language: "en" };
@@ -4672,13 +5100,13 @@
 
       // v5+ disc-only: restore disc fields, leave cover and jewel data untouched
       if (v >= 4 && mode === 'disc' && !parsed.coverTemplate) {
-        const designs = parsed.discTemplate?.designs || {};
-        const sheet = parsed.discTemplate?.sheet || {};
         const spineLabels = parsed.discTemplate?.spineLabels || parsed.discSpineLabels || null;
+        const discMeta = parsed.discTemplate?.meta || parsed.discMeta || null;
         Object.assign(state, {
           templateMode: 'disc',
           meta: { ...state.meta, ...(parsed.meta || {}) },
-          discs: { ...state.discs }, // backward compat: old designs/sheet merged
+          discs: { ...state.discs, ...(parsed.discTemplate?.discs || {}) },
+          ...(discMeta ? { discMeta: normalizeDiscMeta(discMeta) } : {}),
           ...(spineLabels ? { discSpineLabels: { ...state.discSpineLabels, ...spineLabels } } : {}),
           layers: [
             ...state.layers.filter(l => !String(l.target || '').startsWith('disc')),
@@ -4687,6 +5115,7 @@
           selectedLayerId: ''
         });
         normalizeDiscState();
+        syncProjectMetaFromDiscMeta();
         syncInputs(); syncAllDiscInputs(); render();
         return;
       }
@@ -4733,6 +5162,7 @@
             slots: parsed.coverTemplate?.slots || {},
             combined: parsed.coverTemplate?.combined || {},
             discs: parsed.discTemplate?.discs || {},
+            discMeta: parsed.discTemplate?.meta || parsed.discMeta || state.discMeta,
             // backward compat: old discDesigns merged into discs below
             discSpineLabels: parsed.discTemplate?.spineLabels || parsed.discSpineLabels || state.discSpineLabels,
             jewelInserts: parsed.jewelTemplate?.inserts || parsed.jewelInserts || {},
@@ -4746,6 +5176,7 @@
         slots: { ...state.slots, ...(source.slots || {}) },
         combined: { ...state.combined, ...(source.combined || {}) },
         discs: { ...state.discs, ...(source.discs || {}) },
+        discMeta: normalizeDiscMeta(source.discMeta || state.discMeta),
         // backward compat handled in normalizeDiscState
         jewelInserts: { ...state.jewelInserts, ...(source.jewelInserts || {}) },
         community: { ...state.community, ...(source.community || {}) },
@@ -4755,6 +5186,7 @@
       Object.assign(state, next);
       normalizeDiscState();
       normalizeJewelState();
+      syncProjectMetaFromDiscMeta();
       syncInputs();
       syncAllSlotInputs();
       syncAllDiscInputs();
@@ -4782,12 +5214,16 @@
       _feedCache.loading = true;
       _feedCache.relayKey = relayKey;
       try {
-        const events = await queryRelays(relays, { kinds: [30078], '#t': ['casewrap'], limit: 200 }, { timeoutMs: 4500 });
+        const [templateEvents, deletionEvents] = await Promise.all([
+          queryRelays(relays, { kinds: [30078], '#t': ['casewrap'], limit: 200 }, { timeoutMs: 4500 }),
+          queryRelays(relays, { kinds: [5], '#t': ['casewrap'], limit: 100 }, { timeoutMs: 3500 })
+        ]);
+        const events = [...templateEvents, ...deletionEvents];
         _feedCache.events = events;
         _feedCache.reactions = {};
         _feedCache.profiles = {};
-        if (events.length) {
-          const ids = events.map(e => e.id);
+        if (templateEvents.length) {
+          const ids = templateEvents.map(e => e.id);
           const BATCH = 50;
           for (let i = 0; i < ids.length; i += BATCH) {
             const rxEvents = await queryRelays(relays, { kinds: [7], '#e': ids.slice(i, i + BATCH) }, { timeoutMs: 2500 });
@@ -4797,7 +5233,7 @@
             }
           }
           // Fetch author profiles for all unique pubkeys
-          const pubkeys = [...new Set(events.map(e => e.pubkey).filter(Boolean))].slice(0, 100);
+          const pubkeys = [...new Set(templateEvents.map(e => e.pubkey).filter(Boolean))].slice(0, 100);
           for (let i = 0; i < pubkeys.length; i += BATCH) {
             const profileEvs = await queryRelays(relays, { kinds: [0], authors: pubkeys.slice(i, i + BATCH) }, { timeoutMs: 2500 });
             for (const pe of profileEvs) {
@@ -4817,10 +5253,43 @@
     function buildRowsFromEvents(events, typeFilter = 'any', query = '', skipVersionFilter = false, categoryFilter = '', languageFilter = '') {
       const q = query.trim().toLowerCase();
       const rows = [];
-      for (const e of events) {
+      const deletedEventIds = new Set();
+      const deletedAddresses = new Set();
+      const ordered = [...(events || [])].sort((a, b) => (b.created_at || 0) - (a.created_at || 0) || String(b.id || '').localeCompare(String(a.id || '')));
+      const addressByEventId = new Map();
+
+      for (const e of ordered) {
+        if (e?.kind === 5) continue;
         let payload = null;
         try { payload = JSON.parse(e.content || '{}'); } catch { continue; }
         if (!skipVersionFilter && (payload.version ?? 0) < MIN_SUPPORTED_SCHEMA_VERSION) continue;
+        const address = templateEventAddress(e, payload);
+        if (address) addressByEventId.set(e.id, address);
+      }
+
+      for (const e of ordered) {
+        if (e?.kind !== 5) continue;
+        for (const target of templateDeleteTargets(e)) {
+          if (target.type === 'event') {
+            deletedEventIds.add(target.value);
+            const inferredAddress = addressByEventId.get(target.value);
+            if (inferredAddress) deletedAddresses.add(inferredAddress);
+          }
+          if (target.type === 'address') deletedAddresses.add(target.value);
+        }
+      }
+
+      const latestByAddress = new Map();
+      for (const e of ordered) {
+        if (e.kind === 5) continue;
+        let payload = null;
+        try { payload = JSON.parse(e.content || '{}'); } catch { continue; }
+        if (!skipVersionFilter && (payload.version ?? 0) < MIN_SUPPORTED_SCHEMA_VERSION) continue;
+        const address = templateEventAddress(e, payload);
+        if (deletedEventIds.has(e.id) || (address && deletedAddresses.has(address)) || isDeletedTemplatePayload(payload)) {
+          if (address) deletedAddresses.add(address);
+          continue;
+        }
         const title = payload.meta?.title || payload.title || '';
         const imdb = payload.meta?.imdbId || '';
         const category = payload.meta?.category || payload.category || '';
@@ -4836,25 +5305,34 @@
           const hay = `${displayTitle} ${title} ${imdb} ${category} ${language} ${(e.tags || []).map(t => t.join(' ')).join(' ')}`.toLowerCase();
           if (!hay.includes(q)) continue;
         }
-        rows.push({
+        const existing = address ? latestByAddress.get(address) : null;
+        const row = {
           e, payload,
           title: displayTitle || `(${mode})`,
           imdb,
           category,
           language,
           mode,
+          address,
           preview: previewFromPayload(payload, mode),
           reactions: _feedCache.reactions[e.id] || 0,
           createdAt: e.created_at || 0
-        });
+        };
+        if (address) {
+          if (!existing) {
+            latestByAddress.set(address, row);
+          }
+        } else {
+          rows.push(row);
+        }
       }
-      return rows;
+      return [...latestByAddress.values(), ...rows];
     }
 
     function deduplicateRows(rows) {
       const seen = new Map();
       for (const row of rows) {
-        const key = row.imdb || row.title?.toLowerCase().trim() || '';
+        const key = row.address || row.imdb || row.title?.toLowerCase().trim() || '';
         if (!key) { seen.set(row.e.id, row); continue; }
         const existing = seen.get(key);
         if (!existing || row.reactions > existing.reactions) seen.set(key, row);
@@ -4872,8 +5350,12 @@
       const lbl = document.createElement('span');
       lbl.className = 'feedCardThumbLabel';
       lbl.textContent = modeLabel;
-      thumb.appendChild(lbl);
-      if (row.preview) {
+      if (row.mode === 'disc') {
+        buildDiscSheetThumb(thumb, row.payload, false);
+      } else {
+        thumb.appendChild(lbl);
+      }
+      if (row.preview && row.mode !== 'disc') {
         const img = document.createElement('img');
         img.alt = ''; img.loading = 'lazy'; img.src = row.preview;
         img.addEventListener('error', () => img.remove());
@@ -4952,12 +5434,13 @@
       wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading your designs…</div>';
       const relays = splitRelayList(state.community.relays);
       const events = await queryRelays(relays, {
-        kinds: [30078], '#t': ['casewrap'],
+        kinds: [30078, 5], '#t': ['casewrap'],
         authors: [state.community.myPubkey], limit: 100
       }, { timeoutMs: 4500 });
       // Fetch reactions for user's own events
-      if (events.length) {
-        const ids = events.map(e => e.id);
+      const templateEvents = events.filter((event) => event.kind === 30078);
+      if (templateEvents.length) {
+        const ids = templateEvents.map(e => e.id);
         const rxEvents = await queryRelays(relays, { kinds: [7], '#e': ids }, { timeoutMs: 2500 });
         for (const rx of rxEvents) {
           const tag = (rx.tags || []).find(t => t[0] === 'e' && t[1]);
@@ -5122,6 +5605,64 @@
 
     const MODE_LABELS = { cover: 'Case cover', disc: 'Disc sheet', jewel: 'CD jewel inserts', 'disc-design': 'Disc design' };
 
+    function buildDiscSheetThumb(thumb, payload, compact = false) {
+      const slots = payload?.discTemplate?.discs || payload?.discs || {};
+      const meta = payload?.discTemplate?.meta || payload?.discMeta || {};
+      const slotDefs = [
+        { key: 'top', fallback: 'Disk 1' },
+        { key: 'bottom', fallback: 'Disk 2' }
+      ];
+
+      thumb.innerHTML = '';
+      thumb.style.display = 'grid';
+      thumb.style.gridTemplateColumns = '1fr 1fr';
+      thumb.style.gap = compact ? '4px' : '6px';
+      thumb.style.alignItems = 'center';
+      thumb.style.boxSizing = 'border-box';
+      thumb.style.padding = compact ? '6px' : '8px';
+      thumb.style.position = 'relative';
+
+      for (const slotDef of slotDefs) {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;justify-content:center;';
+
+        const disc = document.createElement('div');
+        disc.style.cssText = [
+          'width:100%',
+          'aspect-ratio:1',
+          'border-radius:50%',
+          'overflow:hidden',
+          'position:relative',
+          'background:#e2e8f0',
+          'border:1px solid rgba(148,163,184,.65)'
+        ].join(';');
+
+        const img = document.createElement('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.src = slots[slotDef.key]?.src || '';
+        img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;';
+        img.addEventListener('error', () => img.remove());
+        if (img.src) disc.appendChild(img);
+
+        const label = document.createElement('div');
+        label.style.cssText = 'font-size:.64rem;font-weight:700;line-height:1.1;text-align:center;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;';
+        label.textContent = meta?.[slotDef.key]?.title || slotDef.fallback;
+
+        wrap.append(disc, label);
+        thumb.appendChild(wrap);
+      }
+
+      const badge = document.createElement('span');
+      badge.className = 'feedCardThumbLabel';
+      badge.textContent = 'Disc sheet';
+      badge.style.position = 'absolute';
+      badge.style.left = '8px';
+      badge.style.top = '8px';
+      badge.style.zIndex = '2';
+      thumb.appendChild(badge);
+    }
+
     function buildResultCard(row, onUse) {
       const el = document.createElement('div');
       el.className = 'resultItem';
@@ -5132,7 +5673,13 @@
       const thumb = document.createElement('div');
       thumb.className = isDisc ? 'resultThumb resultThumbDisc' : 'resultThumb';
 
-      if (row.preview) {
+      if (row.mode === 'disc') {
+        thumb.className = 'resultThumb resultThumbDisc';
+        thumb.style.width = '110px';
+        thumb.style.height = '78px';
+        thumb.style.borderRadius = '6px';
+        buildDiscSheetThumb(thumb, row.payload, true);
+      } else if (row.preview) {
         const img = document.createElement('img');
         img.alt = '';
         img.loading = 'lazy';
@@ -5141,10 +5688,12 @@
         thumb.appendChild(img);
       }
 
-      const fallback = document.createElement('span');
-      fallback.className = 'resultThumbFallback';
-      fallback.textContent = modeLabel;
-      thumb.appendChild(fallback);
+      if (row.mode !== 'disc') {
+        const fallback = document.createElement('span');
+        fallback.className = 'resultThumbFallback';
+        fallback.textContent = modeLabel;
+        thumb.appendChild(fallback);
+      }
 
       const meta = document.createElement('div');
       const sub = [row.imdb, modeLabel, categoryLabel(row.category)].filter(Boolean).join(' · ');
@@ -5179,7 +5728,8 @@
       content._row = row;
 
       const p = row.payload || {};
-      const isDiscDesign = !!p.discDesign && !p.slots;
+      const mode = normalizeTemplateMode(p);
+      const isDiscDesign = mode === 'disc-design';
 
       // Clear previously injected dynamic buttons, keep Save JSON
       const actionsDiv = $('nostrPreviewActions');
@@ -5217,25 +5767,31 @@
 
         actionsDiv.insertBefore(import1Btn, saveJsonBtn);
         actionsDiv.insertBefore(import2Btn, saveJsonBtn);
+        addPreviewDeleteButton(actionsDiv, row, saveJsonBtn);
       } else {
         const printBtn = document.createElement('button');
         printBtn.type = 'button';
         printBtn.textContent = 'Print / Save PDF';
         printBtn.addEventListener('click', () => {
           const stateSnapshot = JSON.parse(JSON.stringify(state));
+          const previousTitle = document.title;
+          const pdfStem = previewSaveStem(p, row);
           try { loadProjectFromText(JSON.stringify(p)); } catch(e) { console.error(e); }
           closeNostrPreview();
           $('nostrModal').classList.remove('open');
           function onAfterPrint() {
             window.removeEventListener('afterprint', onAfterPrint);
+            document.title = previousTitle;
             Object.assign(state, stateSnapshot);
             syncInputs();
             render();
           }
           window.addEventListener('afterprint', onAfterPrint);
+          document.title = pdfStem || currentPdfTitle();
           setTimeout(() => { render(); window.print(); }, 350);
         });
         actionsDiv.insertBefore(printBtn, saveJsonBtn);
+        addPreviewDeleteButton(actionsDiv, row, saveJsonBtn);
       }
 
       // Switch modal into preview mode
@@ -5252,8 +5808,10 @@
       if (rd) rd.style.display = 'none';
       content.style.display = '';
 
-      if (p.discDesign) {
+      if (mode === 'disc-design') {
         renderDiscPreviewDOM(content, p);
+      } else if (mode === 'disc') {
+        renderDiscSheetPreviewDOM(content, p);
       } else {
         renderTemplatePreviewDOM(content, p);
       }
@@ -5504,6 +6062,253 @@
       container.appendChild(row);
     }
 
+    function renderDiscSheetPreviewDOM(container, payload) {
+      const template = payload.discTemplate || {};
+      const slots = template.discs || payload.discs || {};
+      const meta = template.meta || payload.discMeta || {};
+      const sheetW = Number(template.config?.sheetW) || discTemplate.sheetW;
+      const sheetH = Number(template.config?.sheetH) || discTemplate.sheetH;
+      const discD = Number(template.config?.discD) || discTemplate.discD;
+      const holeD = Number(template.config?.holeD) || discTemplate.holeD;
+      const slotLayers = (slotKey) => {
+        const slot = slots[slotKey] || {};
+        if (Array.isArray(slot.layers) && slot.layers.length) return slot.layers;
+        const tag = slotKey === 'top' ? 'disc-top' : 'disc-bottom';
+        return Array.isArray(payload.layers)
+          ? payload.layers.filter((layer) => layer.target === tag || layer.target === 'designer-disc')
+          : [];
+      };
+
+      const renderDiscLayer = (wrap, disc, layer, layerScale) => {
+        const el = document.createElement('div');
+        const lx = (Number(layer.x) || 0) / layerScale * 100;
+        const ly = (Number(layer.y) || 0) / layerScale * 100;
+        const lw = (Number(layer.w) || layerScale) / layerScale * 100;
+        const lh = (Number(layer.h) || layerScale) / layerScale * 100;
+        el.style.cssText = [
+          'position:absolute',
+          `left:${lx}%`,
+          `top:${ly}%`,
+          `width:${lw}%`,
+          `height:${lh}%`,
+          `transform:rotate(${Number(layer.rotate) || 0}deg)`,
+          `opacity:${layer.opacity !== undefined ? layer.opacity : 1}`,
+          'overflow:hidden',
+          'pointer-events:none',
+          'box-sizing:border-box',
+          'z-index:3'
+        ].join(';');
+
+        if (layer.type === 'text') {
+          const scale = wrap.clientWidth && layerScale ? (wrap.clientWidth / (layerScale * 96)) : 1;
+          const align = layer.align || 'left';
+          el.style.cssText += `color:${layer.color || '#fff'};font-size:${((layer.fontSize || 14) * (96 / 72) * scale)}px;font-weight:${layer.bold ? '800' : '400'};font-style:${layer.italic ? 'italic' : 'normal'};text-align:${align};display:flex;align-items:flex-start;justify-content:${align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start'};`;
+          el.innerHTML = layer.html || '';
+        } else if (layer.type === 'image' && layer.src) {
+          const img = document.createElement('img');
+          img.src = layer.src;
+          img.alt = layer.name || '';
+          img.style.cssText = 'position:absolute;left:50%;top:50%;transform-origin:center center;user-select:none;pointer-events:none;display:block;';
+          el.appendChild(img);
+
+          const update = () => {
+            const cW = el.clientWidth;
+            const cH = el.clientHeight;
+            if (!cW || !cH) return;
+            const fit = layer.fit || 'contain';
+            const nW = img.naturalWidth || cW;
+            const nH = img.naturalHeight || cH;
+            let baseW = cW;
+            let baseH = cH;
+            if (fit === 'fill') {
+              baseW = cW;
+              baseH = cH;
+            } else if (fit === 'none') {
+              baseW = nW;
+              baseH = nH;
+            } else {
+              const fitScale = fit === 'contain'
+                ? Math.min(cW / nW, cH / nH)
+                : Math.max(cW / nW, cH / nH);
+              baseW = nW * fitScale;
+              baseH = nH * fitScale;
+            }
+            const rotate = Number(layer.rotate) || 0;
+            const zoom = Number(layer.zoom) || 1;
+            const rad = rotate * Math.PI / 180;
+            const ac = Math.abs(Math.cos(rad));
+            const as = Math.abs(Math.sin(rad));
+            const rotatedW = (baseW * ac) + (baseH * as);
+            const rotatedH = (baseW * as) + (baseH * ac);
+            const coverScale = fit === 'cover'
+              ? Math.max(cW / Math.max(rotatedW, 1), cH / Math.max(rotatedH, 1), 1)
+              : 1;
+            const finalScale = coverScale * zoom;
+            const panRangeX = Math.max(0, (rotatedW * finalScale - cW) / 2);
+            const panRangeY = Math.max(0, (rotatedH * finalScale - cH) / 2);
+            const xPx = ((Number(layer.x) || 0) / 100) * panRangeX;
+            const yPx = ((Number(layer.y) || 0) / 100) * panRangeY;
+            img.style.width = `${baseW}px`;
+            img.style.height = `${baseH}px`;
+            img.style.transform = `translate(-50%, -50%) translate(${xPx}px, ${yPx}px) rotate(${rotate}deg) scale(${finalScale})`;
+          };
+
+          if (img.complete) requestAnimationFrame(update);
+          img.addEventListener('load', update, { once: true });
+          window.addEventListener('resize', update, { once: true });
+        }
+
+        wrap.appendChild(el);
+      };
+
+      const renderDiscArt = (wrap, disc, layers) => {
+        if (disc.src) {
+          const img = document.createElement('img');
+          img.src = disc.src;
+          img.alt = '';
+          img.style.cssText = 'position:absolute;left:50%;top:50%;width:100%;height:100%;object-fit:fill;transform-origin:center center;user-select:none;pointer-events:none;z-index:1;';
+          wrap.appendChild(img);
+
+          const update = () => {
+            const fit = disc.fit || 'cover';
+            const cW = wrap.clientWidth;
+            const cH = wrap.clientHeight;
+            if (!cW || !cH) return;
+            const nW = img.naturalWidth || cW;
+            const nH = img.naturalHeight || cH;
+            let baseW = cW;
+            let baseH = cH;
+            if (fit === 'fill') {
+              baseW = cW;
+              baseH = cH;
+            } else if (fit === 'none') {
+              baseW = nW;
+              baseH = nH;
+            } else {
+              const fitScale = fit === 'contain'
+                ? Math.min(cW / nW, cH / nH)
+                : Math.max(cW / nW, cH / nH);
+              baseW = nW * fitScale;
+              baseH = nH * fitScale;
+            }
+            const rotate = Number(disc.rotate) || 0;
+            const zoom = Number(disc.zoom) || 1;
+            const rad = rotate * Math.PI / 180;
+            const ac = Math.abs(Math.cos(rad));
+            const as = Math.abs(Math.sin(rad));
+            const rotatedW = (baseW * ac) + (baseH * as);
+            const rotatedH = (baseW * as) + (baseH * ac);
+            const coverScale = fit === 'cover'
+              ? Math.max(cW / Math.max(rotatedW, 1), cH / Math.max(rotatedH, 1), 1)
+              : 1;
+            const finalScale = coverScale * zoom;
+            const panRangeX = Math.max(0, (rotatedW * finalScale - cW) / 2);
+            const panRangeY = Math.max(0, (rotatedH * finalScale - cH) / 2);
+            const xPx = ((Number(disc.x) || 0) / 100) * panRangeX;
+            const yPx = ((Number(disc.y) || 0) / 100) * panRangeY;
+            img.style.width = `${baseW}px`;
+            img.style.height = `${baseH}px`;
+            img.style.transform = `translate(-50%, -50%) translate(${xPx}px, ${yPx}px) rotate(${rotate}deg) scale(${finalScale})`;
+          };
+
+          if (img.complete) requestAnimationFrame(update);
+          img.addEventListener('load', update, { once: true });
+          window.addEventListener('resize', update, { once: true });
+        }
+
+        layers
+          .slice()
+          .sort((a, b) => (a.z || 0) - (b.z || 0))
+          .forEach((layer) => renderDiscLayer(wrap, disc, layer, discD));
+      };
+
+      const sheet = document.createElement('div');
+      sheet.style.cssText = [
+        'position:relative',
+        'width:min(100%, 720px)',
+        `aspect-ratio:${sheetW} / ${sheetH}`,
+        'margin:0 auto',
+        'background:#fff',
+        'border:1px solid var(--line)',
+        'overflow:hidden',
+        'box-shadow:0 2px 10px rgba(15,23,42,.12)'
+      ].join(';');
+
+      const addDisc = (slotKey) => {
+        const slot = discTemplate.slots.find((item) => item.key === slotKey);
+        if (!slot) return;
+        const wrap = document.createElement('div');
+        wrap.style.cssText = [
+          'position:absolute',
+          `left:${((slot.centerX - (discD / 2)) / sheetW) * 100}%`,
+          `top:${((slot.centerY - (discD / 2)) / sheetH) * 100}%`,
+          `width:${(discD / sheetW) * 100}%`,
+          `height:${(discD / sheetH) * 100}%`,
+          'border-radius:50%',
+          'overflow:hidden',
+          'background:#111827',
+          'border:1px solid rgba(17,24,39,.2)',
+          'box-sizing:border-box'
+        ].join(';');
+
+        const disc = slots[slotKey] || {};
+        renderDiscArt(wrap, disc, slotLayers(slotKey));
+
+        const hole = document.createElement('div');
+        hole.style.cssText = [
+          'position:absolute',
+          'left:50%',
+          'top:50%',
+          `width:${((holeD / discD) * 100).toFixed(4)}%`,
+          `height:${((holeD / discD) * 100).toFixed(4)}%`,
+          'border-radius:50%',
+          'background:#fff',
+          'border:1px solid rgba(17,24,39,.24)',
+          'transform:translate(-50%,-50%)',
+          'z-index:12',
+          'pointer-events:none'
+        ].join(';');
+        wrap.appendChild(hole);
+
+        const label = document.createElement('div');
+        label.style.cssText = [
+          'position:absolute',
+          'left:50%',
+          'bottom:-1.25rem',
+          'transform:translateX(-50%)',
+          'font-size:.72rem',
+          'font-weight:700',
+          'color:#64748b',
+          'white-space:nowrap'
+        ].join(';');
+        label.textContent = meta?.[slotKey]?.title || (slotKey === 'top' ? 'Disk 1' : 'Disk 2');
+        wrap.appendChild(label);
+
+        sheet.appendChild(wrap);
+      };
+
+      addDisc('top');
+      addDisc('bottom');
+
+      const sheetLabel = document.createElement('div');
+      sheetLabel.style.cssText = [
+        'position:absolute',
+        'left:0',
+        'right:0',
+        'top:8px',
+        'text-align:center',
+        'font-size:.72rem',
+        'font-weight:700',
+        'color:#94a3b8',
+        'pointer-events:none',
+        'z-index:3'
+      ].join(';');
+      sheetLabel.textContent = 'Disc sheet';
+      sheet.appendChild(sheetLabel);
+
+      container.appendChild(sheet);
+    }
+
     async function runNostrSearch() {
       const q = $('nostrQuery').value.trim();
       const type = $('nostrType').value;
@@ -5564,6 +6369,7 @@
         const { key: _k, layers: payloadLayers, ...design } = payload.discDesign;
         if (isSlotImport) {
           state.discs[slotKey] = { ...state.discs[slotKey], ...design };
+          state.discMeta[slotKey] = { ...state.discMeta[slotKey], ...discSlotMetaFromPayload(payload, slotKey, design) };
           const layersToUse = Array.isArray(payloadLayers) ? payloadLayers : (Array.isArray(payload.layers) ? payload.layers : []);
           if (layersToUse.length > 0) {
             state.discs[slotKey].layers = layersToUse.map(l => ({ ...l }));
@@ -5584,6 +6390,7 @@
         const { key: _k2, layers: payloadLayers2, ...design } = payload.discDesign;
         if (isSlotImport) {
           state.discs[slotKey] = { ...state.discs[slotKey], ...design };
+          state.discMeta[slotKey] = { ...state.discMeta[slotKey], ...discSlotMetaFromPayload(payload, slotKey, design) };
           const layersToUse2 = Array.isArray(payloadLayers2) ? payloadLayers2 : (Array.isArray(payload.layers) ? payload.layers : []);
           if (layersToUse2.length > 0) {
             state.discs[slotKey].layers = layersToUse2.map(l => ({ ...l }));
@@ -5599,6 +6406,7 @@
         }
       } else if (payload?.discTemplate?.discs?.[slotKey]) {
         state.discs[slotKey] = payload.discTemplate.discs[slotKey];
+        state.discMeta[slotKey] = { ...state.discMeta[slotKey], ...discSlotMetaFromPayload(payload, slotKey, payload.discTemplate.discs[slotKey]) };
         const preview = $(`disc-preview-${slotKey}`);
         if (preview) preview.textContent = 'Loaded from project';
       }
@@ -5612,6 +6420,7 @@
         if (!isSlotImport) { state.templateMode = 'disc'; state.appMode = 'template'; }
         buildDiscImportUI();
       }
+      syncAllDiscInputs();
       render();
     }
 
@@ -5849,16 +6658,14 @@
       });
 
       $('printBtn').addEventListener('click', () => {
-        render();
-        window.print();
+        printWithCurrentFilename();
       });
 
       // Preview modal event listeners
       $('previewSaveJsonBtn').addEventListener('click', () => {
         const row = $('nostrPreviewPanel')._row;
         if (!row) return;
-        const name = (row.title || 'design').replace(/[^a-z0-9]/gi, '_');
-        triggerDownload(row.payload, `${name}.json`);
+        triggerDownload(row.payload, `${previewSaveStem(row.payload, row)}.json`);
       });
 
       $('saveProjectBtn').addEventListener('click', downloadProject);
