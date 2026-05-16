@@ -505,12 +505,13 @@
 
     body.dark .appModeTab.active { color: #fff; }
 
-    body.app-designer .template-only { display: none !important; }
     body.app-template .designer-only { display: none !important; }
+    body.app-designer .template-only { display: none !important; }
     body.app-designer label[for="layerTarget"],
     body.app-designer #layerTarget { display: none !important; }
     /* Layers panel hides in Template tab when in disc-sheet mode — disc layers live in the Designer */
-    body.app-template.template-disc #layersFieldset { display: none !important; }
+    body.app-template.template-disc #layersFieldset,
+    body.app-template.template-jewel #layersFieldset { display: none !important; }
 
     /* Designer single-disc preview */
     body.app-designer .sheetWrap { display: none !important; }
@@ -829,10 +830,43 @@
       display: none !important;
     }
 
-    /* Layers: disc position targeting only matters in disc mode */
-    body.template-jewel .layer-controls,
-    body.template-cover .layer-controls {
-      display: none !important;
+    .templateLayerPanels {
+      display: grid;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .templateLayerPanel {
+      border: 1px solid var(--line);
+      border-radius: 0px;
+      padding: 10px;
+      background: rgba(127,127,127,.05);
+      display: grid;
+      gap: 8px;
+    }
+
+    .templateLayerPanelHead {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      font-size: .82rem;
+      font-weight: 800;
+    }
+
+    .templateLayerPanelHead span:last-child {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .templateLayerPanelList {
+      display: grid;
+      gap: 6px;
+    }
+
+    .templateLayerPanelActions {
+      display: grid;
+      gap: 6px;
     }
 
     .discSlot {
@@ -1331,9 +1365,38 @@
 
     .rangeLine {
       display: grid;
-      grid-template-columns: 1fr 48px;
+      grid-template-columns: 1fr auto 56px;
       gap: 8px;
       align-items: center;
+    }
+
+    .rangeLine button.rangeReset {
+      padding: 5px 8px;
+      font-size: .72rem;
+      line-height: 1;
+      white-space: nowrap;
+      border: 1px solid var(--line);
+      border-radius: 0px;
+      background: #f8fafc;
+      color: var(--muted);
+      cursor: pointer;
+      transition: background .15s, color .15s;
+    }
+
+    .rangeLine button.rangeReset:hover {
+      background: #e2e8f0;
+      color: var(--ink);
+    }
+
+    body.dark .rangeLine button.rangeReset {
+      background: #1e293b;
+      border-color: var(--line);
+      color: var(--muted);
+    }
+
+    body.dark .rangeLine button.rangeReset:hover {
+      background: #334155;
+      color: var(--ink);
     }
 
     .rangeLine output {
@@ -1718,6 +1781,7 @@
         <label for="zoom">Preview zoom</label>
         <div class="rangeLine">
           <input id="zoom" type="range" min="20" max="125" step="1" value="60" />
+          <button type="button" class="rangeReset" id="reset-zoom">Reset</button>
           <output id="zoomOut">60%</output>
         </div>
 
@@ -1789,24 +1853,28 @@
           <label for="zoom-combined">Image zoom</label>
           <div class="rangeLine">
             <input id="zoom-combined" type="range" min="0.1" max="4" step="0.01" />
+            <button type="button" class="rangeReset" id="reset-zoom-combined">Reset</button>
             <output id="zoom-combined-out"></output>
           </div>
 
           <label for="x-combined">Move X</label>
           <div class="rangeLine">
             <input id="x-combined" type="range" min="-100" max="100" step="1" />
+            <button type="button" class="rangeReset" id="reset-x-combined">Reset</button>
             <output id="x-combined-out"></output>
           </div>
 
           <label for="y-combined">Move Y</label>
           <div class="rangeLine">
             <input id="y-combined" type="range" min="-100" max="100" step="1" />
+            <button type="button" class="rangeReset" id="reset-y-combined">Reset</button>
             <output id="y-combined-out"></output>
           </div>
 
           <label for="rotate-combined">Rotate</label>
           <div class="rangeLine">
             <input id="rotate-combined" type="range" min="-180" max="180" step="1" />
+            <button type="button" class="rangeReset" id="reset-rotate-combined">Reset</button>
             <output id="rotate-combined-out"></output>
           </div>
 
@@ -1887,21 +1955,25 @@
           <label for="zoom-designer">Zoom</label>
           <div class="rangeLine">
             <input id="zoom-designer" type="range" min="0.1" max="4" step="0.01" />
+            <button type="button" class="rangeReset" id="reset-zoom-designer">Reset</button>
             <output id="zoom-designer-out"></output>
           </div>
           <label for="x-designer">Move X</label>
           <div class="rangeLine">
             <input id="x-designer" type="range" min="-100" max="100" step="1" />
+            <button type="button" class="rangeReset" id="reset-x-designer">Reset</button>
             <output id="x-designer-out"></output>
           </div>
           <label for="y-designer">Move Y</label>
           <div class="rangeLine">
             <input id="y-designer" type="range" min="-100" max="100" step="1" />
+            <button type="button" class="rangeReset" id="reset-y-designer">Reset</button>
             <output id="y-designer-out"></output>
           </div>
           <label for="rotate-designer">Rotate</label>
           <div class="rangeLine">
             <input id="rotate-designer" type="range" min="-180" max="180" step="1" />
+            <button type="button" class="rangeReset" id="reset-rotate-designer">Reset</button>
             <output id="rotate-designer-out"></output>
           </div>
           <div class="buttonRow">
@@ -1914,25 +1986,8 @@
         <p class="hint">Designs A–D created here can be assigned to print positions in the Template tab.</p>
       </fieldset>
 
-      <fieldset class="workflowStep designer-only" id="layersFieldset">
+      <fieldset class="workflowStep template-only" id="layersFieldset">
         <legend data-step="2">Layers</legend>
-
-        <label for="layerTarget" class="layer-controls">Add layer to</label>
-        <select id="layerTarget" class="layer-controls">
-          <option value="disc-top">Disc 1 position</option>
-          <option value="disc-bottom">Disc 2 position</option>
-        </select>
-
-        <div class="urlRow layer-controls">
-          <input id="newLayerUrl" type="url" placeholder="https://example.com/layer.png" />
-          <button type="button" class="copyUrlBtn" onclick="copyUrl('newLayerUrl')">Copy</button>
-        </div>
-        <div class="buttonRow layer-controls">
-          <button type="button" id="addImageLayerBtn">Add image layer</button>
-          <button type="button" id="addTextLayerBtn">Add text layer</button>
-        </div>
-        <p class="hint layer-controls">Add image or text layers on top of your disc layout.</p>
-
         <div class="layerList" id="layerList"></div>
 
         <details id="layerControls">
@@ -2338,6 +2393,14 @@
     };
 
     const slotNames = [
+      { key: 'back', label: 'Back cover' },
+      { key: 'spine', label: 'Spine' },
+      { key: 'front', label: 'Front cover' }
+    ];
+
+    const TEMPLATE_LAYER_TARGETS = [
+      { key: 'page', label: 'Whole page' },
+      { key: 'cover-trim', label: 'Cover trim area' },
       { key: 'back', label: 'Back cover' },
       { key: 'spine', label: 'Spine' },
       { key: 'front', label: 'Front cover' }
@@ -3055,7 +3118,8 @@
 
     function syncUrlInputs() {
       $('combinedUrl').value = state.combined.src || '';
-      $('newLayerUrl').value = '';
+      const newLayerUrl = $('newLayerUrl');
+      if (newLayerUrl) newLayerUrl.value = '';
       for (const { key } of slotNames) {
         $(`url-${key}`).value = state.slots[key].src || '';
       }
@@ -3298,24 +3362,28 @@
           <label for="zoom-${key}">Image zoom</label>
           <div class="rangeLine">
             <input id="zoom-${key}" type="range" min="0.1" max="4" step="0.01" />
+            <button type="button" class="rangeReset" id="reset-zoom-${key}">Reset</button>
             <output id="zoom-${key}-out"></output>
           </div>
 
           <label for="x-${key}">Move X</label>
           <div class="rangeLine">
             <input id="x-${key}" type="range" min="-100" max="100" step="1" />
+            <button type="button" class="rangeReset" id="reset-x-${key}">Reset</button>
             <output id="x-${key}-out"></output>
           </div>
 
           <label for="y-${key}">Move Y</label>
           <div class="rangeLine">
             <input id="y-${key}" type="range" min="-100" max="100" step="1" />
+            <button type="button" class="rangeReset" id="reset-y-${key}">Reset</button>
             <output id="y-${key}-out"></output>
           </div>
 
           <label for="rotate-${key}">Rotate</label>
           <div class="rangeLine">
             <input id="rotate-${key}" type="range" min="-180" max="180" step="1" />
+            <button type="button" class="rangeReset" id="reset-rotate-${key}">Reset</button>
             <output id="rotate-${key}-out"></output>
           </div>
 
@@ -3401,24 +3469,28 @@
           <label for="jewel-zoom-${key}">Image zoom</label>
           <div class="rangeLine">
             <input id="jewel-zoom-${key}" type="range" min="0.1" max="4" step="0.01" />
+            <button type="button" class="rangeReset" id="reset-jewel-zoom-${key}">Reset</button>
             <output id="jewel-zoom-${key}-out"></output>
           </div>
 
           <label for="jewel-x-${key}">Move X</label>
           <div class="rangeLine">
             <input id="jewel-x-${key}" type="range" min="-100" max="100" step="1" />
+            <button type="button" class="rangeReset" id="reset-jewel-x-${key}">Reset</button>
             <output id="jewel-x-${key}-out"></output>
           </div>
 
           <label for="jewel-y-${key}">Move Y</label>
           <div class="rangeLine">
             <input id="jewel-y-${key}" type="range" min="-100" max="100" step="1" />
+            <button type="button" class="rangeReset" id="reset-jewel-y-${key}">Reset</button>
             <output id="jewel-y-${key}-out"></output>
           </div>
 
           <label for="jewel-rotate-${key}">Rotate</label>
           <div class="rangeLine">
             <input id="jewel-rotate-${key}" type="range" min="-180" max="180" step="1" />
+            <button type="button" class="rangeReset" id="reset-jewel-rotate-${key}">Reset</button>
             <output id="jewel-rotate-${key}-out"></output>
           </div>
 
@@ -3554,21 +3626,25 @@
             <label for="disc-zoom-${key}">Zoom</label>
             <div class="rangeLine">
               <input id="disc-zoom-${key}" type="range" min="0.1" max="4" step="0.01" />
+              <button type="button" class="rangeReset" id="reset-disc-zoom-${key}">Reset</button>
               <output id="disc-zoom-${key}-out"></output>
             </div>
             <label for="disc-x-${key}">Move X</label>
             <div class="rangeLine">
               <input id="disc-x-${key}" type="range" min="-100" max="100" step="1" />
+              <button type="button" class="rangeReset" id="reset-disc-x-${key}">Reset</button>
               <output id="disc-x-${key}-out"></output>
             </div>
             <label for="disc-y-${key}">Move Y</label>
             <div class="rangeLine">
               <input id="disc-y-${key}" type="range" min="-100" max="100" step="1" />
+              <button type="button" class="rangeReset" id="reset-disc-y-${key}">Reset</button>
               <output id="disc-y-${key}-out"></output>
             </div>
             <label for="disc-rotate-${key}">Rotate</label>
             <div class="rangeLine">
               <input id="disc-rotate-${key}" type="range" min="-180" max="180" step="1" />
+              <button type="button" class="rangeReset" id="reset-disc-rotate-${key}">Reset</button>
               <output id="disc-rotate-${key}-out"></output>
             </div>
           </details>
@@ -3740,6 +3816,15 @@
       $('y-combined-out').textContent = `${c.y}%`;
       $('rotate-combined').value = c.rotate;
       $('rotate-combined-out').textContent = `${c.rotate}°`;
+    }
+
+    function bindRangeReset(buttonId, handler) {
+      const button = $(buttonId);
+      if (!button) return;
+      button.addEventListener('click', () => {
+        handler();
+        render();
+      });
     }
 
     function syncCommunityInputs() {
@@ -3969,7 +4054,7 @@
         state.templateMode = 'disc';
       } else if (target.startsWith('jewel')) {
         state.templateMode = 'jewel';
-      } else if (target !== 'page') {
+      } else {
         state.templateMode = 'cover';
       }
       syncInputs();
@@ -3981,8 +4066,8 @@
       render();
     }
 
-    function addImageLayer(src, name) {
-      const target = $('layerTarget').value;
+    function addImageLayer(src, name, targetOverride = '') {
+      const target = targetOverride || $('layerTarget')?.value || 'page';
       const bounds = targetBounds(target);
       applyTargetMode(target);
       addLayer({
@@ -4001,8 +4086,8 @@
       });
     }
 
-    function addTextLayer() {
-      const target = $('layerTarget').value;
+    function addTextLayer(targetOverride = '') {
+      const target = targetOverride || $('layerTarget')?.value || 'page';
       const bounds = targetBounds(target);
       applyTargetMode(target);
       addLayer({
@@ -4098,34 +4183,125 @@
 
     function renderLayerList() {
       const list = $('layerList');
+      if (!list) return;
       list.innerHTML = '';
-      const visibleLayers = state.layers.filter((layer) =>
-        state.appMode === 'designer'
-          ? layer.target === 'designer-disc'
-          : layer.target !== 'designer-disc'
-      );
-      const listedLayers = visibleLayers.filter(layer => !layer._generatedDiscLayer);
-      if (!listedLayers.length) {
-        const empty = document.createElement('p');
-        empty.className = 'hint';
-        empty.textContent = 'No extra layers yet.';
-        list.appendChild(empty);
+      if (state.appMode === 'designer') {
+        const listedLayers = state.layers
+          .filter((layer) => layer.target === 'designer-disc')
+          .filter((layer) => !layer._generatedDiscLayer);
+        if (!listedLayers.length) {
+          const empty = document.createElement('p');
+          empty.className = 'hint';
+          empty.textContent = 'No extra layers yet.';
+          list.appendChild(empty);
+          return;
+        }
+
+        const ordered = [...listedLayers].sort((a, b) => (b.z || 0) - (a.z || 0));
+        for (const layer of ordered) {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = `layerItem${layer.id === state.selectedLayerId ? ' active' : ''}`;
+          const rawName = layer.name || layer.type;
+          const displayName = rawName.length > 32 ? rawName.slice(0, 29) + '...' : rawName;
+          item.innerHTML = `<span title="${rawName}">${displayName}</span><span>${layer.type}</span>`;
+          item.addEventListener('click', () => {
+            state.selectedLayerId = layer.id;
+            render();
+          });
+          list.appendChild(item);
+        }
         return;
       }
 
-      const ordered = [...listedLayers].sort((a, b) => (b.z || 0) - (a.z || 0));
-      for (const layer of ordered) {
-        const item = document.createElement('button');
-        item.type = 'button';
-        item.className = `layerItem${layer.id === state.selectedLayerId ? ' active' : ''}`;
-        const rawName = layer.name || layer.type;
-        const displayName = rawName.length > 32 ? rawName.slice(0, 29) + '...' : rawName;
-        item.innerHTML = `<span title="${rawName}">${displayName}</span><span>${layer.type}</span>`;
-        item.addEventListener('click', () => {
-          state.selectedLayerId = layer.id;
-          render();
+      if (state.templateMode !== 'cover') {
+        const hint = document.createElement('p');
+        hint.className = 'hint';
+        hint.textContent = 'Layer panels are shown for case wraps.';
+        list.appendChild(hint);
+        return;
+      }
+
+      const targetLayers = state.layers.filter((layer) => layer.target !== 'designer-disc' && !layer._generatedDiscLayer);
+      for (const targetDef of TEMPLATE_LAYER_TARGETS) {
+        const panel = document.createElement('section');
+        panel.className = 'templateLayerPanel';
+
+        const head = document.createElement('div');
+        head.className = 'templateLayerPanelHead';
+        const count = targetLayers.filter((layer) => layer.target === targetDef.key).length;
+        head.innerHTML = `<span>${escapeHtml(targetDef.label)}</span><span>${count} layer${count === 1 ? '' : 's'}</span>`;
+        panel.appendChild(head);
+
+        const actions = document.createElement('div');
+        actions.className = 'templateLayerPanelActions';
+
+        const urlRow = document.createElement('div');
+        urlRow.className = 'urlRow';
+        const urlInput = document.createElement('input');
+        urlInput.type = 'url';
+        urlInput.placeholder = 'https://example.com/layer.png';
+        urlInput.id = `template-layer-url-${targetDef.key}`;
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'copyUrlBtn';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', () => copyUrl(urlInput.id));
+        urlRow.append(urlInput, copyBtn);
+
+        const buttonRow = document.createElement('div');
+        buttonRow.className = 'buttonRow';
+        const addImageBtn = document.createElement('button');
+        addImageBtn.type = 'button';
+        addImageBtn.textContent = 'Add image layer';
+        addImageBtn.addEventListener('click', () => {
+          const raw = urlInput.value.trim();
+          if (!raw) return;
+          try {
+            const url = normalizeImageUrl(raw);
+            addImageLayer(url, url.split('/').pop() || 'Image layer', targetDef.key);
+            urlInput.value = '';
+          } catch (error) {
+            alert(error.message || 'Invalid image URL.');
+          }
         });
-        list.appendChild(item);
+        const addTextBtn = document.createElement('button');
+        addTextBtn.type = 'button';
+        addTextBtn.textContent = 'Add text layer';
+        addTextBtn.addEventListener('click', () => addTextLayer(targetDef.key));
+        buttonRow.append(addImageBtn, addTextBtn);
+
+        actions.append(urlRow, buttonRow);
+        panel.appendChild(actions);
+
+        const listWrap = document.createElement('div');
+        listWrap.className = 'templateLayerPanelList';
+        const ordered = targetLayers
+          .filter((layer) => layer.target === targetDef.key)
+          .sort((a, b) => (b.z || 0) - (a.z || 0));
+        if (!ordered.length) {
+          const empty = document.createElement('p');
+          empty.className = 'hint';
+          empty.textContent = 'No layers in this area yet.';
+          listWrap.appendChild(empty);
+        } else {
+          for (const layer of ordered) {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = `layerItem${layer.id === state.selectedLayerId ? ' active' : ''}`;
+            const rawName = layer.name || layer.type;
+            const displayName = rawName.length > 32 ? rawName.slice(0, 29) + '...' : rawName;
+            item.innerHTML = `<span title="${rawName}">${displayName}</span><span>${layer.type}</span>`;
+            item.addEventListener('click', () => {
+              state.selectedLayerId = layer.id;
+              render();
+            });
+            listWrap.appendChild(item);
+          }
+        }
+
+        panel.appendChild(listWrap);
+        list.appendChild(panel);
       }
     }
 
@@ -6848,6 +7024,42 @@
         });
       }
 
+      bindRangeReset('reset-zoom', () => {
+        state.zoom = 60;
+        syncInputs();
+      });
+
+      bindRangeReset('reset-zoom-combined', () => { state.combined.zoom = 1; syncCombinedInputs(); });
+      bindRangeReset('reset-x-combined', () => { state.combined.x = 0; syncCombinedInputs(); });
+      bindRangeReset('reset-y-combined', () => { state.combined.y = 0; syncCombinedInputs(); });
+      bindRangeReset('reset-rotate-combined', () => { state.combined.rotate = 0; syncCombinedInputs(); });
+
+      for (const { key } of slotNames) {
+        bindRangeReset(`reset-zoom-${key}`, () => { state.slots[key].zoom = 1; syncSlotInputs(key); });
+        bindRangeReset(`reset-x-${key}`, () => { state.slots[key].x = 0; syncSlotInputs(key); });
+        bindRangeReset(`reset-y-${key}`, () => { state.slots[key].y = 0; syncSlotInputs(key); });
+        bindRangeReset(`reset-rotate-${key}`, () => { state.slots[key].rotate = 0; syncSlotInputs(key); });
+      }
+
+      for (const { key } of jewelSlotNames) {
+        bindRangeReset(`reset-jewel-zoom-${key}`, () => { state.jewelInserts[key].zoom = 1; syncJewelInputs(key); });
+        bindRangeReset(`reset-jewel-x-${key}`, () => { state.jewelInserts[key].x = 0; syncJewelInputs(key); });
+        bindRangeReset(`reset-jewel-y-${key}`, () => { state.jewelInserts[key].y = 0; syncJewelInputs(key); });
+        bindRangeReset(`reset-jewel-rotate-${key}`, () => { state.jewelInserts[key].rotate = 0; syncJewelInputs(key); });
+      }
+
+      for (const { key } of discSlotNames) {
+        bindRangeReset(`reset-disc-zoom-${key}`, () => { state.discs[key].zoom = 1; syncDiscTemplateInputs(); });
+        bindRangeReset(`reset-disc-x-${key}`, () => { state.discs[key].x = 0; syncDiscTemplateInputs(); });
+        bindRangeReset(`reset-disc-y-${key}`, () => { state.discs[key].y = 0; syncDiscTemplateInputs(); });
+        bindRangeReset(`reset-disc-rotate-${key}`, () => { state.discs[key].rotate = 0; syncDiscTemplateInputs(); });
+      }
+
+      bindRangeReset('reset-zoom-designer', () => { state.discDesign.zoom = 1; syncDesignerInputs(); });
+      bindRangeReset('reset-x-designer', () => { state.discDesign.x = 0; syncDesignerInputs(); });
+      bindRangeReset('reset-y-designer', () => { state.discDesign.y = 0; syncDesignerInputs(); });
+      bindRangeReset('reset-rotate-designer', () => { state.discDesign.rotate = 0; syncDesignerInputs(); });
+
       $('reset-combined').addEventListener('click', () => {
         Object.assign(state.combined, {
           area: 'trim',
@@ -6896,19 +7108,24 @@
         render();
       });
 
-      $('addImageLayerBtn').addEventListener('click', () => {
-        const raw = $('newLayerUrl').value.trim();
-        if (!raw) return;
-        try {
-          const url = normalizeImageUrl(raw);
-          addImageLayer(url, url.split('/').pop() || 'Image layer');
-          $('newLayerUrl').value = '';
-        } catch (error) {
-          alert(error.message || 'Invalid image URL.');
-        }
-      });
+      const addImageLayerBtn = $('addImageLayerBtn');
+      if (addImageLayerBtn) {
+        addImageLayerBtn.addEventListener('click', () => {
+          const newLayerUrl = $('newLayerUrl');
+          const raw = newLayerUrl?.value.trim();
+          if (!raw) return;
+          try {
+            const url = normalizeImageUrl(raw);
+            addImageLayer(url, url.split('/').pop() || 'Image layer');
+            if (newLayerUrl) newLayerUrl.value = '';
+          } catch (error) {
+            alert(error.message || 'Invalid image URL.');
+          }
+        });
+      }
 
-      $('addTextLayerBtn').addEventListener('click', addTextLayer);
+      const addTextLayerBtn = $('addTextLayerBtn');
+      if (addTextLayerBtn) addTextLayerBtn.addEventListener('click', () => addTextLayer());
 
       $('sheet').addEventListener('click', () => {
         state.selectedLayerId = '';
