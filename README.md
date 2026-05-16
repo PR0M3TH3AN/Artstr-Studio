@@ -1,62 +1,62 @@
 # CaseWrap Studio
 
 CaseWrap Studio is a static print-layout editor for physical media packaging.
-It handles DVD and Blu-ray case wraps, Avery 8960-style disc labels, Avery 8693 jewel-case inserts, and freeform image/text layers.
+It supports DVD/Blu-ray case wraps, Avery 8960/8944 disc-label sheets, Avery 8693/8943 CD jewel-case insert sheets, and reusable single-disc designs.
 
 ## What it supports
 
-- Separate front, spine, and back artwork
-- One combined wrap image
-- Avery 8960 / 8944 disc-label layouts
-- Avery 8693 / 8943 CD jewel-case inserts, including a wider tray insert with side spine guides
-- Reusable disc designs that can be assigned to either Avery sheet position
-- Additional image layers
-- Editable text layers
-- A Nostr community feed for browsing and sharing templates
-- Publishing the current design as a Nostr template event
-- Publishing a single disc design independently from a two-up print sheet
-- Reactions, replies, follows, and reposts for selected posts
+- Separate front, spine, and back case artwork (or one combined wrap image)
+- Disc-label sheet mode (two print positions on one Avery 8960/8944 sheet)
+- CD jewel insert mode (front + tray inserts on one Avery 8693/8943 sheet)
+- Disc Designer mode for creating a reusable single-disc design
+- Additional image and text layers
 - Drag positioning, z-order changes, rotation, sizing, and opacity
 - PDF export through the browser print dialog
+- Nostr community browsing/sharing for templates and disc designs
+- Publishing, replies, reactions, follows, and reposts from inside the app
 
-## Important workflow change
+## Important workflow
 
-All image sources are now remote URLs.
+All image sources are remote URLs.
 
 That means:
 
-- Case art, disc art, combined wrap art, and extra image layers are entered as `http` or `https` URLs
-- Saved project JSON stays portable
-- Nostr exports can fully reconstruct the layout from the event content alone
-- The community feed reads from the relays listed in the Community panel
-- Publishing and social actions require a NIP-07 Nostr extension in the browser
+- Case art, disc art, jewel insert art, and extra image layers should use `http` or `https` URLs
+- Saved project JSON remains portable across machines
+- Exported/copied Nostr events can reconstruct layouts from event content
+- Community feed data comes from relays listed in the Community panel
+- Publishing/social actions require a NIP-07 browser extension (for example Alby or nos2x)
 
-If a URL stops working later, the image will no longer render. For permanent restoration, use stable hosted image URLs.
+If a URL stops working later, the image will no longer render. For long-term reliability, use stable hosted URLs.
 
 ## Main file
 
-- `src/index.html` is the app. Open it directly in a browser or host it on any static server.
+- `src/index.html` is the complete app entrypoint. Open it directly in a browser or serve it from any static host.
 
-## Export
+## Export and print
 
-- Use `Print / Save PDF` for a print-ready PDF
+- Use `Print / Save PDF` for print-ready output
 - Keep browser scale at `100%`
 - Disable browser headers and footers
 
-## Restore and sharing
+## Save, restore, and sharing
 
-- `Save project` writes a JSON file with the full layout state
-- `Export to Nostr` writes a signed Nostr event containing the same layout data
-- `Import from Nostr` restores the template from a copied event
-- The Community panel can refresh a relay-backed feed, open a selected template, publish the current design, and interact with selected posts
-- Disc designs are separate from the printable Avery sheet, so one sheet can print two different designs or two copies of the same design
-- CD jewel inserts are a separate template mode, so front/tray insert artwork can be saved and shared apart from disc-label sheets
-- Template/design payloads are published as Nostr kind `30078` app data events with `casewrap` tags; ordinary replies, reactions, reposts, follows, and profiles use standard Nostr kinds `1`, `7`, `6`, `3`, and `0`
-- Nostr posts can be categorized for filtering: Blu-ray, DVD, PS1, PS2, PS3, Xbox, Xbox 360, PC, CD, Dreamcast, GameCube, Wii, Sega Saturn, Sega CD, and Audio CD
+- `Save project` writes project JSON
+- `Load project` restores project JSON
+- `Copy Nostr event` copies a signed event payload
+- `Import from Nostr` restores a template/design from a copied event
+- The Community modal lets you browse New/Popular/Search/Mine, preview templates, and import them
+- Disc designs can be published and reused independently, then imported into Disc 1 or Disc 2 positions on a disc sheet
+
+## Nostr data model
+
+- Template/design payloads are published as kind `30078` app-data events with `casewrap` tags
+- Typical social events use standard kinds (`1`, `7`, `6`, `3`, `0`)
+- Template modes include `cover`, `disc`, `jewel`, and `disc-design`
+- Current schema version is `5`; minimum supported schema version is `4`
 
 ## Notes
 
-- The app is static and does not need a backend
+- The app is fully static and does not require a backend
 - Local browser autosave is still available
-- Nostr template/design payloads currently use schema version 5
-- Older saved projects that contain embedded data URLs may still load, but new work should use remote URLs only
+- Older saved projects with embedded data URLs may still load, but new work should use remote URLs
