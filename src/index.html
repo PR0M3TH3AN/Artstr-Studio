@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CaseWrap Studio</title>
+  <link rel="icon" href="favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=block" rel="stylesheet">
@@ -446,6 +447,24 @@
     #communityFieldset { order: 70; }
     aside > details { order: 90; }
 
+    .sidebarFooter {
+      order: 100;
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+      font-size: .82rem;
+    }
+
+    .sidebarFooter a {
+      color: var(--accent);
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .sidebarFooter a:hover {
+      text-decoration: underline;
+    }
+
     .appModeTabs {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -720,6 +739,16 @@
       z-index: 5;
       user-select: none;
       pointer-events: none;
+    }
+
+    /* Stationary image viewport. The slot clips this wrapper; rotation happens
+       on the image inside so the crop rectangle never rotates with the art. */
+    .artOuter {
+      position: absolute;
+      inset: 0;
+      overflow: visible;
+      pointer-events: none;
+      z-index: 5;
     }
 
     .combinedLayer {
@@ -1627,6 +1656,19 @@
           <option value="sega-cd">Sega CD</option>
           <option value="audio-cd">Audio CD</option>
         </select>
+        <label for="languageField">Language</label>
+        <select id="languageField">
+          <option value="en">English</option>
+          <option value="es">Spanish</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+          <option value="pt">Portuguese</option>
+          <option value="it">Italian</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+          <option value="zh">Chinese</option>
+          <option value="other">Other</option>
+        </select>
         <div class="buttonRow">
           <button type="button" id="imdbImportBtn">Import IMDb data</button>
         </div>
@@ -1943,6 +1985,19 @@
           <input id="designerImdbField" type="text" placeholder="tt1234567" />
           <label for="designerCategoryField">Category *</label>
           <select id="designerCategoryField" class="categorySelect"></select>
+          <label for="designerLanguageField">Language</label>
+          <select id="designerLanguageField">
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="pt">Portuguese</option>
+            <option value="it">Italian</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="zh">Chinese</option>
+            <option value="other">Other</option>
+          </select>
           <p class="hint">Title and category are required to save or publish.</p>
         </details>
       </fieldset>
@@ -1962,6 +2017,10 @@
           <p class="hint">Disc designs publish as reusable single-disc designs. Publishing requires a Nostr browser extension.</p>
         </details>
       </fieldset>
+
+      <div class="sidebarFooter">
+        <a href="https://github.com/PR0M3TH3AN/Lable-Baby-Jr" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+      </div>
 
     </aside>
 
@@ -1987,15 +2046,21 @@
             </div>
             <div class="slot back coverOnly" data-label="BACK" id="slot-back">
               <div class="placeholder">Enter back image URL</div>
-              <img class="art" id="art-back" alt="Back cover art" hidden />
+              <div class="artOuter" id="artOuter-back">
+                <img class="art" id="art-back" alt="Back cover art" hidden />
+              </div>
             </div>
             <div class="slot spine coverOnly" data-label="SPINE" id="slot-spine">
               <div class="placeholder">Enter spine image URL</div>
-              <img class="art" id="art-spine" alt="Spine art" hidden />
+              <div class="artOuter" id="artOuter-spine">
+                <img class="art" id="art-spine" alt="Spine art" hidden />
+              </div>
             </div>
             <div class="slot front coverOnly" data-label="FRONT" id="slot-front">
               <div class="placeholder">Enter front image URL</div>
-              <img class="art" id="art-front" alt="Front cover art" hidden />
+              <div class="artOuter" id="artOuter-front">
+                <img class="art" id="art-front" alt="Front cover art" hidden />
+              </div>
             </div>
             <div class="spineText coverOnly">SPINE</div>
             <div class="foldLine left coverOnly" aria-hidden="true"></div>
@@ -2079,8 +2144,18 @@
   <div class="modal" id="nostrModal" aria-hidden="true">
     <div class="modalCard">
       <div class="modalHeader">
-        <h2>Browse Community Templates</h2>
-        <button type="button" id="nostrClose">Close</button>
+        <div id="nostrBrowseHeading"><h2>Browse Community Templates</h2></div>
+        <div id="nostrPreviewHeading" style="display:none">
+          <h2 id="nostrPreviewTitle">Design Preview</h2>
+          <p id="nostrPreviewMeta" class="subhead"></p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <div id="nostrPreviewActions" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;">
+            <button type="button" id="previewSaveJsonBtn">Save JSON</button>
+          </div>
+          <button type="button" id="nostrBackBtn" style="display:none">← Back</button>
+          <button type="button" id="nostrClose">Close</button>
+        </div>
       </div>
       <div class="modalTabs">
         <button type="button" class="modalTab" id="tabNew">New</button>
@@ -2097,6 +2172,19 @@
           <button class="feedTypeBtn" data-tab="New" data-type="jewel">Jewel Inserts</button>
           <button class="feedTypeBtn" data-tab="New" data-type="disc-design">Disc Designs</button>
           <select id="feedCategoryNew" class="feedCategorySelect categorySelect" data-tab="New" aria-label="Category filter"></select>
+          <select id="feedLanguageNew" class="feedCategorySelect feedLanguageSelect" data-tab="New" aria-label="Language filter">
+            <option value="">Any language</option>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="pt">Portuguese</option>
+            <option value="it">Italian</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="zh">Chinese</option>
+            <option value="other">Other</option>
+          </select>
         </div>
         <div class="feedWall" id="feedWallNew"></div>
       </div>
@@ -2109,6 +2197,19 @@
           <button class="feedTypeBtn" data-tab="Popular" data-type="jewel">Jewel Inserts</button>
           <button class="feedTypeBtn" data-tab="Popular" data-type="disc-design">Disc Designs</button>
           <select id="feedCategoryPopular" class="feedCategorySelect categorySelect" data-tab="Popular" aria-label="Category filter"></select>
+          <select id="feedLanguagePopular" class="feedCategorySelect feedLanguageSelect" data-tab="Popular" aria-label="Language filter">
+            <option value="">Any language</option>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="pt">Portuguese</option>
+            <option value="it">Italian</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="zh">Chinese</option>
+            <option value="other">Other</option>
+          </select>
         </div>
         <div class="feedWall" id="feedWallPopular"></div>
       </div>
@@ -2131,11 +2232,26 @@
           <button class="feedTypeBtn" data-tab="Mine" data-type="jewel">Jewel Inserts</button>
           <button class="feedTypeBtn" data-tab="Mine" data-type="disc-design">Disc Designs</button>
           <select id="feedCategoryMine" class="feedCategorySelect categorySelect" data-tab="Mine" aria-label="Category filter"></select>
+          <select id="feedLanguageMine" class="feedCategorySelect feedLanguageSelect" data-tab="Mine" aria-label="Language filter">
+            <option value="">Any language</option>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="pt">Portuguese</option>
+            <option value="it">Italian</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="zh">Chinese</option>
+            <option value="other">Other</option>
+          </select>
         </div>
         <div class="feedWall" id="feedWallMine"></div>
       </div>
 
-      <details style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+      <div id="nostrPreviewPanel" style="display:none;margin-top:12px;overflow-y:auto;max-height:68vh;"></div>
+
+      <details id="nostrRelayDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
         <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">Relay settings</summary>
         <label for="relayList" style="margin-top:8px;display:block;font-size:.8rem;font-weight:650;color:#374151">Nostr relays</label>
         <input id="relayList" type="text" placeholder="wss://relay.damus.io, wss://nos.lol" style="margin-top:4px" />
@@ -2144,21 +2260,6 @@
     </div>
   </div>
 
-  <div class="modal" id="designPreviewModal" aria-hidden="true">
-    <div class="modalCard" style="max-width:min(860px,94vw)">
-      <div class="modalHeader">
-        <div>
-          <h2 id="previewModalTitle">Design Preview</h2>
-          <p id="previewModalMeta" class="subhead"></p>
-        </div>
-        <div id="previewModalActions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <button type="button" id="previewSaveJsonBtn">Save JSON</button>
-          <button type="button" id="previewModalClose">Close</button>
-        </div>
-      </div>
-      <div id="previewModalContent" style="margin-top:12px;"></div>
-    </div>
-  </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
@@ -2263,7 +2364,7 @@
     ];
 
     const state = {
-      meta: { title: "", imdbId: "", omdbApiKey: "", category: "" },
+      meta: { title: "", imdbId: "", omdbApiKey: "", category: "", language: "en" },
       darkMode: false,
       appMode: 'template',
       templateMode: 'cover',
@@ -2405,7 +2506,7 @@
     function eventTemplateSummary(payload) {
       if (!payload) return { title: 'Untitled', mode: 'template', image: '' };
       const title = payload.meta?.title || payload.title || 'Untitled';
-      const mode = payload.templateMode || (payload.coverTemplate ? 'cover' : payload.jewelTemplate ? 'jewel' : 'disc');
+      const mode = normalizeTemplateMode(payload);
       const category = payload.meta?.category || payload.category || '';
       return {
         title,
@@ -2424,6 +2525,7 @@
         version: SCHEMA_VERSION,
         meta: state.meta,
         templateMode: 'disc-design',
+        templateType: 'disc-design',
         discDesign: { ...design },
         layers: layers.map(l => ({ ...l, target: 'designer-disc' })),
         discTemplate: { config: discTemplate },
@@ -2436,15 +2538,43 @@
       const title = payload?.meta?.title || payload?.title || '';
       const imdb = payload?.meta?.imdbId || payload?.imdbId || '';
       const category = payload?.meta?.category || payload?.category || '';
+      const language = payload?.meta?.language || 'en';
+      const templateType = payload?.templateType || '';
       if (title) tags.push(['title', title]);
       if (imdb) tags.push(['i', imdb]);
       tags.push(['t', 'casewrap']);
       if (typeTag) tags.push(['t', typeTag]);
+      if (templateType) {
+        tags.push(['template_type', templateType]);
+        tags.push(['t', `casewrap-${templateType}`]);
+      }
       if (category) {
         tags.push(['category', category]);
         tags.push(['t', `casewrap-${category}`]);
       }
+      tags.push(['language', language]);
       return tags;
+    }
+
+    function normalizeTemplateMode(payload = {}) {
+      const raw = payload.templateMode || payload.ui?.templateMode || '';
+      if (raw === 'case' || raw === 'cover-template') return 'cover';
+      if (raw === 'disc-sheet') return 'disc';
+      if (raw === 'jewel-inserts') return 'jewel';
+      if (raw === 'disc-design') return 'disc-design';
+      if (raw === 'cover' || raw === 'disc' || raw === 'jewel') return raw;
+      if (payload.discDesign) return 'disc-design';
+      if (payload.coverTemplate || payload.slots || payload.combined) return 'cover';
+      if (payload.jewelTemplate || payload.jewelInserts) return 'jewel';
+      return 'disc';
+    }
+
+    function templateTypeForMode(mode = state.templateMode) {
+      if (mode === 'jewel') return 'cd-jewel-case';
+      if (mode === 'disc') return 'disc-label-sheet';
+      const preset = state.preset === 'jewel8693' ? 'dvd' : (state.preset || 'custom');
+      if (preset === 'dvd' || preset === 'bluray') return preset;
+      return 'custom-case-cover';
     }
 
     function getCommunityProfile() {
@@ -2710,9 +2840,11 @@
       $('titleField').value = state.meta?.title || "";
       $('imdbField').value = state.meta?.imdbId || "";
       const cf = $('categoryField'); if (cf) cf.value = state.meta?.category || '';
+      const lf = $('languageField'); if (lf) lf.value = state.meta?.language || 'en';
       const dt = $('designerTitleField'); if (dt) dt.value = state.meta?.title || "";
       const di = $('designerImdbField'); if (di) di.value = state.meta?.imdbId || "";
       const dc = $('designerCategoryField'); if (dc) dc.value = state.meta?.category || '';
+      const dl = $('designerLanguageField'); if (dl) dl.value = state.meta?.language || 'en';
       $('showBleed').checked = state.showBleed;
       $('showCrops').checked = state.showCrops;
       $('printGuides').checked = state.printGuides;
@@ -2812,11 +2944,99 @@
       $('sheetWrap').style.height = `${sheetH() * 96 * scale}px`;
     }
 
+    // Keep the container's crop rectangle stationary while rotating/panning the image.
+    // The image is sized from its natural aspect ratio first, then rotated inside
+    // the slot. That prevents object-fit from pre-cropping a rectangle that later
+    // rotates with the artwork.
+    function applyRotationCover(img, containerEl, x, y, rotate, zoom, fit) {
+      const cW = containerEl.offsetWidth;
+      const cH = containerEl.offsetHeight;
+      if (!cW || !cH) {
+        img.style.left = '50%';
+        img.style.top  = '50%';
+        img.style.width  = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = fit;
+        img.style.transformOrigin = 'center center';
+        img.style.transform = `translate(-50%,-50%) translate(${x}%,${y}%) rotate(${rotate}deg) scale(${zoom})`;
+        return;
+      }
+
+      if (img.src && !img.complete) {
+        img.onload = () => {
+          img.onload = null;
+          render();
+        };
+      }
+
+      const nW = img.naturalWidth || cW;
+      const nH = img.naturalHeight || cH;
+      let baseW = cW;
+      let baseH = cH;
+
+      if (fit === 'fill') {
+        baseW = cW;
+        baseH = cH;
+      } else if (fit === 'none') {
+        baseW = nW;
+        baseH = nH;
+      } else {
+        const fitScale = fit === 'contain'
+          ? Math.min(cW / nW, cH / nH)
+          : Math.max(cW / nW, cH / nH);
+        baseW = nW * fitScale;
+        baseH = nH * fitScale;
+      }
+
+      const rad = rotate * Math.PI / 180;
+      const ac = Math.abs(Math.cos(rad));
+      const as = Math.abs(Math.sin(rad));
+      const rotatedW = (baseW * ac) + (baseH * as);
+      const rotatedH = (baseW * as) + (baseH * ac);
+      const coverScale = fit === 'cover'
+        ? Math.max(cW / Math.max(rotatedW, 1), cH / Math.max(rotatedH, 1), 1)
+        : 1;
+      const finalScale = coverScale * zoom;
+      const panRangeX = Math.max(0, (rotatedW * finalScale - cW) / 2);
+      const panRangeY = Math.max(0, (rotatedH * finalScale - cH) / 2);
+      const xPx = (x / 100) * panRangeX;
+      const yPx = (y / 100) * panRangeY;
+
+      const outer = img.parentElement?.classList.contains('artOuter') ? img.parentElement : null;
+      if (outer) {
+        outer.style.position = 'absolute';
+        outer.style.left = '0';
+        outer.style.top = '0';
+        outer.style.width = `${cW}px`;
+        outer.style.height = `${cH}px`;
+        outer.style.transformOrigin = 'center center';
+        outer.style.transform = `translate(${xPx}px, ${yPx}px)`;
+
+        img.style.position = 'absolute';
+        img.style.left = '50%';
+        img.style.top = '50%';
+        img.style.width = `${baseW}px`;
+        img.style.height = `${baseH}px`;
+        img.style.objectFit = 'fill';
+        img.style.transformOrigin = 'center center';
+        img.style.transform = `translate(-50%, -50%) rotate(${rotate}deg) scale(${finalScale})`;
+      } else {
+        img.style.left = '50%';
+        img.style.top = '50%';
+        img.style.width = `${baseW}px`;
+        img.style.height = `${baseH}px`;
+        img.style.objectFit = 'fill';
+        img.style.transformOrigin = 'center center';
+        img.style.transform = `translate(-50%, -50%) translate(${xPx}px, ${yPx}px) rotate(${rotate}deg) scale(${finalScale})`;
+      }
+    }
+
     function renderSlots() {
       for (const { key } of slotNames) {
         const slot = state.slots[key];
+        const slotEl = $(`slot-${key}`);
         const img = $(`art-${key}`);
-        const placeholder = $(`slot-${key}`).querySelector('.placeholder');
+        const placeholder = slotEl.querySelector('.placeholder');
 
         if (slot.src) {
           img.src = slot.src;
@@ -2828,8 +3048,7 @@
           placeholder.style.display = 'grid';
         }
 
-        img.style.objectFit = slot.fit;
-        img.style.transform = `translate(-50%, -50%) translate(${slot.x}%, ${slot.y}%) rotate(${slot.rotate}deg) scale(${slot.zoom})`;
+        applyRotationCover(img, slotEl, slot.x, slot.y, slot.rotate, slot.zoom, slot.fit);
       }
     }
 
@@ -3278,9 +3497,7 @@
         placeholder.style.display = state.artworkMode === 'combined' ? 'grid' : 'none';
       }
 
-      img.style.objectFit = c.fit;
-      img.style.transform =
-        `translate(-50%, -50%) translate(${c.x}%, ${c.y}%) rotate(${c.rotate}deg) scale(${c.zoom})`;
+      applyRotationCover(img, layer, c.x, c.y, c.rotate, c.zoom, c.fit);
 
       document.body.classList.toggle('mode-combined', state.artworkMode === 'combined');
       document.body.classList.toggle('mode-separate', state.artworkMode !== 'combined');
@@ -3322,9 +3539,7 @@
           placeholder.style.display = state.templateMode === 'disc' ? 'grid' : 'none';
         }
 
-        img.style.objectFit = disc.fit || 'cover';
-        img.style.transform =
-          `translate(-50%, -50%) translate(${disc.x ?? 0}%, ${disc.y ?? 0}%) rotate(${disc.rotate ?? 0}deg) scale(${disc.zoom ?? 1})`;
+        applyRotationCover(img, slot, disc.x ?? 0, disc.y ?? 0, disc.rotate ?? 0, disc.zoom ?? 1, disc.fit || 'cover');
 
         if (state.templateMode === 'disc') syncGeneratedDiscLayers(slotDef, disc, slotDef.key);
       }
@@ -3408,9 +3623,7 @@
           placeholder.style.display = state.templateMode === 'jewel' ? 'grid' : 'none';
         }
 
-        img.style.objectFit = insert?.fit || 'cover';
-        img.style.transform =
-          `translate(-50%, -50%) translate(${insert?.x ?? 0}%, ${insert?.y ?? 0}%) rotate(${insert?.rotate ?? 0}deg) scale(${insert?.zoom ?? 1})`;
+        applyRotationCover(img, slot, insert?.x ?? 0, insert?.y ?? 0, insert?.rotate ?? 0, insert?.zoom ?? 1, insert?.fit || 'cover');
 
         if (slotDef.key === 'tray') {
           const leftGuide = $('jewel-tray-spine-left');
@@ -3699,7 +3912,7 @@
       if (!event) return '';
       if (event.kind === 30078) {
         const payload = safeJsonParse(event.content, {});
-        return previewFromPayload(payload, payload.templateMode || 'cover');
+        return previewFromPayload(payload, normalizeTemplateMode(payload));
       }
       const profile = safeJsonParse(event.content, {});
       return profile.picture || profile.image || '';
@@ -3971,6 +4184,17 @@
       _feedCache.relayKey = splitRelayList(state.community.relays).join(',');
     }
 
+    function mergeCachedPublishedEvents(events) {
+      const merged = new Map();
+      for (const event of events || []) {
+        if (event?.id) merged.set(event.id, event);
+      }
+      for (const event of _feedCache.events || []) {
+        if (event?.id) merged.set(event.id, event);
+      }
+      return [...merged.values()];
+    }
+
     async function publishCommunityNote(text, replyToEvent = null) {
       const content = String(text || '').trim();
       if (!content) throw new Error('Enter a note first.');
@@ -4192,12 +4416,14 @@
     }
 
     function coverTemplatePayload() {
+      const templateType = templateTypeForMode('cover');
       return {
         version: SCHEMA_VERSION,
         templateMode: 'cover',
+        templateType,
         meta: state.meta,
         ui: { zoom: state.zoom, showGuides: state.showGuides, showBleed: state.showBleed, showCrops: state.showCrops, printGuides: state.printGuides, printCrops: state.printCrops },
-        coverTemplate: { preset: state.preset, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
+        coverTemplate: { preset: state.preset, templateType, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
         layers: nonGeneratedLayers().filter(l => {
           const target = String(l.target || '');
           return !target.startsWith('disc') && !target.startsWith('jewel');
@@ -4206,30 +4432,36 @@
     }
 
     function discSheetPayload() {
+      const templateType = templateTypeForMode('disc');
       return {
         version: SCHEMA_VERSION,
         templateMode: 'disc',
+        templateType,
         meta: state.meta,
         ui: { zoom: state.zoom },
-        discTemplate: { config: discTemplate, discs: state.discs, spineLabels: state.discSpineLabels },
+        discTemplate: { templateType, config: discTemplate, discs: state.discs, spineLabels: state.discSpineLabels },
         layers: nonGeneratedLayers().filter(l => String(l.target || '').startsWith('disc'))
       };
     }
 
     function jewelTemplatePayload() {
+      const templateType = templateTypeForMode('jewel');
       return {
         version: SCHEMA_VERSION,
         templateMode: 'jewel',
+        templateType,
         meta: state.meta,
         ui: { zoom: state.zoom, showGuides: state.showGuides, printGuides: state.printGuides },
-        jewelTemplate: { config: jewelTemplate, inserts: state.jewelInserts },
+        jewelTemplate: { templateType, preset: 'jewel8693', config: jewelTemplate, inserts: state.jewelInserts },
         layers: nonGeneratedLayers().filter(l => String(l.target || '').startsWith('jewel'))
       };
     }
 
     function exportPayload() {
+      const templateType = templateTypeForMode();
       return {
         version: SCHEMA_VERSION,
+        templateType,
         meta: state.meta,
         ui: {
           zoom: state.zoom,
@@ -4239,14 +4471,13 @@
           printGuides: state.printGuides,
           printCrops: state.printCrops,
           templateMode: state.templateMode,
-          appMode: state.appMode,
-          templateMode: state.templateMode
+          appMode: state.appMode
         },
-        coverTemplate: { preset: state.preset, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
+        coverTemplate: { preset: state.preset, templateType: templateTypeForMode('cover'), panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
         discs: state.discs,
         discDesign: state.discDesign,
-        discTemplate: { config: discTemplate, discs: state.discs, spineLabels: state.discSpineLabels },
-        jewelTemplate: { config: jewelTemplate, inserts: state.jewelInserts },
+        discTemplate: { templateType: templateTypeForMode('disc'), config: discTemplate, discs: state.discs, spineLabels: state.discSpineLabels },
+        jewelTemplate: { templateType: templateTypeForMode('jewel'), preset: 'jewel8693', config: jewelTemplate, inserts: state.jewelInserts },
         layers: nonGeneratedLayers(),
         community: { relays: state.community.relays, query: state.community.query, kind: state.community.kind }
       };
@@ -4309,7 +4540,7 @@
       if (!hasContent) {
         state.discDesign = { name: '', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 };
         state.layers = state.layers.filter(l => l.target !== 'designer-disc');
-        state.meta = { title: "", imdbId: "", omdbApiKey: "", category: "" };
+        state.meta = { title: "", imdbId: "", omdbApiKey: "", category: "", language: "en" };
         render();
         return;
       }
@@ -4333,7 +4564,7 @@
       }
       state.discDesign = { name: '', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 };
       state.layers = state.layers.filter(l => l.target !== 'designer-disc');
-      state.meta = { title: "", imdbId: "", omdbApiKey: "", category: "" };
+      state.meta = { title: "", imdbId: "", omdbApiKey: "", category: "", language: "en" };
       render();
     }
 
@@ -4343,7 +4574,7 @@
         state.discs = { top: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, bottom: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
         state.slots = { back: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, spine: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, front: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
         state.combined = { src: '' };
-        state.meta = { title: "", imdbId: "", omdbApiKey: "", category: "" };
+        state.meta = { title: "", imdbId: "", omdbApiKey: "", category: "", language: "en" };
         render();
         return;
       }
@@ -4354,7 +4585,7 @@
       state.discs = { top: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, bottom: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
       state.slots = { back: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, spine: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, front: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
       state.combined = { src: '' };
-      state.meta = { title: "", imdbId: "", omdbApiKey: "", category: "" };
+      state.meta = { title: "", imdbId: "", omdbApiKey: "", category: "", language: "en" };
       render();
     }
 
@@ -4542,9 +4773,9 @@
       }
     }
 
-    const _feedState = { filterNew: 'any', filterPopular: 'any', filterMine: 'any', categoryNew: '', categoryPopular: '', categoryMine: '' };
+    const _feedState = { filterNew: 'any', filterPopular: 'any', filterMine: 'any', categoryNew: '', categoryPopular: '', categoryMine: '', languageNew: '', languagePopular: '', languageMine: '' };
 
-    function buildRowsFromEvents(events, typeFilter = 'any', query = '', skipVersionFilter = false, categoryFilter = '') {
+    function buildRowsFromEvents(events, typeFilter = 'any', query = '', skipVersionFilter = false, categoryFilter = '', languageFilter = '') {
       const q = query.trim().toLowerCase();
       const rows = [];
       for (const e of events) {
@@ -4554,14 +4785,16 @@
         const title = payload.meta?.title || payload.title || '';
         const imdb = payload.meta?.imdbId || '';
         const category = payload.meta?.category || payload.category || '';
-        const mode = payload.templateMode || (payload.coverTemplate ? 'cover' : payload.jewelTemplate ? 'jewel' : 'disc');
+        const language = payload.meta?.language || 'en';
+        const mode = normalizeTemplateMode(payload);
         const displayTitle = mode === 'disc-design' ? (payload.discDesign?.name || title || '') : title;
         // Skip completely unidentifiable posts
         if (!displayTitle && !imdb) continue;
         if (typeFilter !== 'any' && mode !== typeFilter) continue;
         if (categoryFilter && category !== categoryFilter) continue;
+        if (languageFilter && language !== languageFilter) continue;
         if (q) {
-          const hay = `${displayTitle} ${title} ${imdb} ${category} ${(e.tags || []).map(t => t.join(' ')).join(' ')}`.toLowerCase();
+          const hay = `${displayTitle} ${title} ${imdb} ${category} ${language} ${(e.tags || []).map(t => t.join(' ')).join(' ')}`.toLowerCase();
           if (!hay.includes(q)) continue;
         }
         rows.push({
@@ -4569,6 +4802,7 @@
           title: displayTitle || `(${mode})`,
           imdb,
           category,
+          language,
           mode,
           preview: previewFromPayload(payload, mode),
           reactions: _feedCache.reactions[e.id] || 0,
@@ -4623,7 +4857,7 @@
       btn.addEventListener('click', e => { e.stopPropagation(); onUse(); });
       actions.append(makeReactionBtn(row), prevBtn, btn);
       el.append(thumb, meta, actions);
-      el.addEventListener('click', onUse);
+      el.addEventListener('click', () => openDesignPreview(row));
       return el;
     }
 
@@ -4675,6 +4909,7 @@
       }
       const typeFilter = _feedState.filterMine || 'any';
       const categoryFilter = _feedState.categoryMine || '';
+      const languageFilter = _feedState.languageMine || '';
       wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading your designs…</div>';
       const relays = splitRelayList(state.community.relays);
       const events = await queryRelays(relays, {
@@ -4694,7 +4929,8 @@
           _feedCache.profiles[state.community.myPubkey] = state.community.myProfile;
         }
       }
-      const rows = buildRowsFromEvents(events, typeFilter, '', false, categoryFilter);
+      const ownEvents = mergeCachedPublishedEvents(events).filter(event => event.pubkey === state.community.myPubkey);
+      const rows = buildRowsFromEvents(ownEvents, typeFilter, '', false, categoryFilter, languageFilter);
       rows.sort((a, b) => b.createdAt - a.createdAt);
       wall.innerHTML = '';
       if (!rows.length) {
@@ -4733,7 +4969,8 @@
       await fetchFeedAndReactions();
       const typeFilter = _feedState[`filter${tab}`] || 'any';
       const categoryFilter = _feedState[`category${tab}`] || '';
-      let rows = buildRowsFromEvents(_feedCache.events || [], typeFilter, '', false, categoryFilter);
+      const languageFilter = _feedState[`language${tab}`] || '';
+      let rows = buildRowsFromEvents(_feedCache.events || [], typeFilter, '', false, categoryFilter, languageFilter);
       if (tab === 'New') {
         rows.sort((a, b) => b.createdAt - a.createdAt);
       } else {
@@ -4762,7 +4999,7 @@
 
     function previewFromPayload(payload, typeHint) {
       try {
-        const mode = typeHint || payload.templateMode || 'cover';
+        const mode = typeHint || normalizeTemplateMode(payload);
 
         if (mode === 'disc-design') {
           return payload.discDesign?.src || '';
@@ -4771,6 +5008,8 @@
         if (mode === 'disc') {
           // backward compat: extract first design from old payload
           const legacyDesigns = payload.discTemplate?.designs || payload.discDesigns || {};
+          const designs = payload.discTemplate?.discs || payload.discs || legacyDesigns || {};
+          const sheet = payload.discTemplate?.sheet || payload.discSheet || {};
           // Prefer the assigned top-slot design, then try every design in order
           const topKey = sheet.top;
           if (topKey && designs[topKey]?.src) return designs[topKey].src;
@@ -4885,75 +5124,68 @@
       const useBtn = document.createElement('button');
       useBtn.type = 'button';
       useBtn.textContent = 'Use this';
-      useBtn.addEventListener('click', onUse);
+      useBtn.addEventListener('click', e => { e.stopPropagation(); onUse(); });
       actions.append(makeReactionBtn(row), prevBtn, useBtn);
 
       el.append(thumb, meta, actions);
+      el.addEventListener('click', () => openDesignPreview(row));
       return el;
     }
 
     function openDesignPreview(row) {
-      $('previewModalTitle').textContent = row.title || 'Untitled Design';
-      $('previewModalMeta').textContent = [row.category, row.imdb].filter(Boolean).join(' · ');
-      const content = $('previewModalContent');
+      $('nostrPreviewTitle').textContent = row.title || 'Untitled Design';
+      $('nostrPreviewMeta').textContent = [row.category, row.imdb].filter(Boolean).join(' · ');
+      const content = $('nostrPreviewPanel');
       content.innerHTML = '';
-      $('designPreviewModal')._row = row;
+      content._row = row;
 
       const p = row.payload || {};
       const isDiscDesign = !!p.discDesign && !p.slots;
 
-      // Rebuild action buttons based on design type
-      const actionsDiv = $('previewModalActions');
+      // Clear previously injected dynamic buttons, keep Save JSON
+      const actionsDiv = $('nostrPreviewActions');
       const saveJsonBtn = $('previewSaveJsonBtn');
-      const closeBtn = $('previewModalClose');
-
-      // Clear dynamic buttons, keep Save JSON and Close
-      while (actionsDiv.children.length > 2) {
-        actionsDiv.removeChild(actionsDiv.children[0]);
+      while (actionsDiv.firstChild && actionsDiv.firstChild !== saveJsonBtn) {
+        actionsDiv.removeChild(actionsDiv.firstChild);
       }
 
       if (isDiscDesign) {
-        // For disc designs, show import buttons
         const import1Btn = document.createElement('button');
         import1Btn.type = 'button';
         import1Btn.textContent = 'Import into Disk 1';
-        import1Btn.id = 'previewImport1Btn';
         import1Btn.addEventListener('click', () => {
           importDiscDesignFromPayload(p, 'top', { openDesigner: false });
           state.appMode = 'template';
-          state.templateMode = 'case';
+          state.templateMode = 'disc';
           syncInputs();
           render();
-          $('designPreviewModal').classList.remove('open');
+          closeNostrPreview();
           $('nostrModal').classList.remove('open');
         });
 
         const import2Btn = document.createElement('button');
         import2Btn.type = 'button';
         import2Btn.textContent = 'Import into Disk 2';
-        import2Btn.id = 'previewImport2Btn';
         import2Btn.addEventListener('click', () => {
           importDiscDesignFromPayload(p, 'bottom', { openDesigner: false });
           state.appMode = 'template';
-          state.templateMode = 'case';
+          state.templateMode = 'disc';
           syncInputs();
           render();
-          $('designPreviewModal').classList.remove('open');
+          closeNostrPreview();
           $('nostrModal').classList.remove('open');
         });
 
         actionsDiv.insertBefore(import1Btn, saveJsonBtn);
         actionsDiv.insertBefore(import2Btn, saveJsonBtn);
       } else {
-        // For templates, show print button
         const printBtn = document.createElement('button');
         printBtn.type = 'button';
         printBtn.textContent = 'Print / Save PDF';
-        printBtn.id = 'previewPrintBtn';
         printBtn.addEventListener('click', () => {
           const stateSnapshot = JSON.parse(JSON.stringify(state));
           try { loadProjectFromText(JSON.stringify(p)); } catch(e) { console.error(e); }
-          $('designPreviewModal').classList.remove('open');
+          closeNostrPreview();
           $('nostrModal').classList.remove('open');
           function onAfterPrint() {
             window.removeEventListener('afterprint', onAfterPrint);
@@ -4967,13 +5199,41 @@
         actionsDiv.insertBefore(printBtn, saveJsonBtn);
       }
 
+      // Switch modal into preview mode
+      $('nostrBrowseHeading').style.display = 'none';
+      $('nostrPreviewHeading').style.display = '';
+      $('nostrPreviewActions').style.display = 'flex';
+      $('nostrBackBtn').style.display = '';
+      $('nostrModal').querySelector('.modalTabs').style.display = 'none';
+      for (const t of ['New', 'Popular', 'Search', 'Mine']) {
+        const el = $(`panel${t}`);
+        if (el) el.style.display = 'none';
+      }
+      const rd = $('nostrRelayDetails');
+      if (rd) rd.style.display = 'none';
+      content.style.display = '';
+
       if (p.discDesign) {
         renderDiscPreviewDOM(content, p);
       } else {
         renderTemplatePreviewDOM(content, p);
       }
+    }
 
-      $('designPreviewModal').classList.add('open');
+    function closeNostrPreview() {
+      $('nostrBrowseHeading').style.display = '';
+      $('nostrPreviewHeading').style.display = 'none';
+      $('nostrPreviewActions').style.display = 'none';
+      $('nostrBackBtn').style.display = 'none';
+      $('nostrModal').querySelector('.modalTabs').style.display = '';
+      $('nostrPreviewPanel').style.display = 'none';
+      const rd = $('nostrRelayDetails');
+      if (rd) rd.style.display = '';
+      for (const t of ['New', 'Popular', 'Search', 'Mine']) {
+        const tabEl = $(`tab${t}`);
+        const panelEl = $(`panel${t}`);
+        if (panelEl) panelEl.style.display = tabEl?.classList.contains('active') ? '' : 'none';
+      }
     }
 
     function renderDiscPreviewDOM(container, payload) {
@@ -5034,26 +5294,160 @@
     function renderTemplatePreviewDOM(container, payload) {
       const ct = payload.coverTemplate || {};
       const slots = ct.slots || payload.slots || {};
-      const PANEL_H = 200;
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:0;align-items:stretch;justify-content:center;';
+      const preset = presets[ct.preset] || presets.dvd;
+      const panelW = Number(ct.panelW) || preset.panelW;
+      const trimH = Number(ct.trimH) || preset.trimH;
+      const spineW = Number(ct.spineW) || preset.spineW;
+      const bleed = Number(ct.bleed) || preset.bleed || 0;
+      const totalW = (panelW * 2) + spineW;
+      const isCombined = (ct.artworkMode || payload.artworkMode) === 'combined';
+      const combined = ct.combined || payload.combined || {};
 
-      ['back','spine','front'].forEach(key => {
-        const slot = slots[key] || {};
-        if (!slot.src) return;
-        const isSpine = key === 'spine';
-        const w = isSpine ? 40 : 180;
-        const wrap = document.createElement('div');
-        wrap.style.cssText = `position:relative;width:${w}px;height:${PANEL_H}px;overflow:hidden;background:#111;border:1px solid var(--line);flex-shrink:0;`;
+      const preview = document.createElement('div');
+      preview.style.cssText = [
+        'position:relative',
+        'width:min(100%, 720px)',
+        `aspect-ratio:${totalW} / ${trimH}`,
+        'margin:0 auto',
+        'background:#fff',
+        'border:1px solid var(--line)',
+        'overflow:hidden',
+        'box-shadow:0 2px 10px rgba(15,23,42,.12)'
+      ].join(';');
+
+      const renderPreviewArt = (wrap, art) => {
         const img = document.createElement('img');
-        img.src = slot.src;
-        img.alt = key;
-        img.style.cssText = `position:absolute;left:50%;top:50%;width:100%;height:100%;object-fit:${slot.fit||'cover'};transform:translate(-50%,-50%) translate(${slot.x||0}%,${slot.y||0}%) rotate(${slot.rotate||0}deg) scale(${slot.zoom||1});`;
+        img.src = art.src;
+        img.alt = '';
+        img.style.cssText = 'position:absolute;left:50%;top:50%;transform-origin:center center;user-select:none;pointer-events:none;';
         wrap.appendChild(img);
-        row.appendChild(wrap);
+
+        const update = () => {
+          const cW = wrap.clientWidth;
+          const cH = wrap.clientHeight;
+          if (!cW || !cH) return;
+          const fit = art.fit || 'cover';
+          const nW = img.naturalWidth || cW;
+          const nH = img.naturalHeight || cH;
+          let baseW = cW;
+          let baseH = cH;
+          if (fit === 'fill') {
+            baseW = cW;
+            baseH = cH;
+          } else if (fit === 'none') {
+            baseW = nW;
+            baseH = nH;
+          } else {
+            const fitScale = fit === 'contain'
+              ? Math.min(cW / nW, cH / nH)
+              : Math.max(cW / nW, cH / nH);
+            baseW = nW * fitScale;
+            baseH = nH * fitScale;
+          }
+          const rotate = Number(art.rotate) || 0;
+          const zoom = Number(art.zoom) || 1;
+          const rad = rotate * Math.PI / 180;
+          const ac = Math.abs(Math.cos(rad));
+          const as = Math.abs(Math.sin(rad));
+          const rotatedW = (baseW * ac) + (baseH * as);
+          const rotatedH = (baseW * as) + (baseH * ac);
+          const coverScale = fit === 'cover'
+            ? Math.max(cW / Math.max(rotatedW, 1), cH / Math.max(rotatedH, 1), 1)
+            : 1;
+          const finalScale = coverScale * zoom;
+          const panRangeX = Math.max(0, (rotatedW * finalScale - cW) / 2);
+          const panRangeY = Math.max(0, (rotatedH * finalScale - cH) / 2);
+          const xPx = ((Number(art.x) || 0) / 100) * panRangeX;
+          const yPx = ((Number(art.y) || 0) / 100) * panRangeY;
+          img.style.width = `${baseW}px`;
+          img.style.height = `${baseH}px`;
+          img.style.objectFit = 'fill';
+          img.style.transform = `translate(-50%, -50%) translate(${xPx}px, ${yPx}px) rotate(${rotate}deg) scale(${finalScale})`;
+        };
+
+        if (img.complete) requestAnimationFrame(update);
+        img.addEventListener('load', update, { once: true });
+        window.addEventListener('resize', update, { once: true });
+      };
+
+      const addRegion = (key, left, width, art) => {
+        const region = document.createElement('div');
+        region.style.cssText = [
+          'position:absolute',
+          `left:${(left / totalW) * 100}%`,
+          'top:0',
+          `width:${(width / totalW) * 100}%`,
+          'height:100%',
+          'overflow:hidden',
+          `background:${art?.src ? '#111' : 'transparent'}`,
+          'border-right:1px solid rgba(17,24,39,.25)',
+          'box-sizing:border-box'
+        ].join(';');
+        region.title = key;
+        if (art?.src) renderPreviewArt(region, art);
+        preview.appendChild(region);
+      };
+
+      if (isCombined && combined.src) {
+        const layer = document.createElement('div');
+        if (combined.area === 'page') {
+          const sheetW = totalW + (bleed * 2);
+          const sheetH = trimH + (bleed * 2);
+          layer.style.cssText = [
+            'position:absolute',
+            `left:${-(bleed / totalW) * 100}%`,
+            `top:${-(bleed / trimH) * 100}%`,
+            `width:${(sheetW / totalW) * 100}%`,
+            `height:${(sheetH / trimH) * 100}%`,
+            'overflow:hidden'
+          ].join(';');
+        } else {
+          layer.style.cssText = 'position:absolute;inset:0;overflow:hidden;';
+        }
+        renderPreviewArt(layer, combined);
+        preview.appendChild(layer);
+      }
+
+      addRegion('Back cover', 0, panelW, slots.back || {});
+      addRegion('Spine', panelW, spineW, slots.spine || {});
+      addRegion('Front cover', panelW + spineW, panelW, slots.front || {});
+
+      const labels = [
+        ['BACK', 0, panelW],
+        ['SPINE', panelW, spineW],
+        ['FRONT', panelW + spineW, panelW]
+      ];
+      labels.forEach(([label, left, width]) => {
+        const el = document.createElement('div');
+        el.textContent = label;
+        el.style.cssText = [
+          'position:absolute',
+          `left:${(left / totalW) * 100}%`,
+          'top:0',
+          `width:${(width / totalW) * 100}%`,
+          'height:100%',
+          'box-sizing:border-box',
+          'border-right:1px solid rgba(255,255,255,.35)',
+          'display:flex',
+          'align-items:flex-start',
+          'justify-content:center',
+          'padding-top:6px',
+          'font-size:10px',
+          'font-weight:800',
+          'color:rgba(255,255,255,.78)',
+          'text-shadow:0 1px 2px rgba(0,0,0,.7)',
+          'pointer-events:none',
+          'z-index:5'
+        ].join(';');
+        if (label === 'SPINE') el.style.writingMode = 'vertical-rl';
+        preview.appendChild(el);
       });
 
-      if (!row.children.length) {
+      const row = document.createElement('div');
+      row.appendChild(preview);
+
+      const hasArtwork = (isCombined && combined.src) || ['back','spine','front'].some(key => slots[key]?.src);
+      if (!hasArtwork) {
         if (payload.preview) {
           const img = document.createElement('img');
           img.src = payload.preview;
@@ -5112,8 +5506,7 @@
         img.src = design.src;
         img.hidden = false;
         if (placeholder) placeholder.style.display = 'none';
-        img.style.objectFit = design.fit || 'cover';
-        img.style.transform = `translate(-50%,-50%) translate(${design.x ?? 0}%,${design.y ?? 0}%) rotate(${design.rotate ?? 0}deg) scale(${design.zoom ?? 1})`;
+        applyRotationCover(img, $('designerDiscWrap'), design.x ?? 0, design.y ?? 0, design.rotate ?? 0, design.zoom ?? 1, design.fit || 'cover');
       } else {
         img.hidden = true;
         img.removeAttribute('src');
@@ -5317,9 +5710,11 @@
       $("titleField").addEventListener("input", (e)=>{state.meta.title=e.target.value; render();});
       $("imdbField").addEventListener("input", (e)=>{state.meta.imdbId=e.target.value; render();});
       $("categoryField").addEventListener("change", (e)=>{state.meta.category=e.target.value; render();});
+      $("languageField").addEventListener("change", (e)=>{state.meta.language=e.target.value; render();});
       $("designerTitleField").addEventListener("input", (e)=>{state.meta.title=e.target.value; render();});
       $("designerImdbField").addEventListener("input", (e)=>{state.meta.imdbId=e.target.value; render();});
       $("designerCategoryField").addEventListener("change", (e)=>{state.meta.category=e.target.value; render();});
+      $("designerLanguageField").addEventListener("change", (e)=>{state.meta.language=e.target.value; render();});
 
       $("imdbImportBtn").addEventListener("click", async ()=>{
         const imdb = state.meta.imdbId.trim();
@@ -5354,7 +5749,8 @@
         alert("Signed Nostr event copied to clipboard");
       });
 
-      $("nostrClose").addEventListener("click", () => $("nostrModal").classList.remove("open"));
+      $("nostrClose").addEventListener("click", () => { closeNostrPreview(); $("nostrModal").classList.remove("open"); });
+      $("nostrBackBtn").addEventListener("click", closeNostrPreview);
       $("nostrRunSearch").addEventListener("click", runNostrSearch);
       $("tabNew").addEventListener("click", () => switchModalTab('New'));
       $("tabPopular").addEventListener("click", () => switchModalTab('Popular'));
@@ -5386,6 +5782,14 @@
         });
       });
 
+      document.querySelectorAll('.feedLanguageSelect').forEach(select => {
+        select.addEventListener('change', () => {
+          const tab = select.dataset.tab;
+          _feedState[`language${tab}`] = select.value;
+          if (tab === 'Mine') loadMyDesigns(); else loadFeedTab(tab);
+        });
+      });
+
       $('relayList').addEventListener('change', async (event) => {
         state.community.relays = event.target.value.trim() || state.community.relays;
         invalidateFeedCache();
@@ -5412,14 +5816,10 @@
 
       // Preview modal event listeners
       $('previewSaveJsonBtn').addEventListener('click', () => {
-        const row = $('designPreviewModal')._row;
+        const row = $('nostrPreviewPanel')._row;
         if (!row) return;
         const name = (row.title || 'design').replace(/[^a-z0-9]/gi, '_');
         triggerDownload(row.payload, `${name}.json`);
-      });
-
-      $('previewModalClose').addEventListener('click', () => {
-        $('designPreviewModal').classList.remove('open');
       });
 
       $('saveProjectBtn').addEventListener('click', downloadProject);
