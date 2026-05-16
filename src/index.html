@@ -6221,7 +6221,7 @@
       if (isDiscDesign) {
         const import1Btn = document.createElement('button');
         import1Btn.type = 'button';
-        import1Btn.textContent = 'Import into Disk 1';
+        import1Btn.textContent = 'Import into Disc 1';
         import1Btn.addEventListener('click', () => {
           importDiscDesignFromPayload(p, 'top', { openDesigner: false });
           state.appMode = 'template';
@@ -6234,7 +6234,7 @@
 
         const import2Btn = document.createElement('button');
         import2Btn.type = 'button';
-        import2Btn.textContent = 'Import into Disk 2';
+        import2Btn.textContent = 'Import into Disc 2';
         import2Btn.addEventListener('click', () => {
           importDiscDesignFromPayload(p, 'bottom', { openDesigner: false });
           state.appMode = 'template';
@@ -6256,7 +6256,17 @@
           const stateSnapshot = JSON.parse(JSON.stringify(state));
           const previousTitle = document.title;
           const pdfStem = previewSaveStem(p, row);
-          try { loadProjectFromText(JSON.stringify(p)); } catch(e) { console.error(e); }
+          try {
+            loadProjectFromText(JSON.stringify(p));
+          } catch (e) {
+            console.error(e);
+            alert('This template could not be loaded for printing.');
+            document.title = previousTitle;
+            Object.assign(state, stateSnapshot);
+            syncInputs();
+            render();
+            return;
+          }
           closeNostrPreview();
           $('nostrModal').classList.remove('open');
           function onAfterPrint() {
