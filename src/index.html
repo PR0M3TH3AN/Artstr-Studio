@@ -1441,6 +1441,8 @@
     body.dark .modalTab.active{color:#fff}
 
     /* Feed wall */
+    .feedLoadStatus{font-size:.78rem;color:var(--muted);padding:2px 2px 6px;font-style:italic;letter-spacing:.02em}
+    .feedLoadStatus[hidden]{display:none}
     .feedWall{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:4px;max-height:68vh;overflow-y:auto;align-content:start}
     .feedCard{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;cursor:pointer;display:flex;flex-direction:column;transition:box-shadow .12s}
     .feedCard:hover{box-shadow:0 4px 18px rgba(15,23,42,.13)}
@@ -2286,6 +2288,7 @@
             <option value="other">Other</option>
           </select>
         </div>
+        <div class="feedLoadStatus" id="feedStatusNew" hidden></div>
         <div class="feedWall" id="feedWallNew"></div>
       </div>
 
@@ -2311,6 +2314,7 @@
             <option value="other">Other</option>
           </select>
         </div>
+        <div class="feedLoadStatus" id="feedStatusPopular" hidden></div>
         <div class="feedWall" id="feedWallPopular"></div>
       </div>
 
@@ -2354,7 +2358,7 @@
       <details id="nostrRelayDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
         <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">Relay settings</summary>
         <label for="relayList" style="margin-top:8px;display:block;font-size:.8rem;font-weight:650;color:#374151">Nostr relays</label>
-        <input id="relayList" type="text" placeholder="wss://relay.damus.io, wss://nos.lol, wss://relay.primal.net, wss://relay.snort.social, wss://relay.nostr.band, wss://relay.nos.social" style="margin-top:4px" />
+        <input id="relayList" type="text" placeholder="wss://relay.damus.io, wss://nos.lol, wss://relay.primal.net, wss://relay.snort.social, wss://relay.nostr.band" style="margin-top:4px" />
         <p class="hint">Separate multiple relays with commas. Changing relays clears the template cache.</p>
       </details>
       <details id="blockListDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
@@ -2481,14 +2485,15 @@
       'wss://nos.lol',
       'wss://relay.primal.net',
       'wss://relay.snort.social',
-      'wss://relay.nostr.band',
-      'wss://relay.nostr.pub'
+      'wss://relay.nostr.band'
     ];
     const RELAY_HEALTH_CACHE_KEY = 'casewrap-relay-health';
     const BLOCK_LIST_STORAGE_KEY = 'casewrap:block:list:v1';
     const BLOCK_META_STORAGE_KEY = 'casewrap:block:meta:v1';
     const RELAY_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
     const RELAY_FAILURE_MAX_COOLDOWN_MS = 60 * 60 * 1000;
+    const RELAY_READ_FAILURE_COOLDOWN_MS = 30 * 1000;
+    const RELAY_READ_FAILURE_MAX_COOLDOWN_MS = 5 * 60 * 1000;
     const RELAY_HEALTH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
     const state = {
@@ -2682,13 +2687,15 @@
       saveRelayHealth(state.community.relayHealth);
     }
 
-    function markRelayFailure(relay, error = '') {
+    function markRelayFailure(relay, error = '', { context = 'publish' } = {}) {
       const key = normalizeRelayHealthRelay(relay);
       if (!key) return;
       if (!state.community.relayHealth) state.community.relayHealth = loadRelayHealth();
       const current = state.community.relayHealth[key] || {};
       const failCount = (current.failCount || 0) + 1;
-      const cooldownMs = Math.min(RELAY_FAILURE_MAX_COOLDOWN_MS, RELAY_FAILURE_COOLDOWN_MS * failCount);
+      const baseCooldown = context === 'read' ? RELAY_READ_FAILURE_COOLDOWN_MS : RELAY_FAILURE_COOLDOWN_MS;
+      const maxCooldown = context === 'read' ? RELAY_READ_FAILURE_MAX_COOLDOWN_MS : RELAY_FAILURE_MAX_COOLDOWN_MS;
+      const cooldownMs = Math.min(maxCooldown, baseCooldown * failCount);
       state.community.relayHealth[key] = {
         ...current,
         failCount,
@@ -2977,37 +2984,43 @@
       return { accepted, results };
     }
 
-    async function queryRelays(relays, filters, { timeoutMs = 3500 } = {}) {
+    async function queryRelays(relays, filters, { timeoutMs = 3500, onEvent, onRelayDone } = {}) {
       const relayList = getActiveRelays(relays, { includeCoolingDown: false });
       const events = new Map();
+      const safeCallback = (fn, ...args) => {
+        if (typeof fn !== 'function') return;
+        try { fn(...args); } catch {}
+      };
 
       await Promise.all(relayList.map((relay) => new Promise((resolve) => {
         let done = false;
         let ws;
-        const finish = () => {
+        const finish = (ok, error = '') => {
           if (done) return;
           done = true;
           try { ws && ws.close(); } catch {}
+          safeCallback(onRelayDone, { relay, ok: !!ok, error });
           resolve();
         };
 
         try {
           ws = new WebSocket(relay);
         } catch {
-          markRelayFailure(relay, 'Could not open websocket');
+          markRelayFailure(relay, 'Could not open websocket', { context: 'read' });
+          safeCallback(onRelayDone, { relay, ok: false, error: 'Could not open websocket' });
           resolve();
           return;
         }
 
-        const timer = setTimeout(finish, timeoutMs);
+        const timer = setTimeout(() => finish(false, 'Query timed out'), timeoutMs);
         const subId = `sub-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
         ws.addEventListener('open', () => {
           try {
             ws.send(JSON.stringify(['REQ', subId, filters]));
           } catch {
             clearTimeout(timer);
-            markRelayFailure(relay, 'Could not send query');
-            finish();
+            markRelayFailure(relay, 'Could not send query', { context: 'read' });
+            finish(false, 'Could not send query');
           }
         });
         ws.addEventListener('message', (msg) => {
@@ -3018,26 +3031,30 @@
             return;
           }
           if (data[0] === 'EVENT' && data[1] === subId && data[2]?.id) {
-            events.set(data[2].id, data[2]);
+            const event = data[2];
+            if (!events.has(event.id)) {
+              events.set(event.id, event);
+              safeCallback(onEvent, event, relay);
+            }
             markRelaySuccess(relay);
           }
           if (data[0] === 'EOSE' && data[1] === subId) {
             clearTimeout(timer);
             markRelaySuccess(relay);
-            finish();
+            finish(true, '');
           }
         });
         ws.addEventListener('error', () => {
           if (done) return;
           clearTimeout(timer);
-          markRelayFailure(relay, 'Websocket error');
-          finish();
+          markRelayFailure(relay, 'Websocket error', { context: 'read' });
+          finish(false, 'Websocket error');
         });
         ws.addEventListener('close', () => {
           if (done) return;
           clearTimeout(timer);
-          markRelayFailure(relay, 'Relay closed the connection');
-          finish();
+          markRelayFailure(relay, 'Relay closed the connection', { context: 'read' });
+          finish(false, 'Relay closed the connection');
         });
       })));
 
@@ -5685,7 +5702,31 @@
     }
 
 
-    const _feedCache = { events: null, reactions: {}, profiles: {}, fetchedAt: 0, loading: false, relayKey: '' };
+    const _feedCache = { events: null, reactions: {}, profiles: {}, fetchedAt: 0, loading: false, relayKey: '', relayProgress: { responded: 0, total: 0 }, phase: '' };
+    let _currentFeedRerender = null;
+    const FEED_PROGRESS_DEBOUNCE_MS = 150;
+
+    function notifyFeedProgress() {
+      if (typeof _currentFeedRerender !== 'function') return;
+      try { _currentFeedRerender(); } catch {}
+    }
+
+    function updateFeedStatus(tab, rowCount) {
+      const el = $(`feedStatus${tab}`);
+      if (!el) return;
+      if (!_feedCache.loading) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+      }
+      const tally = _feedCache.relayProgress || { responded: 0, total: 0 };
+      const tallyStr = tally.total ? ` · ${tally.responded}/${tally.total} relays` : '';
+      const phaseStr = _feedCache.phase === 'enrichment' ? 'Loading reactions and authors' : 'Streaming';
+      const tplStr = rowCount === 1 ? '1 template' : `${rowCount} templates`;
+      el.textContent = `${phaseStr} · ${tplStr}${tallyStr}`;
+      el.hidden = false;
+    }
+
     let _nostrBrowseTab = 'New';
     const PUBLISHED_TEMPLATE_CACHE_KEY = 'casewrap-published-template-events';
 
@@ -5740,15 +5781,51 @@
       if (_feedCache.events && age < 5 * 60 * 1000 && _feedCache.relayKey === relayKey) return;
       _feedCache.loading = true;
       _feedCache.relayKey = relayKey;
+      _feedCache.reactions = {};
+      _feedCache.profiles = {};
+      const activeRelays = getActiveRelays(relays, { includeCoolingDown: false });
+      _feedCache.relayProgress = { responded: 0, total: activeRelays.length };
+      _feedCache.phase = 'templates';
+
+      const liveMap = new Map();
+      const refreshCacheEvents = () => {
+        _feedCache.events = mergePublishedTemplateEvents([...liveMap.values()]);
+      };
+      refreshCacheEvents();
+
+      let progressPending = false;
+      const flushProgress = () => {
+        progressPending = false;
+        refreshCacheEvents();
+        notifyFeedProgress();
+      };
+      const scheduleProgress = () => {
+        if (progressPending) return;
+        progressPending = true;
+        setTimeout(flushProgress, FEED_PROGRESS_DEBOUNCE_MS);
+      };
+      const onIncoming = (event) => {
+        if (!event?.id || liveMap.has(event.id)) return;
+        liveMap.set(event.id, event);
+        scheduleProgress();
+      };
+      const onTemplateRelayDone = () => {
+        _feedCache.relayProgress.responded = Math.min(
+          _feedCache.relayProgress.total,
+          _feedCache.relayProgress.responded + 1
+        );
+        scheduleProgress();
+      };
+
       try {
-        const [templateEvents, deletionEvents] = await Promise.all([
-          queryRelays(relays, { kinds: [30078], limit: 200 }, { timeoutMs: 4500 }),
-          queryRelays(relays, { kinds: [5], limit: 100 }, { timeoutMs: 3500 })
+        await Promise.all([
+          queryRelays(relays, { kinds: [30078], '#t': ['casewrap'], limit: 200 }, { timeoutMs: 4500, onEvent: onIncoming, onRelayDone: onTemplateRelayDone }),
+          queryRelays(relays, { kinds: [5], '#k': ['30078'], limit: 100 }, { timeoutMs: 3500, onEvent: onIncoming })
         ]);
-        const events = mergePublishedTemplateEvents([...templateEvents, ...deletionEvents]);
-        _feedCache.events = events;
-        _feedCache.reactions = {};
-        _feedCache.profiles = {};
+        _feedCache.phase = 'enrichment';
+        flushProgress();
+
+        const templateEvents = [...liveMap.values()].filter(e => e.kind === 30078);
         if (templateEvents.length) {
           const ids = templateEvents.map(e => e.id);
           const BATCH = 50;
@@ -5763,7 +5840,8 @@
               if (tag) _feedCache.reactions[tag[1]] = (_feedCache.reactions[tag[1]] || 0) + 1;
             }
           }
-          // Fetch author profiles for all unique pubkeys
+          notifyFeedProgress();
+
           const pubkeys = [...new Set(templateEvents.map(e => e.pubkey).filter(Boolean))].slice(0, 100);
           const profileRequests = [];
           for (let i = 0; i < pubkeys.length; i += BATCH) {
@@ -5776,10 +5854,13 @@
               _feedCache.profiles[pe.pubkey] = { pubkey: pe.pubkey, ...p };
             }
           }
+          notifyFeedProgress();
         }
         _feedCache.fetchedAt = Date.now();
       } finally {
         _feedCache.loading = false;
+        _feedCache.phase = '';
+        notifyFeedProgress();
       }
     }
 
@@ -5918,7 +5999,6 @@
       const q = query.trim().toLowerCase();
       const rows = [];
       const deletedEventIds = new Set();
-      const deletedAddresses = new Set();
       const ordered = [...(events || [])].sort((a, b) => (b.created_at || 0) - (a.created_at || 0) || String(b.id || '').localeCompare(String(a.id || '')));
       const addressByEventId = new Map();
 
@@ -5931,15 +6011,23 @@
         if (address) addressByEventId.set(e.id, address);
       }
 
+      const deletionTimeByAddress = new Map();
       for (const e of ordered) {
         if (e?.kind !== 5) continue;
+        const delTime = e.created_at || 0;
         for (const target of templateDeleteTargets(e)) {
           if (target.type === 'event') {
             deletedEventIds.add(target.value);
             const inferredAddress = addressByEventId.get(target.value);
-            if (inferredAddress) deletedAddresses.add(inferredAddress);
+            if (inferredAddress) {
+              const prev = deletionTimeByAddress.get(inferredAddress) || 0;
+              if (delTime > prev) deletionTimeByAddress.set(inferredAddress, delTime);
+            }
           }
-          if (target.type === 'address') deletedAddresses.add(target.value);
+          if (target.type === 'address') {
+            const prev = deletionTimeByAddress.get(target.value) || 0;
+            if (delTime > prev) deletionTimeByAddress.set(target.value, delTime);
+          }
         }
       }
 
@@ -5952,8 +6040,10 @@
         try { payload = JSON.parse(e.content || '{}'); } catch { continue; }
         if (!skipVersionFilter && (payload.version ?? 0) < MIN_SUPPORTED_SCHEMA_VERSION) continue;
         const address = templateEventAddress(e, payload);
-        if (deletedEventIds.has(e.id) || (address && deletedAddresses.has(address)) || isDeletedTemplatePayload(payload)) {
-          if (address) deletedAddresses.add(address);
+        const eventTime = e.created_at || 0;
+        const addressDeletionTime = address ? (deletionTimeByAddress.get(address) || 0) : 0;
+        const addressIsTombstoned = addressDeletionTime > 0 && eventTime <= addressDeletionTime;
+        if (deletedEventIds.has(e.id) || addressIsTombstoned || isDeletedTemplatePayload(payload)) {
           continue;
         }
         const title = payload.meta?.title || payload.title || '';
@@ -6217,26 +6307,40 @@
     async function loadFeedTab(tab) {
       const wall = $(`feedWall${tab}`);
       wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading…</div>';
+
+      const rerender = () => {
+        const wallEl = $(`feedWall${tab}`);
+        if (!wallEl) return;
+        const typeFilter = _feedState[`filter${tab}`] || 'any';
+        const categoryFilter = _feedState[`category${tab}`] || '';
+        const languageFilter = _feedState[`language${tab}`] || '';
+        let rows = buildRowsFromEvents(_feedCache.events || [], typeFilter, '', false, categoryFilter, languageFilter);
+        if (tab === 'New') {
+          rows.sort((a, b) => b.createdAt - a.createdAt);
+        } else {
+          rows = deduplicateRows(rows);
+          rows.sort((a, b) => (b.reactions - a.reactions) || (b.createdAt - a.createdAt));
+        }
+        updateFeedStatus(tab, rows.length);
+        if (!rows.length) {
+          if (!_feedCache.loading) {
+            wallEl.innerHTML = `<div class="hint" style="grid-column:1/-1">No templates found on these relays yet${_blockedAuthors.size ? ' (some authors may be blocked)' : ''}.</div>`;
+          }
+          return;
+        }
+        wallEl.innerHTML = '';
+        _feedPagination[tab].rows = rows;
+        _feedPagination[tab].rendered = 0;
+        initInfiniteScroll(tab);
+        appendFeedRows(tab);
+      };
+
+      _currentFeedRerender = rerender;
+
+      if (_feedCache.events && _feedCache.events.length) rerender();
+
       await fetchFeedAndReactions();
-      const typeFilter = _feedState[`filter${tab}`] || 'any';
-      const categoryFilter = _feedState[`category${tab}`] || '';
-      const languageFilter = _feedState[`language${tab}`] || '';
-      let rows = buildRowsFromEvents(_feedCache.events || [], typeFilter, '', false, categoryFilter, languageFilter);
-      if (tab === 'New') {
-        rows.sort((a, b) => b.createdAt - a.createdAt);
-      } else {
-        rows = deduplicateRows(rows);
-        rows.sort((a, b) => (b.reactions - a.reactions) || (b.createdAt - a.createdAt));
-      }
-      wall.innerHTML = '';
-      if (!rows.length) {
-        wall.innerHTML = `<div class="hint" style="grid-column:1/-1">No templates found on these relays yet${_blockedAuthors.size ? ' (some authors may be blocked)' : ''}.</div>`;
-        return;
-      }
-      _feedPagination[tab].rows = rows;
-      _feedPagination[tab].rendered = 0;
-      initInfiniteScroll(tab);
-      appendFeedRows(tab);
+      if (_currentFeedRerender === rerender) rerender();
     }
 
     function previewFromPayload(payload, typeHint) {
