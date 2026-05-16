@@ -1457,6 +1457,24 @@
         min-height: 0 !important;
       }
 
+      body.template-cover {
+        width: 8.5in !important;
+        height: 11in !important;
+      }
+
+      body.template-cover .app,
+      body.template-cover main,
+      body.template-cover .previewShell {
+        width: 8.5in !important;
+        height: 11in !important;
+      }
+
+      body.template-cover .previewShell {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+      }
+
       .sheetWrap {
         display: block !important;
         padding: 0 !important;
@@ -1473,6 +1491,14 @@
         break-after: avoid !important;
       }
 
+      body.template-cover .sheetWrap {
+        position: relative !important;
+        width: var(--sheet-h) !important;
+        height: var(--sheet-w) !important;
+        margin: 0 auto !important;
+        transform: none !important;
+      }
+
       .sheet {
         box-shadow: none !important;
         overflow: hidden !important;
@@ -1481,6 +1507,16 @@
         page-break-before: avoid !important;
         page-break-after: avoid;
         break-after: avoid;
+      }
+
+      body.template-cover .sheet {
+        position: absolute !important;
+        left: 50% !important;
+        top: 50% !important;
+        width: var(--sheet-w) !important;
+        height: var(--sheet-h) !important;
+        transform: translate(-50%, -50%) rotate(90deg) !important;
+        transform-origin: center center !important;
       }
 
       .slot, .discSlot, .jewelSlot {
@@ -2895,7 +2931,9 @@
       root.style.setProperty('--bleed', inches(state.bleed));
       root.style.setProperty('--safe', inches(state.safe));
 
-      $('dynamicPageStyle').textContent = `@page { size: ${fmt(sheetW())}in ${fmt(sheetH())}in; margin: 0; }`;
+      const pageW = state.templateMode === 'cover' ? 8.5 : sheetW();
+      const pageH = state.templateMode === 'cover' ? 11 : sheetH();
+      $('dynamicPageStyle').textContent = `@page { size: ${fmt(pageW)}in ${fmt(pageH)}in; margin: 0; }`;
 
       if (state.templateMode === 'disc') {
         $('projectTitle').textContent = 'Disc label preview';
@@ -2927,14 +2965,15 @@
         `;
       } else {
         $('projectTitle').textContent = 'Cover preview';
-        document.querySelector('.printHelp').textContent = 'Left-to-right layout is back cover, spine, front cover.';
+        document.querySelector('.printHelp').textContent = 'Portrait PDF: back cover, spine, front cover rotated onto Letter paper.';
         $('trimReadout').textContent = `Trim: ${fmt(totalTrimW())} × ${fmt(state.trimH)} in`;
-        $('sheetReadout').textContent = `PDF page: ${fmt(sheetW())} × ${fmt(sheetH())} in`;
+        $('sheetReadout').textContent = 'PDF page: 8.50 × 11.00 in (portrait)';
         $('sizeReadout').innerHTML = `
           <b>Trim:</b> ${fmt(totalTrimW())} × ${fmt(state.trimH)} in<br>
-          <b>With bleed/PDF page:</b> ${fmt(sheetW())} × ${fmt(sheetH())} in<br>
+          <b>With bleed:</b> ${fmt(sheetW())} × ${fmt(sheetH())} in<br>
+          <b>PDF page:</b> 8.50 × 11.00 in (portrait)<br>
           <b>Metric trim:</b> ${fmt(mm(totalTrimW()), 1)} × ${fmt(mm(state.trimH), 1)} mm<br>
-          <b>Metric PDF page:</b> ${fmt(mm(sheetW()), 1)} × ${fmt(mm(sheetH()), 1)} mm
+          <b>Metric PDF page:</b> 215.9 × 279.4 mm
         `;
       }
 
