@@ -1441,7 +1441,7 @@
     body.dark .modalTab.active{color:#fff}
 
     /* Feed wall */
-    .feedWall{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:4px;max-height:62vh;overflow-y:auto}
+    .feedWall{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:4px;max-height:68vh;overflow-y:auto;align-content:start}
     .feedCard{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;cursor:pointer;display:flex;flex-direction:column;transition:box-shadow .12s}
     .feedCard:hover{box-shadow:0 4px 18px rgba(15,23,42,.13)}
     .feedCardThumb{width:100%;aspect-ratio:1;background:#f1f5f9;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
@@ -5647,8 +5647,12 @@
         if (templateEvents.length) {
           const ids = templateEvents.map(e => e.id);
           const BATCH = 50;
+          const reactionRequests = [];
           for (let i = 0; i < ids.length; i += BATCH) {
-            const rxEvents = await queryRelays(relays, { kinds: [7], '#e': ids.slice(i, i + BATCH) }, { timeoutMs: 2500 });
+            reactionRequests.push(queryRelays(relays, { kinds: [7], '#e': ids.slice(i, i + BATCH) }, { timeoutMs: 2500 }));
+          }
+          const reactionBatches = await Promise.all(reactionRequests);
+          for (const rxEvents of reactionBatches) {
             for (const rx of rxEvents) {
               const tag = (rx.tags || []).find(t => t[0] === 'e' && t[1]);
               if (tag) _feedCache.reactions[tag[1]] = (_feedCache.reactions[tag[1]] || 0) + 1;
@@ -5656,8 +5660,12 @@
           }
           // Fetch author profiles for all unique pubkeys
           const pubkeys = [...new Set(templateEvents.map(e => e.pubkey).filter(Boolean))].slice(0, 100);
+          const profileRequests = [];
           for (let i = 0; i < pubkeys.length; i += BATCH) {
-            const profileEvs = await queryRelays(relays, { kinds: [0], authors: pubkeys.slice(i, i + BATCH) }, { timeoutMs: 2500 });
+            profileRequests.push(queryRelays(relays, { kinds: [0], authors: pubkeys.slice(i, i + BATCH) }, { timeoutMs: 2500 }));
+          }
+          const profileBatches = await Promise.all(profileRequests);
+          for (const profileEvs of profileBatches) {
             for (const pe of profileEvs) {
               const p = safeJsonParse(pe.content, {});
               _feedCache.profiles[pe.pubkey] = { pubkey: pe.pubkey, ...p };
@@ -5671,6 +5679,10 @@
     }
 
     const _feedState = { filterNew: 'any', filterPopular: 'any', filterMine: 'any', categoryNew: '', categoryPopular: '', categoryMine: '', languageNew: '', languagePopular: '', languageMine: '' };
+    const _feedPagination = {
+      New: { rows: [], rendered: 0, chunk: 24, initialized: false },
+      Popular: { rows: [], rendered: 0, chunk: 24, initialized: false }
+    };
 
     function buildRowsFromEvents(events, typeFilter = 'any', query = '', skipVersionFilter = false, categoryFilter = '', languageFilter = '') {
       const q = query.trim().toLowerCase();
@@ -5926,26 +5938,13 @@
       await loadFeedTab('New');
     }
 
-    async function loadFeedTab(tab) {
+    function appendFeedRows(tab) {
+      const page = _feedPagination[tab];
       const wall = $(`feedWall${tab}`);
-      wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading…</div>';
-      await fetchFeedAndReactions();
-      const typeFilter = _feedState[`filter${tab}`] || 'any';
-      const categoryFilter = _feedState[`category${tab}`] || '';
-      const languageFilter = _feedState[`language${tab}`] || '';
-      let rows = buildRowsFromEvents(_feedCache.events || [], typeFilter, '', false, categoryFilter, languageFilter);
-      if (tab === 'New') {
-        rows.sort((a, b) => b.createdAt - a.createdAt);
-      } else {
-        rows = deduplicateRows(rows);
-        rows.sort((a, b) => b.reactions - a.reactions);
-      }
-      wall.innerHTML = '';
-      if (!rows.length) {
-        wall.innerHTML = '<div class="hint" style="grid-column:1/-1">No templates found on these relays yet.</div>';
-        return;
-      }
-      rows.slice(0, 60).forEach(row => {
+      if (!page || !wall || page.rendered >= page.rows.length) return false;
+      const nextRows = page.rows.slice(page.rendered, page.rendered + page.chunk);
+      page.rendered += nextRows.length;
+      nextRows.forEach(row => {
         wall.appendChild(buildFeedCard(row, () => {
           if (row.mode === 'disc-design') {
             const target = state.appMode === 'designer'
@@ -5958,6 +5957,46 @@
           $('nostrModal').classList.remove('open');
         }));
       });
+      return true;
+    }
+
+    function initInfiniteScroll(tab) {
+      const page = _feedPagination[tab];
+      const wall = $(`feedWall${tab}`);
+      if (!page || !wall || page.initialized) return;
+      wall.addEventListener('scroll', () => {
+        if (wall.scrollHeight <= wall.clientHeight) {
+          appendFeedRows(tab);
+          return;
+        }
+        if ((wall.scrollTop + wall.clientHeight) / wall.scrollHeight > 0.8) appendFeedRows(tab);
+      });
+      page.initialized = true;
+    }
+
+    async function loadFeedTab(tab) {
+      const wall = $(`feedWall${tab}`);
+      wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading…</div>';
+      await fetchFeedAndReactions();
+      const typeFilter = _feedState[`filter${tab}`] || 'any';
+      const categoryFilter = _feedState[`category${tab}`] || '';
+      const languageFilter = _feedState[`language${tab}`] || '';
+      let rows = buildRowsFromEvents(_feedCache.events || [], typeFilter, '', false, categoryFilter, languageFilter);
+      if (tab === 'New') {
+        rows.sort((a, b) => b.createdAt - a.createdAt);
+      } else {
+        rows = deduplicateRows(rows);
+        rows.sort((a, b) => (b.reactions - a.reactions) || (b.createdAt - a.createdAt));
+      }
+      wall.innerHTML = '';
+      if (!rows.length) {
+        wall.innerHTML = '<div class="hint" style="grid-column:1/-1">No templates found on these relays yet.</div>';
+        return;
+      }
+      _feedPagination[tab].rows = rows;
+      _feedPagination[tab].rendered = 0;
+      initInfiniteScroll(tab);
+      appendFeedRows(tab);
     }
 
     function previewFromPayload(payload, typeHint) {
