@@ -6850,6 +6850,207 @@
     const _blockedAuthors = new Set();
     let _lastBlockedPubkey = '';
 
+    // ---- NIP-19 / bech32 codec (used by Share links) ----
+    const BECH32_CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+    const BECH32_GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+    function bech32Polymod(values) {
+      let chk = 1;
+      for (const v of values) {
+        const top = chk >> 25;
+        chk = ((chk & 0x1ffffff) << 5) ^ v;
+        for (let i = 0; i < 5; i++) if ((top >> i) & 1) chk ^= BECH32_GEN[i];
+      }
+      return chk;
+    }
+    function bech32HrpExpand(hrp) {
+      const r = [];
+      for (let i = 0; i < hrp.length; i++) r.push(hrp.charCodeAt(i) >> 5);
+      r.push(0);
+      for (let i = 0; i < hrp.length; i++) r.push(hrp.charCodeAt(i) & 31);
+      return r;
+    }
+    function bech32Encode(hrp, data) {
+      const checksumValues = bech32HrpExpand(hrp).concat(data).concat([0,0,0,0,0,0]);
+      const mod = bech32Polymod(checksumValues) ^ 1;
+      const checksum = [];
+      for (let p = 0; p < 6; p++) checksum.push((mod >> (5 * (5 - p))) & 31);
+      let out = hrp + '1';
+      for (const d of data.concat(checksum)) out += BECH32_CHARSET[d];
+      return out;
+    }
+    function bech32Decode(str) {
+      if (typeof str !== 'string' || str.length < 8 || str.length > 1500) return null;
+      const lower = str.toLowerCase();
+      if (str.toLowerCase() !== str && str.toUpperCase() !== str) return null;
+      const pos = lower.lastIndexOf('1');
+      if (pos < 1 || pos + 7 > lower.length) return null;
+      const hrp = lower.substring(0, pos);
+      const data = [];
+      for (let i = pos + 1; i < lower.length; i++) {
+        const d = BECH32_CHARSET.indexOf(lower.charAt(i));
+        if (d === -1) return null;
+        data.push(d);
+      }
+      if (bech32Polymod(bech32HrpExpand(hrp).concat(data)) !== 1) return null;
+      return { hrp, data: data.slice(0, data.length - 6) };
+    }
+    function convertBits(data, fromBits, toBits, pad) {
+      let acc = 0, bits = 0;
+      const ret = [];
+      const maxv = (1 << toBits) - 1;
+      for (const value of data) {
+        if (value < 0 || (value >> fromBits) !== 0) return null;
+        acc = (acc << fromBits) | value;
+        bits += fromBits;
+        while (bits >= toBits) { bits -= toBits; ret.push((acc >> bits) & maxv); }
+      }
+      if (pad) { if (bits > 0) ret.push((acc << (toBits - bits)) & maxv); }
+      else if (bits >= fromBits || ((acc << (toBits - bits)) & maxv)) return null;
+      return ret;
+    }
+    function hexToBytes(hex) {
+      if (typeof hex !== 'string') return [];
+      const out = [];
+      const clean = hex.replace(/[^0-9a-f]/gi, '');
+      for (let i = 0; i + 1 < clean.length; i += 2) out.push(parseInt(clean.substr(i, 2), 16));
+      return out;
+    }
+    function bytesToHex(bytes) {
+      return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    const _utf8Enc = new TextEncoder();
+    const _utf8Dec = new TextDecoder();
+    function utf8Encode(s) { return Array.from(_utf8Enc.encode(s)); }
+    function utf8Decode(bytes) { return _utf8Dec.decode(new Uint8Array(bytes)); }
+    function encodeTlv(items) {
+      const out = [];
+      for (const [t, v] of items) { out.push(t, v.length); for (const b of v) out.push(b); }
+      return out;
+    }
+    function decodeTlv(bytes) {
+      const out = [];
+      let i = 0;
+      while (i + 1 < bytes.length) {
+        const t = bytes[i];
+        const len = bytes[i + 1];
+        if (i + 2 + len > bytes.length) break;
+        out.push([t, bytes.slice(i + 2, i + 2 + len)]);
+        i += 2 + len;
+      }
+      return out;
+    }
+    function encodeNote(eventIdHex) {
+      const bytes = hexToBytes(eventIdHex);
+      if (bytes.length !== 32) return '';
+      const data = convertBits(bytes, 8, 5, true);
+      return bech32Encode('note', data);
+    }
+    function encodeNevent({ eventId, author = '', kind = null, relays = [] }) {
+      const tlv = [];
+      const idBytes = hexToBytes(eventId);
+      if (idBytes.length !== 32) return '';
+      tlv.push([0, idBytes]);
+      for (const r of (relays || [])) tlv.push([1, utf8Encode(r)]);
+      if (author) {
+        const a = hexToBytes(author);
+        if (a.length === 32) tlv.push([2, a]);
+      }
+      if (kind != null) {
+        tlv.push([3, [(kind >>> 24) & 255, (kind >>> 16) & 255, (kind >>> 8) & 255, kind & 255]]);
+      }
+      const bytes = encodeTlv(tlv);
+      const data = convertBits(bytes, 8, 5, true);
+      return bech32Encode('nevent', data);
+    }
+    function encodeNaddr({ kind, pubkey, dTag, relays = [] }) {
+      const tlv = [];
+      tlv.push([0, utf8Encode(dTag || '')]);
+      for (const r of (relays || [])) tlv.push([1, utf8Encode(r)]);
+      const p = hexToBytes(pubkey);
+      if (p.length !== 32) return '';
+      tlv.push([2, p]);
+      tlv.push([3, [(kind >>> 24) & 255, (kind >>> 16) & 255, (kind >>> 8) & 255, kind & 255]]);
+      const bytes = encodeTlv(tlv);
+      const data = convertBits(bytes, 8, 5, true);
+      return bech32Encode('naddr', data);
+    }
+    function decodeNostrId(str) {
+      if (typeof str !== 'string') return null;
+      const trimmed = str.trim();
+      if (/^[a-f0-9]{64}$/i.test(trimmed)) return { type: 'hex', eventId: trimmed.toLowerCase() };
+      const dec = bech32Decode(trimmed);
+      if (!dec) return null;
+      if (dec.hrp === 'note') {
+        const bytes = convertBits(dec.data, 5, 8, false);
+        if (!bytes || bytes.length !== 32) return null;
+        return { type: 'note', eventId: bytesToHex(bytes) };
+      }
+      const bytes = convertBits(dec.data, 5, 8, false);
+      if (!bytes) return null;
+      const tlv = decodeTlv(bytes);
+      if (dec.hrp === 'nevent') {
+        const idEntry = tlv.find(([t]) => t === 0);
+        if (!idEntry || idEntry[1].length !== 32) return null;
+        const result = { type: 'nevent', eventId: bytesToHex(idEntry[1]), relays: [], author: '', kind: null };
+        for (const [t, v] of tlv) {
+          if (t === 1) result.relays.push(utf8Decode(v));
+          else if (t === 2 && v.length === 32) result.author = bytesToHex(v);
+          else if (t === 3 && v.length === 4) result.kind = (v[0] << 24) | (v[1] << 16) | (v[2] << 8) | v[3];
+        }
+        return result;
+      }
+      if (dec.hrp === 'naddr') {
+        const dEntry = tlv.find(([t]) => t === 0);
+        const aEntry = tlv.find(([t]) => t === 2);
+        const kEntry = tlv.find(([t]) => t === 3);
+        if (!dEntry || !aEntry || aEntry[1].length !== 32 || !kEntry || kEntry[1].length !== 4) return null;
+        const result = {
+          type: 'naddr',
+          dTag: utf8Decode(dEntry[1]),
+          pubkey: bytesToHex(aEntry[1]),
+          kind: (kEntry[1][0] << 24) | (kEntry[1][1] << 16) | (kEntry[1][2] << 8) | kEntry[1][3],
+          relays: []
+        };
+        for (const [t, v] of tlv) if (t === 1) result.relays.push(utf8Decode(v));
+        return result;
+      }
+      return null;
+    }
+    function shareIdForRow(row) {
+      const e = row?.e;
+      if (!e?.id) return '';
+      const kind = e.kind || 30078;
+      const dTag = (e.tags || []).find(t => t[0] === 'd' && t[1])?.[1] || '';
+      const topRelays = splitRelayList(state.community.relays).slice(0, 2);
+      // Use naddr (stable, survives republishes) only when the d-tag is
+      // mode-prefixed — i.e., a "new-style" publish that can't collide with
+      // another content type for the same movie. Legacy events used a bare
+      // IMDB id as d-tag, so the same address could be claimed by a cover
+      // AND a disc-design for the same title; naddr would resolve to whichever
+      // got published last. For those, use nevent (specific event id).
+      const mode = row.mode || normalizeTemplateMode(row.payload || {});
+      const dTagMatchesMode = dTag && dTag.startsWith(`${mode}:`);
+      if ((kind >= 30000 && kind < 40000) && dTagMatchesMode && e.pubkey) {
+        return encodeNaddr({ kind, pubkey: e.pubkey, dTag, relays: topRelays });
+      }
+      return encodeNevent({ eventId: e.id, author: e.pubkey || '', kind, relays: topRelays })
+        || encodeNote(e.id)
+        || e.id;
+    }
+    function shareUrlForRow(row) {
+      const id = shareIdForRow(row);
+      if (!id) return '';
+      return `${location.origin}/#/share/${id}`;
+    }
+    function parseShareIdFromLocation() {
+      const path = location.pathname.match(/^\/share\/([^/?#]+)/);
+      if (path) return decodeURIComponent(path[1]);
+      const hash = (location.hash || '').replace(/^#\/?/, '');
+      const hm = hash.match(/^share\/([^/?#]+)/);
+      if (hm) return decodeURIComponent(hm[1]);
+      return '';
+    }
+
     function normalizePubkey(value) {
       const pubkey = String(value || '').trim().toLowerCase();
       return /^[0-9a-f]{64}$/.test(pubkey) ? pubkey : '';
@@ -7672,6 +7873,26 @@
         actionsDiv.removeChild(actionsDiv.firstChild);
       }
 
+      const shareBtn = document.createElement('button');
+      shareBtn.type = 'button';
+      shareBtn.textContent = 'Copy share link';
+      shareBtn.title = 'Copy a link others can open to see this design preview';
+      shareBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const url = shareUrlForRow(row);
+        if (!url) { shareBtn.textContent = 'Could not build link'; return; }
+        const original = shareBtn.textContent;
+        try {
+          await navigator.clipboard.writeText(url);
+          shareBtn.textContent = 'Copied!';
+        } catch {
+          // Fallback: select-and-prompt
+          window.prompt('Copy this share link:', url);
+        }
+        setTimeout(() => { shareBtn.textContent = original; }, 1800);
+      });
+      actionsDiv.insertBefore(shareBtn, saveJsonBtn);
+
       if (isDiscDesign) {
         const import1Btn = document.createElement('button');
         import1Btn.type = 'button';
@@ -7740,6 +7961,12 @@
         addPreviewDeleteButton(actionsDiv, row, saveJsonBtn);
       }
 
+      // Update the URL hash so the design is shareable / refreshable
+      try {
+        const sid = shareIdForRow(row);
+        if (sid) history.replaceState({}, '', `${location.pathname}#/share/${sid}`);
+      } catch {}
+
       // Switch modal into preview mode
       $('nostrBrowseHeading').style.display = 'none';
       $('nostrPreviewHeading').style.display = '';
@@ -7778,6 +8005,10 @@
         const tabEl = $(`tab${t}`);
         const panelEl = $(`panel${t}`);
         if (panelEl) panelEl.style.display = tabEl?.classList.contains('active') ? '' : 'none';
+      }
+      // Clear any /share/... or #/share/... URL so reload doesn't re-open
+      if (location.pathname.startsWith('/share/') || /^#\/?share\//.test(location.hash)) {
+        try { history.replaceState({}, '', '/'); } catch {}
       }
     }
 
@@ -9484,6 +9715,111 @@
           _feedCache.fetchedAt = 0;
           refreshCommunityView();
         });
+      }
+      const shareId = parseShareIdFromLocation();
+      if (shareId) {
+        // dismiss welcome if it would block the preview
+        try { $('welcomeModal')?.classList.remove('open'); } catch {}
+        setTimeout(() => loadSharedDesign(shareId), 200);
+      }
+      window.addEventListener('popstate', () => {
+        const id = parseShareIdFromLocation();
+        if (id) loadSharedDesign(id);
+      });
+    }
+
+    async function loadSharedDesign(rawId) {
+      const decoded = decodeNostrId(rawId);
+      if (!decoded) { alert('Share link is not a recognized Nostr identifier.'); return; }
+      const modal = $('nostrModal');
+      if (modal) modal.classList.add('open');
+      const previewPanel = $('nostrPreviewPanel');
+      const browseHeading = $('nostrBrowseHeading');
+      const previewHeading = $('nostrPreviewHeading');
+      const previewActions = $('nostrPreviewActions');
+      if (browseHeading) browseHeading.style.display = 'none';
+      if (previewHeading) previewHeading.style.display = '';
+      if (previewActions) previewActions.style.display = 'flex';
+      $('nostrPreviewTitle').textContent = 'Loading shared design…';
+      $('nostrPreviewMeta').textContent = '';
+      if (previewPanel) { previewPanel.style.display = ''; previewPanel.innerHTML = '<p class="hint">Looking up this design on your relays…</p>'; }
+
+      try {
+        const userRelays = splitRelayList(state.community.relays);
+        const hintRelays = (decoded.relays || []).filter(r => r && /^wss?:\/\//.test(r));
+        const fullRelayList = [...new Set([...hintRelays, ...userRelays])];
+
+        const filter = decoded.type === 'naddr'
+          ? { kinds: [decoded.kind], authors: [decoded.pubkey], '#d': [decoded.dTag], limit: 3 }
+          : { ids: [decoded.eventId], limit: 1 };
+        const matches = (ev) => decoded.type === 'naddr'
+          ? (ev.kind === decoded.kind && ev.pubkey === decoded.pubkey)
+          : (ev.id === decoded.eventId);
+
+        // Race: first matching event from any relay in this round wins.
+        const raceLookup = (relays, timeoutMs) => new Promise((resolve) => {
+          if (!relays.length) return resolve(null);
+          let done = false;
+          const finish = (ev) => { if (done) return; done = true; resolve(ev || null); };
+          const qp = queryRelays(relays, filter, {
+            timeoutMs,
+            onEvent: (ev) => { if (matches(ev)) finish(ev); }
+          });
+          qp.then((events) => {
+            if (done) return;
+            const t = decoded.type === 'naddr'
+              ? events.slice().sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0]
+              : events.find(e => e.id === decoded.eventId);
+            finish(t);
+          }).catch(() => finish(null));
+        });
+
+        // Stage 1: hit hint relays first — they're the author's known relays, likely fast.
+        let target = hintRelays.length ? await raceLookup(hintRelays, 2000) : null;
+        // Stage 2: fall back to the user's full relay list (minus the hints we already tried).
+        if (!target) {
+          const fallback = userRelays.filter(r => !hintRelays.includes(r));
+          if (fallback.length) {
+            if (previewPanel && hintRelays.length) {
+              previewPanel.innerHTML = '<p class="hint">Author\'s relays didn\'t have it — checking your relay list…</p>';
+            }
+            target = await raceLookup(fallback, 4000);
+          }
+        }
+
+        if (!target) {
+          if (previewPanel) previewPanel.innerHTML = '<p class="hint">Design not found on your relays. Try adding more relays in settings, or ask the author for an updated link.</p>';
+          return;
+        }
+
+        // Use hint relays first for the secondary fetches too — they likely have the supporting events.
+        const supportRelays = (hintRelays.length ? [...hintRelays, ...userRelays.slice(0, 2)] : userRelays).filter((v, i, a) => a.indexOf(v) === i);
+        const [reactionEvents, profileEvents, deletionEvents] = await Promise.all([
+          queryRelays(supportRelays, { kinds: [7], '#e': [target.id], limit: 100 }, { timeoutMs: 2000 }).catch(() => []),
+          queryRelays(supportRelays, { kinds: [0], authors: [target.pubkey], limit: 1 }, { timeoutMs: 2000 }).catch(() => []),
+          queryRelays(supportRelays, { kinds: [5], authors: [target.pubkey], '#k': [String(target.kind || 30078)], limit: 20 }, { timeoutMs: 2000 }).catch(() => [])
+        ]);
+
+        // Seed the feed cache so buildRowsFromEvents/buildFeedCard render correctly.
+        const reactionCount = reactionEvents.reduce((acc, rx) => {
+          const hasETag = (rx.tags || []).some(t => t[0] === 'e' && t[1] === target.id);
+          return acc + (hasETag ? 1 : 0);
+        }, 0);
+        _feedCache.reactions[target.id] = reactionCount;
+        if (profileEvents[0]) {
+          const profileSorted = profileEvents.slice().sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
+          _feedCache.profiles[target.pubkey] = { pubkey: target.pubkey, ...safeJsonParse(profileSorted.content, {}) };
+        }
+
+        const rows = buildRowsFromEvents([target, ...deletionEvents], 'any', '', true);
+        const row = rows.find(r => r.e.id === target.id);
+        if (!row) {
+          if (previewPanel) previewPanel.innerHTML = '<p class="hint">Found the event, but it appears deleted or is not a CaseWrap design.</p>';
+          return;
+        }
+        openDesignPreview(row);
+      } catch (err) {
+        if (previewPanel) previewPanel.innerHTML = `<p class="hint">Could not load this design: ${escapeHtml(err.message || String(err))}</p>`;
       }
     }
 

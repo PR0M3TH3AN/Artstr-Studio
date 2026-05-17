@@ -1,0 +1,7 @@
+{
+  "outputDirectory": "src",
+  "rewrites": [
+    { "source": "/share/:id", "destination": "/" },
+    { "source": "/share/:id/", "destination": "/" }
+  ]
+}
