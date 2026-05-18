@@ -1582,6 +1582,16 @@
       .profileAvatar { margin-top:-44px; }
     }
 
+    .tipAmounts { display:grid; grid-template-columns:repeat(auto-fit,minmax(72px,1fr)); gap:8px; margin:0 0 14px; }
+    .tipAmounts button { padding:10px 6px; font-size:.9rem; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:8px; }
+    .tipAmounts button.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .tipAmounts button:hover { filter:brightness(.97); }
+    .tipQr { display:flex; justify-content:center; align-items:center; background:#fff; padding:14px; border-radius:8px; margin:0 auto 14px; max-width:280px; }
+    .tipQr svg { display:block; width:240px; height:240px; }
+    .tipBolt11 { display:flex; gap:8px; align-items:center; margin-bottom:10px; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:var(--bg); }
+    .tipBolt11 code { flex:1; min-width:0; font-family:ui-monospace,SFMono-Regular,monospace; font-size:.72rem; word-break:break-all; max-height:3em; overflow:hidden; line-height:1.3; }
+    .tipBolt11 button { flex-shrink:0; }
+
     .addIdentifiersDetails { }
     .addIdentifiersBtn {
       display: inline-flex;
@@ -2737,6 +2747,48 @@
     </div>
   </div>
 
+  <div class="modal" id="tipModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:420px;position:relative">
+      <button type="button" id="tipCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
+      <h2 id="tipTitle" style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Send a tip</h2>
+      <p class="hint" id="tipSubtitle" style="margin:0 0 14px"></p>
+
+      <div id="tipPickerView">
+        <label class="hint" style="display:block;font-size:.78rem;margin-bottom:6px">Amount (sats)</label>
+        <div class="tipAmounts" id="tipAmounts">
+          <button type="button" data-sats="21">21</button>
+          <button type="button" data-sats="100">100</button>
+          <button type="button" data-sats="500">500</button>
+          <button type="button" data-sats="1000">1k</button>
+          <button type="button" data-sats="5000">5k</button>
+          <button type="button" data-sats="21000">21k</button>
+          <button type="button" data-sats="custom">Custom</button>
+        </div>
+        <input type="number" id="tipCustomInput" min="1" placeholder="Custom amount in sats" style="display:none;width:100%;margin-bottom:10px;padding:8px;border:1px solid var(--line);border-radius:6px;font-size:.9rem" />
+        <p class="hint" id="tipPickerError" style="min-height:1.2em;margin:0 0 10px"></p>
+        <div class="buttonRow" style="margin:0;justify-content:flex-end">
+          <button type="button" id="tipGetInvoiceBtn" class="primary">Get invoice</button>
+        </div>
+      </div>
+
+      <div id="tipInvoiceView" style="display:none">
+        <p class="hint" id="tipInvoiceAmount" style="margin:0 0 10px;text-align:center;font-size:.88rem"></p>
+        <a id="tipQrLink" href="#" target="_blank" rel="noopener" style="text-decoration:none;color:inherit;display:block">
+          <div id="tipQr" class="tipQr"></div>
+        </a>
+        <div class="tipBolt11">
+          <code id="tipBolt11"></code>
+          <button type="button" id="tipCopyBtn" aria-label="Copy invoice">📋</button>
+        </div>
+        <p class="hint" style="margin:0 0 14px;font-size:.78rem">Scan the QR with a Lightning wallet, or copy the invoice and paste it into your wallet to send the tip.</p>
+        <div class="buttonRow" style="margin:0;justify-content:space-between">
+          <button type="button" id="tipBackBtn">← New amount</button>
+          <button type="button" id="tipDoneBtn" class="primary">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="closeProjectModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:440px">
       <h2 style="font-size:1.05rem;margin:0 0 8px;font-family:inherit">Close this project?</h2>
@@ -2775,6 +2827,7 @@
     </div>
   </div>
 
+  <script src="vendor/qrcode.min.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
     const safe$ = (id) => { try { return $(id); } catch { return null; } };
@@ -7915,12 +7968,21 @@
         }).catch(() => {});
       }
 
-      // Lightning chip (read-only copy — payment flow is a separate feature)
+      // Lightning chip: clicking opens the Tip modal (LNURL-pay → bolt11 → QR)
       if (lnRowEl) {
         lnRowEl.innerHTML = '';
         const lnAddress = (profile?.lud16 || decodeLud06ToAddress(profile?.lud06) || '').trim();
-        if (lnAddress) {
-          const chip = makeProfileChip({
+        const lnurlpUrl = resolveLnurlPayUrl(profile);
+        if (lnAddress && lnurlpUrl) {
+          const tipChip = makeProfileChip({
+            label: `⚡ Tip ${lnAddress}`,
+            title: 'Send a Lightning tip',
+            onClick: () => openTipModal({ lnurlpUrl, label: displayName, lud16: lnAddress })
+          });
+          lnRowEl.appendChild(tipChip);
+        } else if (lnAddress) {
+          // Have an address but couldn't resolve it — fall back to copy.
+          const copyChip = makeProfileChip({
             label: `⚡ ${lnAddress}`,
             title: 'Copy Lightning address',
             onClick: async (btn) => {
@@ -7928,7 +7990,7 @@
               flashChipText(btn, ok ? '⚡ Copied!' : '⚡ Copy failed');
             }
           });
-          lnRowEl.appendChild(chip);
+          lnRowEl.appendChild(copyChip);
         }
         if (isHttpUrl(profile?.website)) {
           const link = document.createElement('a');
@@ -8068,6 +8130,199 @@
           statusEl.textContent = 'Could not reach your relays. Try again later.';
         }
       }
+    }
+
+    // ---- Lightning Tips (LNURL-pay) ----
+
+    function lud16ToLnurlpUrl(ln) {
+      const parts = String(ln || '').trim().split('@');
+      if (parts.length !== 2 || !parts[0] || !parts[1]) return '';
+      const name = parts[0];
+      const host = parts[1];
+      if (!/^[a-z0-9.-]+$/i.test(host)) return '';
+      return `https://${host}/.well-known/lnurlp/${encodeURIComponent(name)}`;
+    }
+
+    function lud06ToHttpUrl(bech32) {
+      try {
+        const dec = bech32Decode(String(bech32 || '').trim());
+        if (!dec || dec.hrp !== 'lnurl') return '';
+        const bytes = convertBits(dec.data, 5, 8, false);
+        if (!bytes) return '';
+        const url = new TextDecoder().decode(new Uint8Array(bytes));
+        return url.startsWith('http://') || url.startsWith('https://') ? url : '';
+      } catch { return ''; }
+    }
+
+    function resolveLnurlPayUrl(profile) {
+      if (!profile) return '';
+      if (profile.lud16) {
+        const u = lud16ToLnurlpUrl(profile.lud16);
+        if (u) return u;
+      }
+      if (profile.lud06) {
+        const u = lud06ToHttpUrl(profile.lud06);
+        if (u) return u;
+      }
+      return '';
+    }
+
+    async function fetchLnurlPayMetadata(url) {
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!r.ok) throw new Error(`Lookup failed (${r.status})`);
+      const j = await r.json();
+      if (j.status === 'ERROR') throw new Error(j.reason || 'Service returned an error');
+      if (j.tag !== 'payRequest') throw new Error('Not a Lightning tip endpoint');
+      return j;
+    }
+
+    async function fetchLnurlInvoice(callback, msats) {
+      const sep = callback.includes('?') ? '&' : '?';
+      const url = `${callback}${sep}amount=${msats}`;
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!r.ok) throw new Error(`Invoice fetch failed (${r.status})`);
+      const j = await r.json();
+      if (j.status === 'ERROR') throw new Error(j.reason || 'Service returned an error');
+      if (!j.pr) throw new Error('No invoice returned');
+      return j.pr;
+    }
+
+    function renderQrInto(el, text) {
+      if (typeof qrcode !== 'function') { el.textContent = 'QR library unavailable'; return; }
+      el.innerHTML = '';
+      // Try increasing typeNumber until the data fits. Bolt11 invoices can be long.
+      let qr = null;
+      for (let typeNumber = 6; typeNumber <= 40; typeNumber++) {
+        try {
+          const candidate = qrcode(typeNumber, 'M');
+          candidate.addData(text);
+          candidate.make();
+          qr = candidate;
+          break;
+        } catch { /* keep trying larger type */ }
+      }
+      if (!qr) { el.textContent = 'QR too large to render'; return; }
+      el.innerHTML = qr.createSvgTag({ scalable: true });
+    }
+
+    let _tipTarget = null; // { lnurlpUrl, label, lud16 }
+    let _tipSelectedSats = 0;
+    let _tipMetadata = null;
+
+    function openTipModal(opts = {}) {
+      const { lnurlpUrl, label, lud16 } = opts;
+      if (!lnurlpUrl) return;
+      _tipTarget = { lnurlpUrl, label: label || 'Recipient', lud16: lud16 || '' };
+      _tipSelectedSats = 0;
+      _tipMetadata = null;
+      const modal = $('tipModal');
+      if (!modal) return;
+
+      $('tipTitle').textContent = `Tip ${label || 'Recipient'}`;
+      $('tipSubtitle').textContent = lud16 || '';
+      $('tipPickerError').textContent = '';
+      $('tipPickerView').style.display = '';
+      $('tipInvoiceView').style.display = 'none';
+      $('tipCustomInput').style.display = 'none';
+      $('tipCustomInput').value = '';
+      const getBtn = $('tipGetInvoiceBtn');
+      if (getBtn) { getBtn.disabled = true; getBtn.textContent = 'Get invoice'; }
+      // Clear any active selection
+      $('tipAmounts').querySelectorAll('button').forEach(b => b.classList.remove('active'));
+
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+      bringModalToFront(modal);
+
+      // Fetch metadata in the background; once it arrives we know min/max.
+      fetchLnurlPayMetadata(lnurlpUrl).then(meta => {
+        if (_tipTarget?.lnurlpUrl !== lnurlpUrl) return;
+        _tipMetadata = meta;
+      }).catch(err => {
+        if (_tipTarget?.lnurlpUrl !== lnurlpUrl) return;
+        const errEl = $('tipPickerError');
+        if (errEl) errEl.textContent = String(err?.message || err);
+      });
+    }
+
+    function closeTipModal() {
+      const modal = $('tipModal');
+      if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+      _tipTarget = null;
+      _tipSelectedSats = 0;
+      _tipMetadata = null;
+    }
+
+    function selectTipAmount(value) {
+      const errEl = $('tipPickerError');
+      const customInput = $('tipCustomInput');
+      const getBtn = $('tipGetInvoiceBtn');
+      if (errEl) errEl.textContent = '';
+      $('tipAmounts').querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.sats === String(value)));
+      if (value === 'custom') {
+        customInput.style.display = '';
+        customInput.focus();
+        _tipSelectedSats = parseInt(customInput.value, 10) || 0;
+      } else {
+        customInput.style.display = 'none';
+        _tipSelectedSats = parseInt(value, 10) || 0;
+      }
+      if (getBtn) getBtn.disabled = _tipSelectedSats <= 0;
+    }
+
+    async function getTipInvoiceFlow() {
+      const errEl = $('tipPickerError');
+      const getBtn = $('tipGetInvoiceBtn');
+      if (!_tipTarget) return;
+      let sats = _tipSelectedSats;
+      if (sats <= 0) { if (errEl) errEl.textContent = 'Pick an amount first.'; return; }
+
+      try {
+        if (getBtn) { getBtn.disabled = true; getBtn.textContent = 'Fetching…'; }
+        const meta = _tipMetadata || await fetchLnurlPayMetadata(_tipTarget.lnurlpUrl);
+        _tipMetadata = meta;
+        const minSats = Math.ceil((meta.minSendable || 1000) / 1000);
+        const maxSats = Math.floor((meta.maxSendable || 100000000) / 1000);
+        if (sats < minSats || sats > maxSats) {
+          if (errEl) errEl.textContent = `Enter between ${minSats} and ${maxSats.toLocaleString()} sats.`;
+          if (getBtn) { getBtn.disabled = false; getBtn.textContent = 'Get invoice'; }
+          return;
+        }
+        const msats = sats * 1000;
+        const bolt11 = await fetchLnurlInvoice(meta.callback, msats);
+        showTipInvoiceView(bolt11, sats);
+      } catch (err) {
+        if (errEl) errEl.textContent = String(err?.message || err);
+        if (getBtn) { getBtn.disabled = false; getBtn.textContent = 'Get invoice'; }
+      }
+    }
+
+    function showTipInvoiceView(bolt11, sats) {
+      $('tipPickerView').style.display = 'none';
+      $('tipInvoiceView').style.display = '';
+      $('tipInvoiceAmount').textContent = `${sats.toLocaleString()} sats`;
+      const qrEl = $('tipQr');
+      const link = $('tipQrLink');
+      if (link) link.href = `lightning:${bolt11}`;
+      renderQrInto(qrEl, bolt11.toUpperCase());
+      $('tipBolt11').textContent = bolt11;
+      const copyBtn = $('tipCopyBtn');
+      if (copyBtn) {
+        copyBtn.onclick = async () => {
+          const ok = await copyToClipboard(bolt11);
+          copyBtn.textContent = ok ? '✓' : '✗';
+          setTimeout(() => { if (copyBtn) copyBtn.textContent = '📋'; }, 1200);
+        };
+      }
+    }
+
+    function resetTipPicker() {
+      $('tipInvoiceView').style.display = 'none';
+      $('tipPickerView').style.display = '';
+      const errEl = $('tipPickerError');
+      if (errEl) errEl.textContent = '';
+      const getBtn = $('tipGetInvoiceBtn');
+      if (getBtn) { getBtn.disabled = _tipSelectedSats <= 0; getBtn.textContent = 'Get invoice'; }
     }
 
     let _closeProjectTarget = null;
@@ -8458,13 +8713,34 @@
         e.stopPropagation();
         openReportModal(row.e?.id, row.e?.pubkey);
       });
+      const tipBtn = makeFeedCardTipButton(row);
       actions.append(makeReactionBtn(row), prevBtn, btn, blockBtn, reportBtn);
+      if (tipBtn) actions.appendChild(tipBtn);
       el.append(thumb, meta, actions);
       el.addEventListener('click', () => {
         if (el.classList.contains('feedCardBlurred')) return;
         openDesignPreview(row);
       });
       return el;
+    }
+
+    function makeFeedCardTipButton(row) {
+      const pk = row?.e?.pubkey;
+      if (!pk) return null;
+      const profile = _feedCache.profiles?.[pk] || state.community?.profiles?.[pk] || null;
+      const lnurlpUrl = resolveLnurlPayUrl(profile);
+      if (!lnurlpUrl) return null;
+      const lnAddress = (profile?.lud16 || '').trim();
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = '⚡ Tip';
+      btn.title = lnAddress ? `Send a Lightning tip to ${lnAddress}` : 'Send a Lightning tip';
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const displayName = profile?.display_name || profile?.name || shortPubkey(pk);
+        openTipModal({ lnurlpUrl, label: displayName, lud16: lnAddress });
+      });
+      return btn;
     }
 
     function updateNostrWidget() {
@@ -8978,6 +9254,25 @@
       const saveJsonBtn = $('previewSaveJsonBtn');
       while (actionsDiv.firstChild && actionsDiv.firstChild !== saveJsonBtn) {
         actionsDiv.removeChild(actionsDiv.firstChild);
+      }
+
+      // Lightning tip button — only shown when the author has a resolvable LN address.
+      const previewPk = row?.e?.pubkey;
+      if (previewPk) {
+        const previewAuthorProfile = _feedCache.profiles?.[previewPk] || state.community?.profiles?.[previewPk] || null;
+        const previewLnurlpUrl = resolveLnurlPayUrl(previewAuthorProfile);
+        if (previewLnurlpUrl) {
+          const previewLnAddress = (previewAuthorProfile?.lud16 || '').trim();
+          const previewName = previewAuthorProfile?.display_name || previewAuthorProfile?.name || shortPubkey(previewPk);
+          const tipBtn = document.createElement('button');
+          tipBtn.type = 'button';
+          tipBtn.textContent = '⚡ Tip';
+          tipBtn.title = previewLnAddress ? `Send a Lightning tip to ${previewLnAddress}` : 'Send a Lightning tip';
+          tipBtn.addEventListener('click', () => {
+            openTipModal({ lnurlpUrl: previewLnurlpUrl, label: previewName, lud16: previewLnAddress });
+          });
+          actionsDiv.insertBefore(tipBtn, saveJsonBtn);
+        }
       }
 
       const shareBtn = document.createElement('button');
@@ -10963,9 +11258,33 @@
         if (_profilePagePubkey) renderProfileDesigns(_profilePagePubkey);
       });
 
+      // Tip modal wiring
+      const tipModalEl = $('tipModal');
+      if (tipModalEl) tipModalEl.addEventListener('click', e => { if (e.target === tipModalEl) closeTipModal(); });
+      on('tipCloseBtn', 'click', closeTipModal);
+      on('tipGetInvoiceBtn', 'click', getTipInvoiceFlow);
+      on('tipBackBtn', 'click', resetTipPicker);
+      on('tipDoneBtn', 'click', closeTipModal);
+      const tipAmountsEl = $('tipAmounts');
+      if (tipAmountsEl) tipAmountsEl.addEventListener('click', e => {
+        const btn = e.target.closest('button[data-sats]');
+        if (!btn) return;
+        selectTipAmount(btn.dataset.sats);
+      });
+      on('tipCustomInput', 'input', e => {
+        const sats = parseInt(e.target.value, 10) || 0;
+        _tipSelectedSats = sats;
+        const getBtn = $('tipGetInvoiceBtn');
+        if (getBtn) getBtn.disabled = sats <= 0;
+        const errEl = $('tipPickerError');
+        if (errEl) errEl.textContent = '';
+      });
+
       // ESC closes whichever overlay modal is on top.
       document.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
+        const tipM = $('tipModal');
+        if (tipM && tipM.getAttribute('aria-hidden') === 'false') { closeTipModal(); return; }
         const profileM = $('profileModal');
         if (profileM && profileM.getAttribute('aria-hidden') === 'false') { closeProfilePage(); return; }
         const reportM = $('reportModal');
