@@ -1531,6 +1531,8 @@
     body.nostr-logged-in .feedTrustToggle{display:flex}
     .layerLockTag{display:inline-block;font-size:.58rem;font-weight:800;letter-spacing:.06em;color:var(--muted);background:rgba(127,127,127,.15);border:1px solid var(--line);border-radius:3px;padding:0 4px;margin-right:6px;vertical-align:1px}
     .feedTrustBadge{font-size:.62rem;background:rgba(0,184,230,.12);color:var(--accent);border:1px solid rgba(0,184,230,.25);border-radius:4px;padding:1px 5px;margin-left:5px;white-space:nowrap;flex-shrink:0}
+    .feedCardZapBadge{font-size:.72rem;font-weight:600;color:#b45309;background:rgba(251,191,36,.18);border:1px solid rgba(251,191,36,.4);border-radius:10px;padding:2px 8px;margin-left:auto;white-space:nowrap}
+    body.dark .feedCardZapBadge{color:#fbbf24;background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.3)}
     body.dark .feedTrustBadge{background:rgba(0,217,255,.1);border-color:rgba(0,217,255,.2)}
     .feedCard.feedCardBlurred .feedCardThumb img,
     .feedCard.feedCardBlurred .feedCardThumb canvas,
@@ -2522,6 +2524,7 @@
       <div class="welcomeTabs" role="tablist" aria-label="Browse">
         <button type="button" class="welcomeTab active" id="welcomeTabNew" data-welcome-tab="New" role="tab">New</button>
         <button type="button" class="welcomeTab" id="welcomeTabPopular" data-welcome-tab="Popular" role="tab">Popular</button>
+        <button type="button" class="welcomeTab" id="welcomeTabZapped" data-welcome-tab="Zapped" role="tab">⚡ Zapped</button>
         <button type="button" class="welcomeTab" id="welcomeTabSearch" data-welcome-tab="Search" role="tab" style="display:none">Search results</button>
       </div>
       <div class="feedWall" id="welcomeResults"></div>
@@ -2555,6 +2558,7 @@
       <div class="modalTabs">
         <button type="button" class="modalTab" id="tabNew">New</button>
         <button type="button" class="modalTab" id="tabPopular">Popular</button>
+        <button type="button" class="modalTab" id="tabZapped">⚡ Zapped</button>
         <button type="button" class="modalTab" id="tabSearch">Search</button>
         <button type="button" class="modalTab" id="tabMine">My Designs</button>
       </div>
@@ -2625,6 +2629,40 @@
         </div>
         <div class="feedLoadStatus" id="feedStatusPopular" hidden></div>
         <div class="feedWall" id="feedWallPopular"></div>
+      </div>
+
+      <div id="panelZapped" style="display:none">
+        <div class="feedTypeFilter">
+          <button class="feedTypeBtn active" data-tab="Zapped" data-type="any">All</button>
+          <button class="feedTypeBtn" data-tab="Zapped" data-type="cover">Case Covers</button>
+          <button class="feedTypeBtn" data-tab="Zapped" data-type="disc">Disc Sheets</button>
+          <button class="feedTypeBtn" data-tab="Zapped" data-type="jewel">Jewel Inserts</button>
+          <button class="feedTypeBtn" data-tab="Zapped" data-type="disc-design">Disc Designs</button>
+          <button class="feedTypeBtn" data-tab="Zapped" data-type="customart">Custom Art</button>
+          <select id="feedCategoryZapped" class="feedCategorySelect categorySelect" data-tab="Zapped" aria-label="Category filter"></select>
+          <select id="feedLanguageZapped" class="feedCategorySelect feedLanguageSelect" data-tab="Zapped" aria-label="Language filter">
+            <option value="">Any language</option>
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="pt">Portuguese</option>
+            <option value="it">Italian</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="zh">Chinese</option>
+            <option value="other">Other</option>
+          </select>
+          <label class="feedTrustToggle" title="Filter by web-of-trust">Trust:
+            <select id="trustFilterZapped">
+              <option value="all">All</option>
+              <option value="trusted">Follows</option>
+              <option value="extended">Follows + Extended</option>
+            </select>
+          </label>
+        </div>
+        <div class="feedLoadStatus" id="feedStatusZapped" hidden></div>
+        <div class="feedWall" id="feedWallZapped"></div>
       </div>
 
       <div id="panelSearch" style="display:none">
@@ -2723,6 +2761,7 @@
           <h2 id="profileName">Loading…</h2>
           <p id="profileNip05" class="hint" style="display:none"></p>
           <p id="profileNpub" class="hint profileNpub"></p>
+        <p id="profileZapTotal" class="hint" style="display:none;margin-top:4px;font-weight:600;color:#b45309"></p>
         </div>
         <div id="profileActions" class="profileActions"></div>
       </div>
@@ -2780,6 +2819,7 @@
           <code id="tipBolt11"></code>
           <button type="button" id="tipCopyBtn" aria-label="Copy invoice">📋</button>
         </div>
+        <button type="button" id="tipWeblnBtn" class="primary" style="display:none;width:100%;margin-bottom:10px">⚡ Pay with WebLN</button>
         <p class="hint" style="margin:0 0 14px;font-size:.78rem">Scan the QR with a Lightning wallet, or copy the invoice and paste it into your wallet to send the tip.</p>
         <div class="buttonRow" style="margin:0;justify-content:space-between">
           <button type="button" id="tipBackBtn">← New amount</button>
@@ -7061,18 +7101,49 @@
     }
 
 
-    const _feedCache = { events: null, reactions: {}, profiles: {}, fetchedAt: 0, loading: false, relayKey: '', relayProgress: { responded: 0, total: 0 }, phase: '', softMod: new Map(), softModRevealed: new Set(), brokenImages: new Set() };
+    const BROKEN_IMAGES_STORAGE_KEY = 'casewrap:brokenImages:v1';
+    const BROKEN_IMAGES_MAX = 500;
+    function loadBrokenImagesFromStorage() {
+      const set = new Set();
+      try {
+        const raw = localStorage.getItem(BROKEN_IMAGES_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) for (const url of parsed) if (typeof url === 'string') set.add(url);
+      } catch {}
+      return set;
+    }
+    function saveBrokenImagesToStorage(set) {
+      try {
+        const arr = [...set].slice(-BROKEN_IMAGES_MAX);
+        localStorage.setItem(BROKEN_IMAGES_STORAGE_KEY, JSON.stringify(arr));
+      } catch {}
+    }
+
+    const _feedCache = { events: null, reactions: {}, profiles: {}, fetchedAt: 0, loading: false, relayKey: '', relayProgress: { responded: 0, total: 0 }, phase: '', softMod: new Map(), softModRevealed: new Set(), brokenImages: loadBrokenImagesFromStorage() };
 
     function markImageBroken(url) {
       if (!url) return;
       _feedCache.brokenImages.add(url);
+      saveBrokenImagesToStorage(_feedCache.brokenImages);
       if (typeof _currentFeedRerender === 'function') {
         clearTimeout(markImageBroken._t);
         markImageBroken._t = setTimeout(() => { try { _currentFeedRerender(); } catch {} }, 200);
       }
     }
+
+    // Modes where a primary image is expected. Custom art is allowed to be
+    // text/color-only so we don't flag empty previews there.
+    const MODES_REQUIRE_IMAGE = new Set(['cover', 'disc', 'jewel', 'disc-design']);
+
     function isPreviewBroken(row) {
-      return !!(row?.preview && _feedCache.brokenImages.has(row.preview));
+      if (!row) return false;
+      const preview = row.preview;
+      // No URL at all + this mode expects one → effectively a missing image.
+      if (!preview && MODES_REQUIRE_IMAGE.has(row.mode)) return true;
+      if (!preview) return false;
+      // Non-http(s) scheme → can't load. Penalize pre-emptively.
+      if (!/^https?:\/\//i.test(preview)) return true;
+      return _feedCache.brokenImages.has(preview);
     }
     let _currentFeedRerender = null;
     const FEED_PROGRESS_DEBOUNCE_MS = 150;
@@ -7232,6 +7303,11 @@
             await fetchSoftModSignal(relays, templateEvents);
             notifyFeedProgress();
           }
+
+          // Zap receipts (NIP-57). Streams kind-9735 events and updates _zapCache.
+          fetchZapsForEvents(ids, relays).then(mutated => {
+            if (mutated) notifyFeedProgress();
+          }).catch(() => {});
         }
         _feedCache.fetchedAt = Date.now();
       } finally {
@@ -7241,7 +7317,7 @@
       }
     }
 
-    const _feedState = { filterNew: 'any', filterPopular: 'any', filterMine: 'any', categoryNew: '', categoryPopular: '', categoryMine: '', languageNew: '', languagePopular: '', languageMine: '', trustFilterNew: 'all', trustFilterPopular: 'all' };
+    const _feedState = { filterNew: 'any', filterPopular: 'any', filterZapped: 'any', filterMine: 'any', categoryNew: '', categoryPopular: '', categoryZapped: '', categoryMine: '', languageNew: '', languagePopular: '', languageZapped: '', languageMine: '', trustFilterNew: 'all', trustFilterPopular: 'all', trustFilterZapped: 'all' };
 
     const TIER_WEIGHT = { self: 0, trusted: 1, extended: 2, unknown: 3 };
 
@@ -7262,10 +7338,13 @@
       if (!loggedIn) {
         _feedState.trustFilterNew = 'all';
         _feedState.trustFilterPopular = 'all';
+        _feedState.trustFilterZapped = 'all';
         const selNew = $('trustFilterNew');
         const selPop = $('trustFilterPopular');
+        const selZap = $('trustFilterZapped');
         if (selNew) selNew.value = 'all';
         if (selPop) selPop.value = 'all';
+        if (selZap) selZap.value = 'all';
       }
       const softModBlock = $('softModDetails');
       if (softModBlock) softModBlock.style.display = loggedIn ? '' : 'none';
@@ -7747,6 +7826,13 @@
 
       // Kick off the designs grid load in parallel.
       loadProfileDesigns(decoded.pubkey, decoded.relays);
+
+      // Fetch zap receipts targeting this author; render the running total.
+      fetchZapsForAuthor(decoded.pubkey, decoded.relays).then(() => {
+        if (_profilePagePubkey !== decoded.pubkey) return;
+        renderProfileZapTotal(decoded.pubkey);
+      }).catch(() => {});
+      renderProfileZapTotal(decoded.pubkey);
     }
 
     function closeProfilePage(opts = {}) {
@@ -8080,6 +8166,17 @@
       }
     }
 
+    function renderProfileZapTotal(pubkey) {
+      const el = $('profileZapTotal');
+      if (!el) return;
+      const msats = zapTotalForAuthor(pubkey);
+      if (msats <= 0) { el.style.display = 'none'; el.textContent = ''; return; }
+      const sats = Math.floor(msats / 1000);
+      el.textContent = `⚡ ${formatSats(sats)} sats received`;
+      el.title = `${sats.toLocaleString()} sats zapped to this author across all designs`;
+      el.style.display = '';
+    }
+
     function renderProfileDesigns(pubkey) {
       if (_profilePagePubkey !== pubkey) return;
       const filterEl = $('profileDesignFilter');
@@ -8123,6 +8220,13 @@
         for (const e of [...designEvents, ...deletionEvents]) byId.set(e.id, e);
         _feedCache.events = [...byId.values()];
         renderProfileDesigns(pubkey);
+        // Fetch per-design zap receipts in the background and rerender when they arrive.
+        const eventIds = designEvents.map(e => e.id).filter(Boolean);
+        if (eventIds.length) {
+          fetchZapsForEvents(eventIds, relays).then(mutated => {
+            if (mutated && _profilePagePubkey === pubkey) renderProfileDesigns(pubkey);
+          }).catch(() => {});
+        }
       } catch {
         if (_profilePagePubkey !== pubkey) return;
         const hasAny = Array.isArray(_feedCache.events) && _feedCache.events.some(e => e.pubkey === pubkey && e.kind === 30078);
@@ -8176,15 +8280,60 @@
       return j;
     }
 
-    async function fetchLnurlInvoice(callback, msats) {
+    async function fetchLnurlInvoice(callback, msats, opts = {}) {
       const sep = callback.includes('?') ? '&' : '?';
-      const url = `${callback}${sep}amount=${msats}`;
+      let url = `${callback}${sep}amount=${msats}`;
+      if (opts.nostr) url += `&nostr=${encodeURIComponent(opts.nostr)}`;
+      if (opts.lnurl) url += `&lnurl=${encodeURIComponent(opts.lnurl)}`;
       const r = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!r.ok) throw new Error(`Invoice fetch failed (${r.status})`);
       const j = await r.json();
       if (j.status === 'ERROR') throw new Error(j.reason || 'Service returned an error');
       if (!j.pr) throw new Error('No invoice returned');
       return j.pr;
+    }
+
+    function buildZapRequestEvent({ recipient, amountMsats, eventId, kind, dTag, relays, comment }) {
+      const tags = [];
+      const relayTag = ['relays', ...(relays || []).filter(Boolean)];
+      if (relayTag.length > 1) tags.push(relayTag);
+      tags.push(['amount', String(amountMsats)]);
+      tags.push(['p', recipient]);
+      if (eventId) tags.push(['e', eventId]);
+      if (kind != null && recipient && dTag) tags.push(['a', `${kind}:${recipient}:${dTag}`]);
+      return {
+        kind: 9734,
+        created_at: Math.floor(Date.now() / 1000),
+        tags,
+        content: comment || ''
+      };
+    }
+
+    async function tryZapPath(metadata, target, amountMsats) {
+      if (!metadata?.allowsNostr || !metadata?.nostrPubkey) return null;
+      if (!window.nostr) return null;
+      try {
+        const tipperPubkey = await getNostrPublicKey();
+        if (!tipperPubkey) return null;
+        const recipient = target?.authorPubkey;
+        if (!recipient) return null;
+        const relays = splitRelayList(state.community?.relays || '').slice(0, 5);
+        const unsigned = buildZapRequestEvent({
+          recipient,
+          amountMsats,
+          eventId: target.eventId || '',
+          kind: target.kind ?? null,
+          dTag: target.dTag || '',
+          relays,
+          comment: ''
+        });
+        unsigned.pubkey = tipperPubkey;
+        const signed = await signNostrEvent(unsigned);
+        if (!signed?.sig) return null;
+        return { encoded: JSON.stringify(signed), zapServicePubkey: metadata.nostrPubkey };
+      } catch {
+        return null;
+      }
     }
 
     function renderQrInto(el, text) {
@@ -8205,14 +8354,223 @@
       el.innerHTML = qr.createSvgTag({ scalable: true });
     }
 
-    let _tipTarget = null; // { lnurlpUrl, label, lud16 }
+    // ---- NIP-57 zap receipts: parse + aggregate ----
+
+    const _zapCache = {
+      byEvent: new Map(),    // eventId -> { msats, count }
+      byAuthor: new Map(),   // pubkey  -> { msats, count }
+      receiptIds: new Set(), // dedup receipts by id
+      fetchedForEvents: new Set(),  // event ids whose receipts we've queried
+      fetchedForAuthors: new Set()  // author pubkeys whose receipts we've queried
+    };
+
+    function parseBolt11Msats(bolt11) {
+      if (!bolt11 || typeof bolt11 !== 'string') return 0;
+      // Match prefix like "lnbc100n1..." or "lnbc1...". Group 1 = digits, group 2 = optional multiplier.
+      const m = bolt11.toLowerCase().match(/^ln(?:bc|tb|bcrt)(\d+)([munp])?1/);
+      if (!m) return 0;
+      const value = parseInt(m[1], 10);
+      if (!Number.isFinite(value) || value <= 0) return 0;
+      const multiplier = m[2] || '';
+      // msats per unit: bare = 1e11, m = 1e8, u = 1e5, n = 1e2, p = 1e-1
+      const perUnit = multiplier === 'm' ? 1e8
+        : multiplier === 'u' ? 1e5
+        : multiplier === 'n' ? 1e2
+        : multiplier === 'p' ? 0.1
+        : 1e11;
+      return Math.round(value * perUnit);
+    }
+
+    function parseZapReceiptAmount(receipt) {
+      if (!receipt || !Array.isArray(receipt.tags)) return 0;
+      // Prefer the amount tag in the embedded zap request — it's the user's intent and
+      // is always in millisats per NIP-57.
+      const descTag = receipt.tags.find(t => t[0] === 'description');
+      if (descTag && descTag[1]) {
+        try {
+          const req = JSON.parse(descTag[1]);
+          if (req && Array.isArray(req.tags)) {
+            const amtTag = req.tags.find(t => t[0] === 'amount');
+            const amt = amtTag ? parseInt(amtTag[1], 10) : 0;
+            if (Number.isFinite(amt) && amt > 0) return amt;
+          }
+        } catch { /* fall through to bolt11 */ }
+      }
+      const bolt11Tag = receipt.tags.find(t => t[0] === 'bolt11');
+      if (bolt11Tag && bolt11Tag[1]) return parseBolt11Msats(bolt11Tag[1]);
+      return 0;
+    }
+
+    function ingestZapReceipt(receipt) {
+      if (!receipt?.id || _zapCache.receiptIds.has(receipt.id)) return false;
+      const msats = parseZapReceiptAmount(receipt);
+      if (msats <= 0) return false;
+      _zapCache.receiptIds.add(receipt.id);
+      const eTag = (receipt.tags || []).find(t => t[0] === 'e' && t[1]);
+      const pTag = (receipt.tags || []).find(t => t[0] === 'p' && t[1]);
+      if (eTag) {
+        const entry = _zapCache.byEvent.get(eTag[1]) || { msats: 0, count: 0 };
+        entry.msats += msats;
+        entry.count += 1;
+        _zapCache.byEvent.set(eTag[1], entry);
+      }
+      if (pTag) {
+        const entry = _zapCache.byAuthor.get(pTag[1]) || { msats: 0, count: 0 };
+        entry.msats += msats;
+        entry.count += 1;
+        _zapCache.byAuthor.set(pTag[1], entry);
+      }
+      return true;
+    }
+
+    function zapTotalForEvent(eventId) {
+      return _zapCache.byEvent.get(eventId)?.msats || 0;
+    }
+    function zapTotalForAuthor(pubkey) {
+      return _zapCache.byAuthor.get(pubkey)?.msats || 0;
+    }
+
+    function formatSats(sats) {
+      if (sats >= 1e6) return (sats / 1e6).toFixed(sats >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M';
+      if (sats >= 1000) return (sats / 1000).toFixed(sats >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k';
+      return String(sats);
+    }
+
+    function formatMsatsAsSats(msats) {
+      const sats = Math.floor((msats || 0) / 1000);
+      return formatSats(sats);
+    }
+
+    async function fetchZapsForEvents(eventIds, hintRelays = []) {
+      const fresh = (eventIds || []).filter(id => id && !_zapCache.fetchedForEvents.has(id));
+      if (!fresh.length) return false;
+      for (const id of fresh) _zapCache.fetchedForEvents.add(id);
+      const userRelays = splitRelayList(state.community?.relays || '');
+      const relays = [...new Set([...(hintRelays || []), ...userRelays])];
+      let mutated = false;
+      // Batch in groups of 30 ids per subscription to avoid oversized filters.
+      const CHUNK = 30;
+      for (let i = 0; i < fresh.length; i += CHUNK) {
+        const ids = fresh.slice(i, i + CHUNK);
+        try {
+          const events = await queryRelays(relays, { kinds: [9735], '#e': ids, limit: 500 }, {
+            timeoutMs: 4000,
+            onEvent: ev => { if (ingestZapReceipt(ev)) mutated = true; }
+          });
+          for (const ev of events || []) { if (ingestZapReceipt(ev)) mutated = true; }
+        } catch { /* keep going */ }
+      }
+      return mutated;
+    }
+
+    async function fetchZapsForAuthor(pubkey, hintRelays = []) {
+      if (!pubkey || _zapCache.fetchedForAuthors.has(pubkey)) return false;
+      _zapCache.fetchedForAuthors.add(pubkey);
+      const userRelays = splitRelayList(state.community?.relays || '');
+      const relays = [...new Set([...(hintRelays || []), ...userRelays])];
+      let mutated = false;
+      try {
+        const events = await queryRelays(relays, { kinds: [9735], '#p': [pubkey], limit: 500 }, {
+          timeoutMs: 4000,
+          onEvent: ev => { if (ingestZapReceipt(ev)) mutated = true; }
+        });
+        for (const ev of events || []) { if (ingestZapReceipt(ev)) mutated = true; }
+      } catch { /* ignore */ }
+      return mutated;
+    }
+
+    let _tipTarget = null; // { lnurlpUrl, label, lud16, targetEvent }
     let _tipSelectedSats = 0;
     let _tipMetadata = null;
+    let _tipPaymentWatch = null; // { token, cancel }
+
+    function stopTipPaymentWatch() {
+      if (!_tipPaymentWatch) return;
+      try { _tipPaymentWatch.cancel?.(); } catch {}
+      _tipPaymentWatch = null;
+    }
+
+    function startTipPaymentWatch({ tipperPubkey, recipientPubkey, sinceSec, amountMsats, eventId }) {
+      stopTipPaymentWatch();
+      const token = { active: true };
+      const since = Math.max(0, (sinceSec || Math.floor(Date.now() / 1000)) - 5);
+      const userRelays = splitRelayList(state.community?.relays || '');
+      const POLL_MS = 4000;
+      const TIMEOUT_MS = 5 * 60 * 1000;
+      const startedAt = Date.now();
+
+      const matches = (ev) => {
+        if (!ev || ev.kind !== 9735) return false;
+        // Match the recipient's p tag.
+        const pTag = (ev.tags || []).find(t => t[0] === 'p' && t[1]);
+        if (!pTag || pTag[1] !== recipientPubkey) return false;
+        // Parse the embedded zap request and verify it's ours.
+        const descTag = (ev.tags || []).find(t => t[0] === 'description');
+        if (!descTag?.[1]) return false;
+        try {
+          const req = JSON.parse(descTag[1]);
+          if (!req || req.kind !== 9734) return false;
+          if (tipperPubkey && req.pubkey !== tipperPubkey) return false;
+          // If we know the event id we asked to zap, verify it matches.
+          if (eventId) {
+            const reqE = (req.tags || []).find(t => t[0] === 'e' && t[1]);
+            if (!reqE || reqE[1] !== eventId) return false;
+          }
+          // Amount sanity check — within 10% tolerance to allow fee math.
+          const reqAmtTag = (req.tags || []).find(t => t[0] === 'amount');
+          const reqAmt = reqAmtTag ? parseInt(reqAmtTag[1], 10) : 0;
+          if (reqAmt > 0 && amountMsats > 0 && Math.abs(reqAmt - amountMsats) > amountMsats * 0.1) return false;
+          return true;
+        } catch { return false; }
+      };
+
+      const onSuccess = (ev) => {
+        if (!token.active) return;
+        token.active = false;
+        ingestZapReceipt(ev);
+        const status = $('tipPaymentStatus');
+        if (status) { status.textContent = '✓ Payment received! Closing…'; status.style.color = 'var(--accent)'; }
+        setTimeout(() => {
+          if (_tipPaymentWatch === watch) closeTipModal();
+        }, 1200);
+      };
+
+      const poll = async () => {
+        if (!token.active) return;
+        if (Date.now() - startedAt > TIMEOUT_MS) {
+          token.active = false;
+          const status = $('tipPaymentStatus');
+          if (status) status.textContent = 'No receipt yet — close when you\'re done.';
+          return;
+        }
+        try {
+          const events = await queryRelays(userRelays, {
+            kinds: [9735], '#p': [recipientPubkey], since, limit: 60
+          }, { timeoutMs: 2500 });
+          if (!token.active) return;
+          for (const ev of events || []) {
+            if (matches(ev)) { onSuccess(ev); return; }
+          }
+        } catch { /* keep polling */ }
+        if (!token.active) return;
+        setTimeout(poll, POLL_MS);
+      };
+
+      const watch = { token, cancel: () => { token.active = false; } };
+      _tipPaymentWatch = watch;
+      setTimeout(poll, 1500); // first poll after a brief delay so the receipt has time to arrive
+      return watch;
+    }
 
     function openTipModal(opts = {}) {
-      const { lnurlpUrl, label, lud16 } = opts;
+      const { lnurlpUrl, label, lud16, targetEvent } = opts;
       if (!lnurlpUrl) return;
-      _tipTarget = { lnurlpUrl, label: label || 'Recipient', lud16: lud16 || '' };
+      _tipTarget = {
+        lnurlpUrl,
+        label: label || 'Recipient',
+        lud16: lud16 || '',
+        targetEvent: targetEvent || null
+      };
       _tipSelectedSats = 0;
       _tipMetadata = null;
       const modal = $('tipModal');
@@ -8246,6 +8604,7 @@
     }
 
     function closeTipModal() {
+      stopTipPaymentWatch();
       const modal = $('tipModal');
       if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
       _tipTarget = null;
@@ -8289,18 +8648,50 @@
           return;
         }
         const msats = sats * 1000;
-        const bolt11 = await fetchLnurlInvoice(meta.callback, msats);
-        showTipInvoiceView(bolt11, sats);
+        // Attempt NIP-57 zap path; falls back to plain LNURL-pay on any failure.
+        const zap = await tryZapPath(meta, _tipTarget.targetEvent, msats);
+        const issuedAt = Math.floor(Date.now() / 1000);
+        const bolt11 = await fetchLnurlInvoice(meta.callback, msats, zap ? { nostr: zap.encoded } : {});
+
+        // If we took the zap path, watch for the kind-9735 receipt and auto-close on success.
+        let watch = null;
+        if (zap && _tipTarget?.targetEvent?.authorPubkey) {
+          const tipperPubkey = await getNostrPublicKey().catch(() => '');
+          watch = startTipPaymentWatch({
+            tipperPubkey,
+            recipientPubkey: _tipTarget.targetEvent.authorPubkey,
+            sinceSec: issuedAt,
+            amountMsats: msats,
+            eventId: _tipTarget.targetEvent.eventId || ''
+          });
+        }
+
+        showTipInvoiceView(bolt11, sats, !!zap, watch);
       } catch (err) {
         if (errEl) errEl.textContent = String(err?.message || err);
         if (getBtn) { getBtn.disabled = false; getBtn.textContent = 'Get invoice'; }
       }
     }
 
-    function showTipInvoiceView(bolt11, sats) {
+    function showTipInvoiceView(bolt11, sats, tracked = false, paymentWatch = null) {
       $('tipPickerView').style.display = 'none';
       $('tipInvoiceView').style.display = '';
-      $('tipInvoiceAmount').textContent = `${sats.toLocaleString()} sats`;
+      const amtEl = $('tipInvoiceAmount');
+      amtEl.textContent = `${sats.toLocaleString()} sats`;
+      if (tracked) {
+        const badge = document.createElement('span');
+        badge.textContent = ' · ⚡ Tracked zap';
+        badge.style.cssText = 'color:var(--accent);font-weight:600';
+        badge.title = 'Signed with your Nostr key — this tip will appear in zap totals';
+        amtEl.appendChild(badge);
+      }
+      if (paymentWatch) {
+        const status = document.createElement('span');
+        status.id = 'tipPaymentStatus';
+        status.style.cssText = 'display:block;margin-top:4px;font-size:.78rem;color:var(--muted)';
+        status.textContent = 'Waiting for payment…';
+        amtEl.appendChild(status);
+      }
       const qrEl = $('tipQr');
       const link = $('tipQrLink');
       if (link) link.href = `lightning:${bolt11}`;
@@ -8314,9 +8705,42 @@
           setTimeout(() => { if (copyBtn) copyBtn.textContent = '📋'; }, 1200);
         };
       }
+      // WebLN auto-pay: one-click for desktop users with Alby (or similar).
+      const weblnBtn = $('tipWeblnBtn');
+      if (weblnBtn) {
+        if (typeof window.webln !== 'undefined' && window.webln) {
+          weblnBtn.style.display = '';
+          weblnBtn.disabled = false;
+          weblnBtn.textContent = '⚡ Pay with WebLN';
+          weblnBtn.onclick = async () => {
+            weblnBtn.disabled = true;
+            weblnBtn.textContent = 'Paying…';
+            try {
+              if (typeof window.webln.enable === 'function') await window.webln.enable();
+              await window.webln.sendPayment(bolt11);
+              // Success: nudge the status text, then close.
+              const status = $('tipPaymentStatus');
+              if (status) { status.textContent = '✓ Payment sent! Closing…'; status.style.color = 'var(--accent)'; }
+              setTimeout(() => closeTipModal(), 800);
+            } catch (err) {
+              weblnBtn.disabled = false;
+              weblnBtn.textContent = '⚡ Pay with WebLN';
+              const status = $('tipPaymentStatus');
+              const message = (err?.message || '').toLowerCase();
+              if (status && !message.includes('reject') && !message.includes('cancel')) {
+                status.textContent = `WebLN failed: ${err?.message || 'unknown error'}. Use the QR or copy instead.`;
+                status.style.color = '';
+              }
+            }
+          };
+        } else {
+          weblnBtn.style.display = 'none';
+        }
+      }
     }
 
     function resetTipPicker() {
+      stopTipPaymentWatch();
       $('tipInvoiceView').style.display = 'none';
       $('tipPickerView').style.display = '';
       const errEl = $('tipPickerError');
@@ -8716,6 +9140,14 @@
       const tipBtn = makeFeedCardTipButton(row);
       actions.append(makeReactionBtn(row), prevBtn, btn, blockBtn, reportBtn);
       if (tipBtn) actions.appendChild(tipBtn);
+      const zapMsats = zapTotalForEvent(row.e?.id || '');
+      if (zapMsats > 0) {
+        const zapBadge = document.createElement('span');
+        zapBadge.className = 'feedCardZapBadge';
+        zapBadge.textContent = `⚡ ${formatMsatsAsSats(zapMsats)}`;
+        zapBadge.title = `${Math.floor(zapMsats / 1000).toLocaleString()} sats zapped to this design`;
+        actions.appendChild(zapBadge);
+      }
       el.append(thumb, meta, actions);
       el.addEventListener('click', () => {
         if (el.classList.contains('feedCardBlurred')) return;
@@ -8731,6 +9163,7 @@
       const lnurlpUrl = resolveLnurlPayUrl(profile);
       if (!lnurlpUrl) return null;
       const lnAddress = (profile?.lud16 || '').trim();
+      const dTag = (row.e?.tags || []).find(t => t[0] === 'd' && t[1])?.[1] || '';
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = '⚡ Tip';
@@ -8738,7 +9171,17 @@
       btn.addEventListener('click', e => {
         e.stopPropagation();
         const displayName = profile?.display_name || profile?.name || shortPubkey(pk);
-        openTipModal({ lnurlpUrl, label: displayName, lud16: lnAddress });
+        openTipModal({
+          lnurlpUrl,
+          label: displayName,
+          lud16: lnAddress,
+          targetEvent: {
+            authorPubkey: pk,
+            eventId: row.e?.id || '',
+            kind: row.e?.kind || 30078,
+            dTag
+          }
+        });
       });
       return btn;
     }
@@ -8840,13 +9283,13 @@
 
     function switchModalTab(tab) {
       _nostrBrowseTab = tab;
-      for (const t of ['New', 'Popular', 'Search', 'Mine']) {
+      for (const t of ['New', 'Popular', 'Zapped', 'Search', 'Mine']) {
         const tabEl = $(`tab${t}`);
         const panelEl = $(`panel${t}`);
         if (tabEl) tabEl.classList.toggle('active', t === tab);
         if (panelEl) panelEl.style.display = t === tab ? '' : 'none';
       }
-      if (tab === 'New' || tab === 'Popular') loadFeedTab(tab);
+      if (tab === 'New' || tab === 'Popular' || tab === 'Zapped') loadFeedTab(tab);
       if (tab === 'Mine') loadMyDesigns();
     }
 
@@ -8861,7 +9304,7 @@
         await loadMyDesigns();
         return;
       }
-      if (tab === 'New' || tab === 'Popular') {
+      if (tab === 'New' || tab === 'Popular' || tab === 'Zapped') {
         await loadFeedTab(tab);
         return;
       }
@@ -8968,9 +9411,22 @@
         if (tab !== 'Mine') rows = dedupByFingerprint(rows);
         if (tab === 'New') {
           rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b))) || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust]) || (b.createdAt - a.createdAt));
+        } else if (tab === 'Zapped') {
+          rows = deduplicateRows(rows);
+          // Pure zap-total sort: zapped designs first, ties broken by date.
+          // Unzapped designs sink to the bottom but stay in the list, so the
+          // tab is still useful before zap data has streamed in.
+          rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b)))
+            || (zapTotalForEvent(b.e?.id || '') - zapTotalForEvent(a.e?.id || ''))
+            || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust])
+            || (b.createdAt - a.createdAt));
         } else {
           rows = deduplicateRows(rows);
-          rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b))) || (b.reactions - a.reactions) || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust]) || (b.createdAt - a.createdAt));
+          rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b)))
+            || (zapTotalForEvent(b.e?.id || '') - zapTotalForEvent(a.e?.id || ''))
+            || (b.reactions - a.reactions)
+            || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust])
+            || (b.createdAt - a.createdAt));
         }
         updateFeedStatus(tab, rows.length);
         if (!rows.length) {
@@ -9241,6 +9697,15 @@
         });
         metaEl.appendChild(authorLink);
       }
+      const previewZapMsats = zapTotalForEvent(row.e?.id || '');
+      if (previewZapMsats > 0) {
+        metaEl.appendChild(document.createTextNode(' · '));
+        const zapBadge = document.createElement('span');
+        zapBadge.className = 'feedCardZapBadge';
+        zapBadge.textContent = `⚡ ${formatMsatsAsSats(previewZapMsats)}`;
+        zapBadge.title = `${Math.floor(previewZapMsats / 1000).toLocaleString()} sats zapped to this design`;
+        metaEl.appendChild(zapBadge);
+      }
       const content = $('nostrPreviewPanel');
       content.innerHTML = '';
       content._row = row;
@@ -9264,12 +9729,23 @@
         if (previewLnurlpUrl) {
           const previewLnAddress = (previewAuthorProfile?.lud16 || '').trim();
           const previewName = previewAuthorProfile?.display_name || previewAuthorProfile?.name || shortPubkey(previewPk);
+          const previewDTag = (row.e?.tags || []).find(t => t[0] === 'd' && t[1])?.[1] || '';
           const tipBtn = document.createElement('button');
           tipBtn.type = 'button';
           tipBtn.textContent = '⚡ Tip';
           tipBtn.title = previewLnAddress ? `Send a Lightning tip to ${previewLnAddress}` : 'Send a Lightning tip';
           tipBtn.addEventListener('click', () => {
-            openTipModal({ lnurlpUrl: previewLnurlpUrl, label: previewName, lud16: previewLnAddress });
+            openTipModal({
+              lnurlpUrl: previewLnurlpUrl,
+              label: previewName,
+              lud16: previewLnAddress,
+              targetEvent: {
+                authorPubkey: previewPk,
+                eventId: row.e?.id || '',
+                kind: row.e?.kind || 30078,
+                dTag: previewDTag
+              }
+            });
           });
           actionsDiv.insertBefore(tipBtn, saveJsonBtn);
         }
@@ -9375,7 +9851,7 @@
       $('nostrPreviewActions').style.display = 'flex';
       $('nostrBackBtn').style.display = '';
       $('nostrModal').querySelector('.modalTabs').style.display = 'none';
-      for (const t of ['New', 'Popular', 'Search', 'Mine']) {
+      for (const t of ['New', 'Popular', 'Zapped', 'Search', 'Mine']) {
         const el = $(`panel${t}`);
         if (el) el.style.display = 'none';
       }
@@ -9405,7 +9881,7 @@
       $('nostrPreviewPanel').style.display = 'none';
       const rd = $('nostrRelayDetails');
       if (rd) rd.style.display = '';
-      for (const t of ['New', 'Popular', 'Search', 'Mine']) {
+      for (const t of ['New', 'Popular', 'Zapped', 'Search', 'Mine']) {
         const tabEl = $(`tab${t}`);
         const panelEl = $(`panel${t}`);
         if (panelEl) panelEl.style.display = tabEl?.classList.contains('active') ? '' : 'none';
@@ -10393,7 +10869,7 @@
 
     async function loadWelcomeTab(tab) {
       _welcomeTab = tab;
-      ['New', 'Popular', 'Search'].forEach(t => {
+      ['New', 'Popular', 'Zapped', 'Search'].forEach(t => {
         const btn = $(`welcomeTab${t}`);
         if (btn) btn.classList.toggle('active', t === tab);
       });
@@ -10409,7 +10885,17 @@
         rows = dedupByFingerprint(rows);
         if (tab === 'Popular') {
           rows = deduplicateRows(rows);
-          rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b))) || (b.reactions - a.reactions) || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust]) || (b.createdAt - a.createdAt));
+          rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b)))
+            || (zapTotalForEvent(b.e?.id || '') - zapTotalForEvent(a.e?.id || ''))
+            || (b.reactions - a.reactions)
+            || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust])
+            || (b.createdAt - a.createdAt));
+        } else if (tab === 'Zapped') {
+          rows = deduplicateRows(rows);
+          rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b)))
+            || (zapTotalForEvent(b.e?.id || '') - zapTotalForEvent(a.e?.id || ''))
+            || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust])
+            || (b.createdAt - a.createdAt));
         } else {
           rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b))) || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust]) || (b.createdAt - a.createdAt));
         }
@@ -10448,7 +10934,12 @@
     function openWelcomeBrowseAll() {
       dismissWelcomeModal();
       $('nostrModal').classList.add('open');
-      if (typeof switchModalTab === 'function') switchModalTab(_welcomeTab === 'Popular' ? 'Popular' : 'New');
+      if (typeof switchModalTab === 'function') {
+        const mapped = _welcomeTab === 'Popular' ? 'Popular'
+          : _welcomeTab === 'Zapped' ? 'Zapped'
+          : 'New';
+        switchModalTab(mapped);
+      }
     }
 
     function attachEvents() {
@@ -10599,6 +11090,7 @@
       $("nostrRunSearch").addEventListener("click", runNostrSearch);
       $("tabNew").addEventListener("click", () => switchModalTab('New'));
       $("tabPopular").addEventListener("click", () => switchModalTab('Popular'));
+      $("tabZapped").addEventListener("click", () => switchModalTab('Zapped'));
       $("tabSearch").addEventListener("click", () => switchModalTab('Search'));
       $("tabMine").addEventListener("click", () => switchModalTab('Mine'));
       $("nostrLoginBtn").addEventListener("click", nostrLogin);
@@ -10639,7 +11131,7 @@
         });
       });
 
-      ['New', 'Popular'].forEach(tab => {
+      ['New', 'Popular', 'Zapped'].forEach(tab => {
         const sel = $(`trustFilter${tab}`);
         if (sel) sel.addEventListener('change', () => {
           _feedState[`trustFilter${tab}`] = sel.value;
@@ -10919,6 +11411,7 @@
       $('welcomeBrowseAllBtn').addEventListener('click', openWelcomeBrowseAll);
       $('welcomeTabNew').addEventListener('click', () => loadWelcomeTab('New'));
       $('welcomeTabPopular').addEventListener('click', () => loadWelcomeTab('Popular'));
+      $('welcomeTabZapped').addEventListener('click', () => loadWelcomeTab('Zapped'));
       $('welcomeQuery').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); runWelcomeSearch(); } });
       $('welcomeType').addEventListener('change', () => { if (_welcomeTab !== 'Search') loadWelcomeTab(_welcomeTab); });
       $('welcomeCategory').addEventListener('change', () => { if (_welcomeTab !== 'Search') loadWelcomeTab(_welcomeTab); });
