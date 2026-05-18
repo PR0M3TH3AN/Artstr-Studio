@@ -792,6 +792,12 @@
       background: transparent;
     }
 
+    /* Sidebar panels: hide the unused artwork-mode workflow.
+       Full-wrap mode → hide the separate Back/Spine/Front controls.
+       Separate mode → hide the combined-wrap controls. */
+    body.mode-combined #slotControls { display: none; }
+    body.mode-separate #combinedControls { display: none; }
+
     .diskLayer {
       position: absolute;
       inset: 0;
@@ -1987,11 +1993,11 @@
         <details class="addIdentifiersDetails" style="margin:10px 0">
           <summary class="addIdentifiersBtn"><span id="identifierBtnLabel">+ Add Media Identifiers</span></summary>
           <div class="identifierFields">
-            <label for="imdbField">IMDb ID</label><input id="imdbField" type="text" placeholder="tt1234567" />
-            <label for="upcField">UPC</label><input id="upcField" type="text" placeholder="12-digit barcode" />
-            <label for="tvdbField">TheTVDB ID</label><input id="tvdbField" type="text" placeholder="series or movie ID" />
-            <label for="musicbrainzField">MusicBrainz Disc ID</label><input id="musicbrainzField" type="text" placeholder="disc ID" />
-            <p class="hint" style="margin:6px 0 0">Optional — used for search and cross-referencing. Add whichever apply to your content type.</p>
+            <div data-identifier="imdb"><label for="imdbField">IMDb ID</label><input id="imdbField" type="text" placeholder="tt1234567" /></div>
+            <div data-identifier="upc"><label for="upcField">UPC</label><input id="upcField" type="text" placeholder="12-digit barcode" /></div>
+            <div data-identifier="tvdb"><label for="tvdbField">TheTVDB ID</label><input id="tvdbField" type="text" placeholder="series or movie ID" /></div>
+            <div data-identifier="mb"><label for="musicbrainzField">MusicBrainz Disc ID</label><input id="musicbrainzField" type="text" placeholder="disc ID" /></div>
+            <p class="hint" style="margin:6px 0 0">Optional — used for search and cross-referencing. Fields shown reflect what's common for this category.</p>
           </div>
         </details>
         <label for="categoryField">Category</label>
@@ -2210,7 +2216,7 @@
           <button type="button" class="danger" id="clearJewelBtn">Clear jewel inserts</button>
         </div>
         <p class="hint">Avery 8693 prints two jewel-case inserts on one Letter sheet: a front insert and a tray insert.</p>
-        <details style="margin-top:10px">
+        <details id="jewelSpineTextDetails" style="margin-top:10px">
           <summary style="font-weight:700;font-size:.86rem;cursor:pointer">Spine text (optional)</summary>
           <div class="row" style="margin-top:8px">
             <div>
@@ -2386,15 +2392,23 @@
           <details class="addIdentifiersDetails" style="margin:10px 0">
             <summary class="addIdentifiersBtn"><span id="designerIdentifierBtnLabel">+ Add Media Identifiers</span></summary>
             <div class="identifierFields">
-              <label for="designerImdbField">IMDb ID</label>
-              <input id="designerImdbField" type="text" placeholder="tt1234567" />
-              <label for="designerUpcField">UPC</label>
-              <input id="designerUpcField" type="text" placeholder="12-digit barcode" />
-              <label for="designerTvdbField">TheTVDB ID</label>
-              <input id="designerTvdbField" type="text" placeholder="series or movie ID" />
-              <label for="designerMusicbrainzField">MusicBrainz Disc ID</label>
-              <input id="designerMusicbrainzField" type="text" placeholder="disc ID" />
-              <p class="hint" style="margin:6px 0 0">Optional. Add whichever apply.</p>
+              <div data-identifier="imdb">
+                <label for="designerImdbField">IMDb ID</label>
+                <input id="designerImdbField" type="text" placeholder="tt1234567" />
+              </div>
+              <div data-identifier="upc">
+                <label for="designerUpcField">UPC</label>
+                <input id="designerUpcField" type="text" placeholder="12-digit barcode" />
+              </div>
+              <div data-identifier="tvdb">
+                <label for="designerTvdbField">TheTVDB ID</label>
+                <input id="designerTvdbField" type="text" placeholder="series or movie ID" />
+              </div>
+              <div data-identifier="mb">
+                <label for="designerMusicbrainzField">MusicBrainz Disc ID</label>
+                <input id="designerMusicbrainzField" type="text" placeholder="disc ID" />
+              </div>
+              <p class="hint" style="margin:6px 0 0">Optional. Fields shown reflect what's common for this category.</p>
             </div>
           </details>
           <label for="designerCategoryField">Category *</label>
@@ -3399,6 +3413,41 @@
       return mediaCategories.find((item) => item.value === value)?.label || value || '';
     }
 
+    // Which media identifiers make sense for each category. When the user
+    // hasn't picked a category yet, fall back to showing all of them so they
+    // can still fill anything in.
+    const IDENTIFIER_RELEVANCE_BY_CATEGORY = {
+      'blu-ray':     new Set(['imdb', 'upc', 'tvdb']),
+      'dvd':         new Set(['imdb', 'upc', 'tvdb']),
+      'ps1':         new Set(['upc']),
+      'ps2':         new Set(['upc']),
+      'ps3':         new Set(['upc']),
+      'xbox':        new Set(['upc']),
+      'xbox-360':    new Set(['upc']),
+      'pc':          new Set(['upc']),
+      'dreamcast':   new Set(['upc']),
+      'gamecube':    new Set(['upc']),
+      'wii':         new Set(['upc']),
+      'sega-saturn': new Set(['upc']),
+      'sega-cd':     new Set(['upc']),
+      'cd':          new Set(['upc', 'mb']),
+      'audio-cd':    new Set(['upc', 'mb'])
+    };
+
+    function relevantIdentifiersForCategory(category) {
+      if (!category) return null; // null sentinel = "show all"
+      return IDENTIFIER_RELEVANCE_BY_CATEGORY[category] || null;
+    }
+
+    function syncIdentifierVisibility() {
+      const allowed = relevantIdentifiersForCategory(state.meta?.category || '');
+      document.querySelectorAll('[data-identifier]').forEach(el => {
+        const key = el.dataset.identifier;
+        const visible = !allowed || allowed.has(key);
+        el.style.display = visible ? '' : 'none';
+      });
+    }
+
     function categoryOptions(emptyLabel = 'Any category') {
       return mediaCategories
         .map((item, index) => `<option value="${escapeHtml(item.value)}">${escapeHtml(index === 0 ? emptyLabel : item.label)}</option>`)
@@ -4026,6 +4075,14 @@
         : '+ Add Media Identifiers';
       const idBtnLabel = $('identifierBtnLabel'); if (idBtnLabel) idBtnLabel.textContent = idLabel;
       const dIdBtnLabel = $('designerIdentifierBtnLabel'); if (dIdBtnLabel) dIdBtnLabel.textContent = idLabel;
+      syncIdentifierVisibility();
+      // Jewel spine-text fields are only useful once at least one insert
+      // has artwork. Hide the whole details block when both are empty.
+      const jewelSpineEl = $('jewelSpineTextDetails');
+      if (jewelSpineEl) {
+        const hasJewel = !!(state.jewelInserts?.front?.src || state.jewelInserts?.tray?.src);
+        jewelSpineEl.style.display = hasJewel ? '' : 'none';
+      }
       const metadataFieldset = $('metadataFieldset');
       if (metadataFieldset) metadataFieldset.style.display = state.templateMode === 'disc' ? 'none' : '';
       if (state.templateMode === 'disc' && state.appMode !== 'designer') syncProjectMetaFromDiscMeta(true);
@@ -6302,7 +6359,14 @@
 
     function syncLayerInputs() {
       const layer = selectedLayer();
-      $('layerControls').open = Boolean(layer);
+      const layerControlsEl = $('layerControls');
+      if (layerControlsEl) {
+        // Hide the whole "Selected layer" panel when nothing is selected so
+        // the sidebar doesn't show an empty details widget. The hint inside
+        // the layer list ("Select a layer to edit…") covers the empty case.
+        layerControlsEl.style.display = layer ? '' : 'none';
+        layerControlsEl.open = Boolean(layer);
+      }
       $('textLayerControls').style.display = layer && layer.type === 'text' ? 'block' : 'none';
       $('layerImageControls').style.display = layer && layer.type === 'image' ? 'block' : 'none';
       const colorPanel = $('colorLayerControls');
@@ -11437,14 +11501,14 @@
       const upcInput = $("upcField"); if (upcInput) upcInput.addEventListener("input", (e)=>{state.meta.upc=e.target.value; render();});
       const tvdbInput = $("tvdbField"); if (tvdbInput) tvdbInput.addEventListener("input", (e)=>{state.meta.tvdbId=e.target.value; render();});
       const mbInput = $("musicbrainzField"); if (mbInput) mbInput.addEventListener("input", (e)=>{state.meta.musicbrainzDiscId=e.target.value; render();});
-      $("categoryField").addEventListener("change", (e)=>{state.meta.category=e.target.value; render();});
+      $("categoryField").addEventListener("change", (e)=>{state.meta.category=e.target.value; syncIdentifierVisibility(); render();});
       $("languageField").addEventListener("change", (e)=>{state.meta.language=e.target.value; render();});
       $("designerTitleField").addEventListener("input", (e)=>{state.meta.title=e.target.value; if (state.discDesign) state.discDesign.name = e.target.value; render();});
       $("designerImdbField").addEventListener("input", (e)=>{state.meta.imdbId=e.target.value; render();});
       const dUpcInput = $("designerUpcField"); if (dUpcInput) dUpcInput.addEventListener("input", (e)=>{state.meta.upc=e.target.value; render();});
       const dTvdbInput = $("designerTvdbField"); if (dTvdbInput) dTvdbInput.addEventListener("input", (e)=>{state.meta.tvdbId=e.target.value; render();});
       const dMbInput = $("designerMusicbrainzField"); if (dMbInput) dMbInput.addEventListener("input", (e)=>{state.meta.musicbrainzDiscId=e.target.value; render();});
-      $("designerCategoryField").addEventListener("change", (e)=>{state.meta.category=e.target.value; render();});
+      $("designerCategoryField").addEventListener("change", (e)=>{state.meta.category=e.target.value; syncIdentifierVisibility(); render();});
       $("designerLanguageField").addEventListener("change", (e)=>{state.meta.language=e.target.value; render();});
 
       $("imdbImportBtn").addEventListener("click", async ()=>{
