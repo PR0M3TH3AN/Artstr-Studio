@@ -11224,6 +11224,12 @@
 
       if (!isSlotImport && openDesigner) {
         state.appMode = 'designer';
+        if (state.templateMode !== 'disc') {
+          state._prevTemplateMode = state.templateMode;
+          state.templateMode = 'disc';
+        }
+        syncModeTabsUI();
+        updateLayerTargetOptions();
         syncInputs();
         syncDesignerInputs();
       } else {
@@ -11814,10 +11820,20 @@
         const reader = new FileReader();
         reader.onload = () => {
           try {
-            const payload = JSON.parse(String(reader.result));
-            importDiscDesignFromPayload(payload, 'a');
+            // Route through the unified loader so a template file picked here
+            // is recognized and switches the UI to the template tool, and a
+            // disc-design file picked from the template tool routes back to
+            // the disc designer. loadProjectFromText handles both directions.
+            const startMode = state.appMode;
+            loadProjectFromText(String(reader.result));
+            if (state.appMode !== startMode) {
+              toast(state.appMode === 'designer'
+                ? 'Loaded a disc design — switched to Disc Designer.'
+                : 'Loaded a template — switched to Template tool.',
+                { type: 'info' });
+            }
           } catch {
-            toastError('Could not load that disc project file.');
+            toastError('Could not load that project file.');
           }
           event.target.value = '';
         };
@@ -11949,7 +11965,14 @@
         const reader = new FileReader();
         reader.onload = () => {
           try {
+            const startMode = state.appMode;
             loadProjectFromText(String(reader.result));
+            if (state.appMode !== startMode) {
+              toast(state.appMode === 'designer'
+                ? 'Loaded a disc design — switched to Disc Designer.'
+                : 'Loaded a template — switched to Template tool.',
+                { type: 'info' });
+            }
           } catch (error) {
             toastError('Could not load that project JSON.');
             console.error(error);
