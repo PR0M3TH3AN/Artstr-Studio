@@ -2,6 +2,8 @@
   "outputDirectory": "src",
   "rewrites": [
     { "source": "/share/:id", "destination": "/" },
-    { "source": "/share/:id/", "destination": "/" }
+    { "source": "/share/:id/", "destination": "/" },
+    { "source": "/u/:npub", "destination": "/" },
+    { "source": "/u/:npub/", "destination": "/" }
   ]
 }

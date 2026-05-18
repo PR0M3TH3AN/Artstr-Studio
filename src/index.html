@@ -1553,6 +1553,35 @@
     .welcomeCard { max-width: 900px; width: min(900px, 92vw); }
     .welcomeCloseBtn { position:absolute; top:8px; right:10px; width:32px; height:32px; border:0; background:transparent; color:var(--muted); font-size:24px; line-height:1; cursor:pointer; padding:0; border-radius:6px; display:flex; align-items:center; justify-content:center; }
     .welcomeCloseBtn:hover { background:rgba(127,127,127,.15); color:var(--ink); }
+
+    .profileModalCard { width:min(880px,94vw); max-height:90vh; overflow:auto; margin:3vh auto; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:0; position:relative; box-shadow:0 12px 36px rgba(0,0,0,.45); }
+    .profileCloseBtn { position:absolute; top:10px; right:12px; width:34px; height:34px; border:0; background:rgba(0,0,0,.35); color:#fff; font-size:22px; line-height:1; cursor:pointer; padding:0; border-radius:50%; display:flex; align-items:center; justify-content:center; z-index:2; }
+    .profileCloseBtn:hover { background:rgba(0,0,0,.55); }
+    .profileBanner { width:100%; height:180px; background:linear-gradient(135deg,var(--accent) 0%,#7c3aed 100%); background-size:cover; background-position:center; }
+    .profileHeader { display:flex; align-items:flex-start; gap:14px; padding:0 20px; margin-top:-44px; }
+    .profileAvatar { width:96px; height:96px; border-radius:50%; border:4px solid var(--panel); background:var(--bg); flex-shrink:0; overflow:hidden; display:flex; align-items:center; justify-content:center; color:#fff; font-size:36px; font-weight:700; font-family:inherit; }
+    .profileAvatar img { width:100%; height:100%; object-fit:cover; display:block; }
+    .profileHeaderText { flex:1; min-width:0; padding-top:48px; }
+    .profileHeaderText h2 { margin:0 0 4px; font-size:1.25rem; font-family:inherit; }
+    .profileHeaderText p { margin:0 0 2px; font-size:.82rem; }
+    .profileNpub { font-family:ui-monospace,SFMono-Regular,monospace; font-size:.74rem; word-break:break-all; }
+    .profileActions { display:flex; flex-wrap:wrap; gap:6px; padding-top:48px; }
+    .profileActions button { font-size:.8rem; padding:5px 10px; }
+    .profileBody { padding:14px 20px 20px; }
+    .profileAbout { margin:14px 0 10px; font-size:.88rem; line-height:1.45; white-space:pre-wrap; word-wrap:break-word; }
+    .profileLnRow { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0 14px; }
+    .profileChip { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border:1px solid var(--line); border-radius:14px; background:var(--bg); font-size:.78rem; cursor:pointer; }
+    .profileChip:hover { background:rgba(127,127,127,.1); }
+    .profileDesignsHeader { display:flex; justify-content:space-between; align-items:center; gap:10px; margin:18px 0 10px; padding-top:14px; border-top:1px solid var(--line); }
+    .profileDesignsHeader h3 { margin:0; font-size:1rem; font-family:inherit; }
+    .profileDesignsGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
+    @media (max-width:600px) {
+      .profileHeader { flex-wrap:wrap; }
+      .profileActions { padding-top:8px; width:100%; }
+      .profileHeaderText { padding-top:14px; }
+      .profileAvatar { margin-top:-44px; }
+    }
+
     .addIdentifiersDetails { }
     .addIdentifiersBtn {
       display: inline-flex;
@@ -2671,6 +2700,40 @@
         <button type="button" id="reportCancelBtn">Cancel</button>
       </div>
       <p class="hint" id="reportStatus" style="margin-top:10px;min-height:1.2em"></p>
+    </div>
+  </div>
+
+  <div class="modal" id="profileModal" aria-hidden="true" style="display:none">
+    <div class="profileModalCard">
+      <button type="button" id="profileCloseBtn" class="profileCloseBtn" aria-label="Close">×</button>
+      <div id="profileBanner" class="profileBanner"></div>
+      <div class="profileHeader">
+        <div id="profileAvatar" class="profileAvatar"></div>
+        <div class="profileHeaderText">
+          <h2 id="profileName">Loading…</h2>
+          <p id="profileNip05" class="hint" style="display:none"></p>
+          <p id="profileNpub" class="hint profileNpub"></p>
+        </div>
+        <div id="profileActions" class="profileActions"></div>
+      </div>
+      <div class="profileBody">
+        <div id="profileBlockBanner" style="display:none;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:rgba(220,38,38,.08);margin-bottom:12px;font-size:.85rem;align-items:center;justify-content:space-between;gap:10px"></div>
+        <p id="profileAbout" class="profileAbout" style="display:none"></p>
+        <div id="profileLnRow" class="profileLnRow" style="display:none"></div>
+        <div class="profileDesignsHeader">
+          <h3>Designs (<span id="profileDesignCount">—</span>)</h3>
+          <select id="profileDesignFilter">
+            <option value="any">All types</option>
+            <option value="cover">Case cover</option>
+            <option value="disc">Disc labels</option>
+            <option value="jewel">CD jewel inserts</option>
+            <option value="disc-design">Disc designs</option>
+            <option value="customart">Custom art</option>
+          </select>
+        </div>
+        <div id="profileDesignsGrid" class="profileDesignsGrid"></div>
+        <p id="profileStatus" class="hint" style="margin-top:10px;min-height:1.2em">Looking up profile on your relays…</p>
+      </div>
     </div>
   </div>
 
@@ -5622,6 +5685,27 @@
       return signed;
     }
 
+    async function toggleProfileFollow(pubkey) {
+      const normalized = normalizePubkey(pubkey);
+      if (!normalized) throw new Error('Invalid pubkey.');
+      const myPubkey = await getNostrPublicKey();
+      if (!myPubkey) throw new Error('Sign in with NIP-07 first.');
+      const current = new Set(state.community.myFollows || []);
+      const wasFollowing = current.has(normalized);
+      if (wasFollowing) current.delete(normalized);
+      else current.add(normalized);
+      const evt = {
+        kind: 3,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [...current].map((key) => ['p', key]),
+        content: ''
+      };
+      await publishCommunityEvent(evt);
+      state.community.myFollows = [...current];
+      state.community.status = wasFollowing ? 'Unfollowed author.' : 'Followed author.';
+      return !wasFollowing;
+    }
+
     async function followSelectedAuthor() {
       const event = currentCommunityEvent();
       if (!event) throw new Error('Select a post first.');
@@ -7339,6 +7423,53 @@
       return '';
     }
 
+    function encodeNpub(pubkeyHex) {
+      const bytes = hexToBytes(pubkeyHex);
+      if (bytes.length !== 32) return '';
+      const data = convertBits(bytes, 8, 5, true);
+      return bech32Encode('npub', data);
+    }
+
+    function decodeProfileIdentifier(raw) {
+      if (typeof raw !== 'string') return null;
+      const trimmed = raw.trim();
+      if (/^[a-f0-9]{64}$/i.test(trimmed)) {
+        return { pubkey: trimmed.toLowerCase(), relays: [] };
+      }
+      const dec = bech32Decode(trimmed);
+      if (!dec) return null;
+      const bytes = convertBits(dec.data, 5, 8, false);
+      if (!bytes) return null;
+      if (dec.hrp === 'npub') {
+        if (bytes.length !== 32) return null;
+        return { pubkey: bytesToHex(bytes), relays: [] };
+      }
+      if (dec.hrp === 'nprofile') {
+        const tlv = decodeTlv(bytes);
+        const pkEntry = tlv.find(([t]) => t === 0);
+        if (!pkEntry || pkEntry[1].length !== 32) return null;
+        const result = { pubkey: bytesToHex(pkEntry[1]), relays: [] };
+        for (const [t, v] of tlv) if (t === 1) result.relays.push(utf8Decode(v));
+        return result;
+      }
+      return null;
+    }
+
+    function parseProfileIdFromLocation() {
+      const path = location.pathname.match(/^\/u\/([^/?#]+)/);
+      if (path) return decodeURIComponent(path[1]);
+      const hash = (location.hash || '').replace(/^#\/?/, '');
+      const hm = hash.match(/^u\/([^/?#]+)/);
+      if (hm) return decodeURIComponent(hm[1]);
+      return '';
+    }
+
+    function profileUrlForPubkey(pubkeyHex) {
+      const np = encodeNpub(pubkeyHex);
+      if (!np) return '';
+      return `${location.origin}/u/${np}`;
+    }
+
     function normalizePubkey(value) {
       const pubkey = String(value || '').trim().toLowerCase();
       return /^[0-9a-f]{64}$/.test(pubkey) ? pubkey : '';
@@ -7469,6 +7600,474 @@
       const modal = $('reportModal');
       if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
       _reportTarget = null;
+    }
+
+    let _profilePagePubkey = '';
+    let _previewOpenedFromProfile = false;
+    let _modalZTop = 1000;
+    function bringModalToFront(modalEl) {
+      if (!modalEl) return;
+      _modalZTop += 1;
+      modalEl.style.zIndex = String(_modalZTop);
+    }
+
+    function shortNpub(pubkeyHex) {
+      const np = encodeNpub(pubkeyHex);
+      if (!np) return shortPubkey(pubkeyHex);
+      return `${np.slice(0, 12)}…${np.slice(-6)}`;
+    }
+
+    async function openProfilePage(rawIdOrPubkey, opts = {}) {
+      const pushState = opts.pushState !== false;
+      const decoded = /^[a-f0-9]{64}$/i.test(String(rawIdOrPubkey || '').trim())
+        ? { pubkey: String(rawIdOrPubkey).trim().toLowerCase(), relays: [] }
+        : decodeProfileIdentifier(rawIdOrPubkey);
+
+      const modal = $('profileModal');
+      if (!modal) return;
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+      bringModalToFront(modal);
+
+      const nameEl = $('profileName');
+      const nip05El = $('profileNip05');
+      const npubEl = $('profileNpub');
+      const aboutEl = $('profileAbout');
+      const avatarEl = $('profileAvatar');
+      const bannerEl = $('profileBanner');
+      const lnRowEl = $('profileLnRow');
+      const actionsEl = $('profileActions');
+      const gridEl = $('profileDesignsGrid');
+      const countEl = $('profileDesignCount');
+      const statusEl = $('profileStatus');
+
+      if (!decoded?.pubkey) {
+        _profilePagePubkey = '';
+        if (nameEl) nameEl.textContent = 'Not a recognized Nostr identifier';
+        if (nip05El) { nip05El.style.display = 'none'; nip05El.textContent = ''; }
+        if (npubEl) npubEl.textContent = '';
+        if (aboutEl) { aboutEl.style.display = 'none'; aboutEl.textContent = ''; }
+        if (avatarEl) { avatarEl.innerHTML = ''; avatarEl.textContent = '?'; avatarEl.style.background = 'var(--bg)'; }
+        if (bannerEl) bannerEl.style.backgroundImage = '';
+        if (lnRowEl) { lnRowEl.style.display = 'none'; lnRowEl.innerHTML = ''; }
+        if (actionsEl) actionsEl.innerHTML = '';
+        if (gridEl) gridEl.innerHTML = '';
+        if (countEl) countEl.textContent = '—';
+        if (statusEl) statusEl.textContent = 'Double-check the link or paste an npub1… identifier.';
+        if (pushState) {
+          try { history.pushState({ profile: true }, '', `/u/${encodeURIComponent(String(rawIdOrPubkey || ''))}`); } catch {}
+        }
+        return;
+      }
+
+      _profilePagePubkey = decoded.pubkey;
+      const np = encodeNpub(decoded.pubkey);
+      if (pushState && np) {
+        try { history.pushState({ profile: decoded.pubkey }, '', `/u/${np}`); } catch {}
+      }
+
+      // Skeleton state first — Phase A render. Phase B fills data after fetch.
+      if (nameEl) nameEl.textContent = 'Loading…';
+      if (nip05El) { nip05El.style.display = 'none'; nip05El.textContent = ''; }
+      if (npubEl) npubEl.textContent = np || decoded.pubkey;
+      if (aboutEl) { aboutEl.style.display = 'none'; aboutEl.textContent = ''; }
+      if (avatarEl) { avatarEl.innerHTML = ''; avatarEl.textContent = '?'; avatarEl.style.background = colorForPubkey(decoded.pubkey); }
+      if (bannerEl) bannerEl.style.backgroundImage = '';
+      if (lnRowEl) { lnRowEl.style.display = 'none'; lnRowEl.innerHTML = ''; }
+      if (actionsEl) actionsEl.innerHTML = '';
+      if (gridEl) gridEl.innerHTML = '';
+      if (countEl) countEl.textContent = '—';
+      if (statusEl) statusEl.textContent = 'Looking up profile on your relays…';
+
+      // Paint from cache immediately if we have it.
+      const cached = getCachedProfile(decoded.pubkey);
+      if (cached) renderProfilePageData(decoded.pubkey, cached);
+
+      // Fetch fresh kind-0 in the background; renders again when it arrives.
+      ensureProfilePageData(decoded.pubkey, decoded.relays).then(fresh => {
+        if (_profilePagePubkey !== decoded.pubkey) return;
+        renderProfilePageData(decoded.pubkey, fresh);
+      }).catch(() => {
+        if (_profilePagePubkey !== decoded.pubkey) return;
+        if (statusEl) statusEl.textContent = 'Could not reach your relays. Try again later.';
+      });
+
+      // Kick off the designs grid load in parallel.
+      loadProfileDesigns(decoded.pubkey, decoded.relays);
+    }
+
+    function closeProfilePage(opts = {}) {
+      const modal = $('profileModal');
+      if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+      _profilePagePubkey = '';
+      if (opts.popState !== false) {
+        const onProfileUrl = location.pathname.startsWith('/u/') || /^#\/?u\//.test(location.hash);
+        if (onProfileUrl) {
+          try { history.back(); } catch {}
+        }
+      }
+    }
+
+    const PROFILE_TTL_MS = 5 * 60 * 1000;
+    const _profilePages = new Map(); // pubkey -> { profile, fetchedAt }
+
+    function getCachedProfile(pubkey) {
+      const cached = _profilePages.get(pubkey);
+      if (cached && Date.now() - cached.fetchedAt < PROFILE_TTL_MS) return cached.profile;
+      const fromState = state.community?.profiles?.[pubkey];
+      const fromFeed = _feedCache?.profiles?.[pubkey];
+      return fromState || fromFeed || null;
+    }
+
+    async function ensureProfilePageData(pubkey, hintRelays = []) {
+      const cached = _profilePages.get(pubkey);
+      if (cached && Date.now() - cached.fetchedAt < PROFILE_TTL_MS) return cached.profile;
+      const userRelays = splitRelayList(state.community.relays);
+      const relays = [...new Set([...(hintRelays || []), ...userRelays])];
+      let profile = state.community?.profiles?.[pubkey] || _feedCache?.profiles?.[pubkey] || null;
+      try {
+        const events = await queryRelays(relays, { kinds: [0], authors: [pubkey], limit: 1 }, { timeoutMs: 3500 });
+        if (events && events.length) {
+          const latest = events.slice().sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
+          const parsed = safeJsonParse(latest.content, {}) || {};
+          profile = { pubkey, ...parsed, created_at: latest.created_at };
+          state.community.profiles[pubkey] = profile;
+          if (_feedCache?.profiles) _feedCache.profiles[pubkey] = profile;
+        }
+      } catch {
+        // Fall through — keep whatever cached profile we had (possibly null).
+      }
+      _profilePages.set(pubkey, { profile, fetchedAt: Date.now() });
+      return profile;
+    }
+
+    function bestDisplayName(profile, pubkey) {
+      return (profile?.display_name || profile?.displayName || profile?.name || shortNpub(pubkey)).toString().trim() || shortNpub(pubkey);
+    }
+
+    function isHttpUrl(value) {
+      if (!value || typeof value !== 'string') return false;
+      try { const u = new URL(value); return u.protocol === 'http:' || u.protocol === 'https:'; }
+      catch { return false; }
+    }
+
+    function decodeLud06ToAddress(lud06) {
+      try {
+        const dec = bech32Decode(String(lud06 || '').trim());
+        if (!dec || dec.hrp !== 'lnurl') return '';
+        const bytes = convertBits(dec.data, 5, 8, false);
+        if (!bytes) return '';
+        return new TextDecoder().decode(new Uint8Array(bytes));
+      } catch { return ''; }
+    }
+
+    function colorForPubkey(pubkey) {
+      const s = String(pubkey || '');
+      let h = 0;
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xffff;
+      return `hsl(${h % 360}, 55%, 55%)`;
+    }
+
+    function paintProfileAvatar(pubkey, profile, displayName) {
+      const el = $('profileAvatar');
+      if (!el) return;
+      const initials = String(displayName || '').trim().charAt(0).toUpperCase() || '?';
+      el.innerHTML = '';
+      el.textContent = initials;
+      el.style.background = colorForPubkey(pubkey);
+      if (isHttpUrl(profile?.picture)) {
+        const tester = new Image();
+        tester.onload = () => {
+          if (_profilePagePubkey !== pubkey) return;
+          el.textContent = '';
+          el.style.background = 'var(--bg)';
+          const img = document.createElement('img');
+          img.src = profile.picture;
+          img.alt = displayName || '';
+          el.appendChild(img);
+        };
+        tester.onerror = () => {}; // keep initials
+        tester.src = profile.picture;
+      }
+    }
+
+    async function verifyNip05(nip05, pubkey) {
+      if (!nip05 || typeof nip05 !== 'string') return false;
+      const trimmed = nip05.trim();
+      const parts = trimmed.includes('@') ? trimmed.split('@') : ['_', trimmed];
+      const [name, host] = parts;
+      if (!name || !host) return false;
+      try {
+        const r = await fetch(`https://${host}/.well-known/nostr.json?name=${encodeURIComponent(name)}`, {
+          headers: { Accept: 'application/json' }
+        });
+        if (!r.ok) return false;
+        const j = await r.json();
+        const matched = j?.names?.[name];
+        return typeof matched === 'string' && matched.toLowerCase() === String(pubkey).toLowerCase();
+      } catch { return false; }
+    }
+
+    function renderProfileBlockBanner(pubkey) {
+      const banner = $('profileBlockBanner');
+      if (!banner) return;
+      if (!_blockedAuthors.has(pubkey)) {
+        banner.style.display = 'none';
+        banner.innerHTML = '';
+        return;
+      }
+      banner.style.display = 'flex';
+      banner.innerHTML = '';
+      const text = document.createElement('span');
+      text.textContent = 'You blocked this author. Their designs are hidden in your feeds.';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'danger';
+      btn.textContent = 'Unblock';
+      btn.style.flexShrink = '0';
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        _blockedAuthors.delete(pubkey);
+        try { if (typeof removeBlockMeta === 'function') removeBlockMeta(pubkey); } catch {}
+        try { if (typeof saveBlockedAuthors === 'function') saveBlockedAuthors(); } catch {}
+        try { if (typeof renderBlockedAuthors === 'function') renderBlockedAuthors(); } catch {}
+        try { await syncLocalBlocksToMuteList('unblock'); } catch {}
+        try { await refreshCommunityView(); } catch {}
+        renderProfileBlockBanner(pubkey);
+      });
+      banner.append(text, btn);
+    }
+
+    async function copyToClipboard(text) {
+      try { await navigator.clipboard.writeText(text); return true; }
+      catch { return false; }
+    }
+
+    function makeProfileChip({ label, title, onClick, danger = false }) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'profileChip' + (danger ? ' danger' : '');
+      btn.textContent = label;
+      if (title) btn.title = title;
+      btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); onClick?.(btn); });
+      return btn;
+    }
+
+    function flashChipText(btn, text, ms = 1200) {
+      const original = btn.textContent;
+      btn.textContent = text;
+      setTimeout(() => { if (btn.isConnected) btn.textContent = original; }, ms);
+    }
+
+    function renderProfilePageData(pubkey, profile) {
+      if (_profilePagePubkey !== pubkey) return; // user navigated away
+      const nameEl = $('profileName');
+      const nip05El = $('profileNip05');
+      const npubEl = $('profileNpub');
+      const aboutEl = $('profileAbout');
+      const avatarEl = $('profileAvatar');
+      const bannerEl = $('profileBanner');
+      const lnRowEl = $('profileLnRow');
+      const actionsEl = $('profileActions');
+      const statusEl = $('profileStatus');
+
+      const np = encodeNpub(pubkey);
+      const displayName = bestDisplayName(profile, pubkey);
+
+      if (nameEl) nameEl.textContent = displayName;
+      if (npubEl) npubEl.textContent = np || pubkey;
+
+      if (profile?.nip05 && typeof profile.nip05 === 'string' && nip05El) {
+        nip05El.textContent = profile.nip05;
+        nip05El.style.display = '';
+      } else if (nip05El) {
+        nip05El.style.display = 'none';
+      }
+
+      const aboutText = (profile?.about || '').toString().trim();
+      if (aboutEl) {
+        if (aboutText) { aboutEl.textContent = aboutText; aboutEl.style.display = ''; }
+        else { aboutEl.style.display = 'none'; aboutEl.textContent = ''; }
+      }
+
+      paintProfileAvatar(pubkey, profile, displayName);
+
+      if (bannerEl) {
+        if (isHttpUrl(profile?.banner)) {
+          const tester = new Image();
+          tester.onload = () => {
+            if (_profilePagePubkey !== pubkey) return;
+            bannerEl.style.backgroundImage = `url("${profile.banner.replace(/"/g, '\\"')}")`;
+          };
+          tester.onerror = () => { if (_profilePagePubkey === pubkey) bannerEl.style.backgroundImage = ''; };
+          tester.src = profile.banner;
+        } else {
+          bannerEl.style.backgroundImage = '';
+        }
+      }
+
+      renderProfileBlockBanner(pubkey);
+
+      if (profile?.nip05 && nip05El) {
+        verifyNip05(profile.nip05, pubkey).then(ok => {
+          if (_profilePagePubkey !== pubkey) return;
+          if (ok) nip05El.textContent = `${profile.nip05} ✓`;
+        }).catch(() => {});
+      }
+
+      // Lightning chip (read-only copy — payment flow is a separate feature)
+      if (lnRowEl) {
+        lnRowEl.innerHTML = '';
+        const lnAddress = (profile?.lud16 || decodeLud06ToAddress(profile?.lud06) || '').trim();
+        if (lnAddress) {
+          const chip = makeProfileChip({
+            label: `⚡ ${lnAddress}`,
+            title: 'Copy Lightning address',
+            onClick: async (btn) => {
+              const ok = await copyToClipboard(lnAddress);
+              flashChipText(btn, ok ? '⚡ Copied!' : '⚡ Copy failed');
+            }
+          });
+          lnRowEl.appendChild(chip);
+        }
+        if (isHttpUrl(profile?.website)) {
+          const link = document.createElement('a');
+          link.className = 'profileChip';
+          link.textContent = '🔗 Website';
+          link.href = profile.website;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.style.textDecoration = 'none';
+          link.style.color = 'inherit';
+          lnRowEl.appendChild(link);
+        }
+        lnRowEl.style.display = lnRowEl.children.length ? 'flex' : 'none';
+      }
+
+      // Action chips
+      if (actionsEl) {
+        actionsEl.innerHTML = '';
+        const isSelf = pubkey === normalizePubkey(state.community?.myPubkey || '');
+        if (isSelf) {
+          actionsEl.appendChild(makeProfileChip({
+            label: 'Copy npub',
+            onClick: async (btn) => {
+              const ok = np ? await copyToClipboard(np) : false;
+              flashChipText(btn, ok ? 'Copied!' : 'Copy failed');
+            }
+          }));
+          const youHint = document.createElement('span');
+          youHint.className = 'hint';
+          youHint.style.cssText = 'font-size:.78rem;align-self:center;margin-left:6px';
+          youHint.textContent = 'This is you';
+          actionsEl.appendChild(youHint);
+        } else {
+          const myPubkey = normalizePubkey(state.community?.myPubkey || '');
+          if (myPubkey) {
+            const isFollowing = (state.community?.myFollows || []).includes(pubkey);
+            const followChip = makeProfileChip({
+              label: isFollowing ? 'Unfollow' : 'Follow',
+              title: isFollowing ? 'Remove from your follow list' : 'Add to your follow list',
+              onClick: async (btn) => {
+                btn.disabled = true;
+                try {
+                  await toggleProfileFollow(pubkey);
+                  const nowFollowing = (state.community?.myFollows || []).includes(pubkey);
+                  btn.textContent = nowFollowing ? 'Unfollow' : 'Follow';
+                } catch (err) {
+                  flashChipText(btn, err?.message?.includes('NIP-07') ? 'Sign in first' : 'Failed');
+                } finally {
+                  btn.disabled = false;
+                }
+              }
+            });
+            actionsEl.appendChild(followChip);
+          }
+          actionsEl.appendChild(makeProfileChip({
+            label: 'Block',
+            danger: true,
+            onClick: async (btn) => {
+              const name = displayName;
+              const ok = confirm(`Block ${name}?\n\nYou will no longer see designs from this author in your feed. You can unblock them later from the "Blocked authors" panel at the bottom of the Community modal.`);
+              if (!ok) return;
+              try { await blockAuthor(pubkey, 'profile'); flashChipText(btn, 'Blocked'); } catch { flashChipText(btn, 'Failed'); }
+            }
+          }));
+          actionsEl.appendChild(makeProfileChip({
+            label: 'Copy npub',
+            onClick: async (btn) => {
+              const ok = np ? await copyToClipboard(np) : false;
+              flashChipText(btn, ok ? 'Copied!' : 'Copy failed');
+            }
+          }));
+          if (np) {
+            const openLink = document.createElement('a');
+            openLink.className = 'profileChip';
+            openLink.textContent = 'Open in client ↗';
+            openLink.title = 'Hand off to a registered Nostr client';
+            openLink.href = `nostr:${np}`;
+            openLink.style.textDecoration = 'none';
+            openLink.style.color = 'inherit';
+            actionsEl.appendChild(openLink);
+          }
+        }
+      }
+
+      if (statusEl) {
+        statusEl.textContent = profile ? '' : 'No profile metadata published yet on your relays.';
+      }
+    }
+
+    function renderProfileDesigns(pubkey) {
+      if (_profilePagePubkey !== pubkey) return;
+      const filterEl = $('profileDesignFilter');
+      const gridEl = $('profileDesignsGrid');
+      const countEl = $('profileDesignCount');
+      const statusEl = $('profileStatus');
+      if (!gridEl) return;
+      const typeFilter = filterEl?.value || 'any';
+      const allEvents = Array.isArray(_feedCache.events) ? _feedCache.events : [];
+      const authorEvents = allEvents.filter(e => e.pubkey === pubkey && (e.kind === 30078 || e.kind === 5));
+      const rows = buildRowsFromEvents(authorEvents, typeFilter, '', false, '');
+      const authorRows = rows.filter(r => r.e?.pubkey === pubkey);
+      authorRows.sort((a, b) => (b.e?.created_at || 0) - (a.e?.created_at || 0));
+      if (countEl) countEl.textContent = String(authorRows.length);
+      diffWallCards(gridEl, authorRows, buildFeedCardForRow);
+      if (statusEl) {
+        statusEl.textContent = authorRows.length ? '' : 'No public designs yet on your relays.';
+      }
+    }
+
+    async function loadProfileDesigns(pubkey, hintRelays = []) {
+      if (_profilePagePubkey !== pubkey) return;
+      const userRelays = splitRelayList(state.community.relays);
+      const relays = [...new Set([...(hintRelays || []), ...userRelays])];
+      const statusEl = $('profileStatus');
+
+      // Seed grid from any events already in the feed cache, then fetch fresh.
+      renderProfileDesigns(pubkey);
+      if (statusEl && !(_feedCache?.events || []).some(e => e.pubkey === pubkey && e.kind === 30078)) {
+        statusEl.textContent = 'Looking for designs on your relays…';
+      }
+
+      try {
+        const [designEvents, deletionEvents] = await Promise.all([
+          queryRelays(relays, { kinds: [30078], authors: [pubkey], limit: 200 }, { timeoutMs: 4500 }),
+          queryRelays(relays, { kinds: [5], authors: [pubkey], '#k': ['30078'], limit: 100 }, { timeoutMs: 3500 }).catch(() => [])
+        ]);
+        if (_profilePagePubkey !== pubkey) return;
+        const existing = Array.isArray(_feedCache.events) ? _feedCache.events : [];
+        const byId = new Map(existing.map(e => [e.id, e]));
+        for (const e of [...designEvents, ...deletionEvents]) byId.set(e.id, e);
+        _feedCache.events = [...byId.values()];
+        renderProfileDesigns(pubkey);
+      } catch {
+        if (_profilePagePubkey !== pubkey) return;
+        const hasAny = Array.isArray(_feedCache.events) && _feedCache.events.some(e => e.pubkey === pubkey && e.kind === 30078);
+        if (statusEl && !hasAny) {
+          statusEl.textContent = 'Could not reach your relays. Try again later.';
+        }
+      }
     }
 
     let _closeProjectTarget = null;
@@ -7817,6 +8416,15 @@
           : '';
       const authorHtml = authorName ? `<div class="feedCardAuthor">${authorPic ? `<img class="feedCardAvatar" src="${escapeHtml(authorPic)}" alt="" onerror="this.remove()" loading="lazy" />` : ''}<span class="feedCardAuthorName">${escapeHtml(authorName)}</span>${trustBadgeHtml}</div>` : '';
       meta.innerHTML = `<div class="feedCardTitle" title="${escapeHtml(row.title || 'Untitled')}">${escapeHtml(row.title || 'Untitled')}</div><div class="feedCardSub">${escapeHtml([modeLabel, categoryLabel(row.category), row.imdb].filter(Boolean).join(' · '))}</div>${authorHtml}`;
+      const authorEl = meta.querySelector('.feedCardAuthor');
+      if (authorEl && row.e?.pubkey) {
+        authorEl.style.cursor = 'pointer';
+        authorEl.title = 'View profile';
+        authorEl.addEventListener('click', e => {
+          e.stopPropagation();
+          openProfilePage(row.e.pubkey);
+        });
+      }
       const actions = document.createElement('div');
       actions.className = 'feedCardActions';
       const prevBtn = document.createElement('button');
@@ -8327,8 +8935,36 @@
     }
 
     function openDesignPreview(row) {
+      const profileModalEl = $('profileModal');
+      const fromProfile = profileModalEl && profileModalEl.getAttribute('aria-hidden') === 'false';
+      _previewOpenedFromProfile = !!fromProfile;
+      const nostrModalEl = $('nostrModal');
+      if (nostrModalEl) {
+        nostrModalEl.classList.add('open');
+        bringModalToFront(nostrModalEl);
+      }
       $('nostrPreviewTitle').textContent = row.title || 'Untitled Design';
-      $('nostrPreviewMeta').textContent = [row.category, row.imdb].filter(Boolean).join(' · ');
+      const metaEl = $('nostrPreviewMeta');
+      metaEl.innerHTML = '';
+      const metaParts = [row.category, row.imdb].filter(Boolean).join(' · ');
+      if (metaParts) metaEl.appendChild(document.createTextNode(metaParts));
+      const pk = row.e?.pubkey;
+      if (pk) {
+        if (metaParts) metaEl.appendChild(document.createTextNode(' · '));
+        const profile = _feedCache.profiles?.[pk] || state.community?.profiles?.[pk] || null;
+        const name = profile?.display_name || profile?.name || shortPubkey(pk);
+        const authorLink = document.createElement('a');
+        authorLink.textContent = `by ${name}`;
+        authorLink.href = `/u/${encodeNpub(pk) || pk}`;
+        authorLink.style.cursor = 'pointer';
+        authorLink.style.color = 'inherit';
+        authorLink.title = 'View profile';
+        authorLink.addEventListener('click', e => {
+          e.preventDefault();
+          openProfilePage(pk);
+        });
+        metaEl.appendChild(authorLink);
+      }
       const content = $('nostrPreviewPanel');
       content.innerHTML = '';
       content._row = row;
@@ -8482,6 +9118,13 @@
       // Clear any /share/... or #/share/... URL so reload doesn't re-open
       if (location.pathname.startsWith('/share/') || /^#\/?share\//.test(location.hash)) {
         try { history.replaceState({}, '', '/'); } catch {}
+      }
+      // If this preview was opened from a profile page, close the community
+      // modal entirely so the user lands back on the profile they came from.
+      if (_previewOpenedFromProfile) {
+        _previewOpenedFromProfile = false;
+        const nm = $('nostrModal');
+        if (nm) nm.classList.remove('open');
       }
     }
 
@@ -9665,8 +10308,12 @@
       $("tabMine").addEventListener("click", () => switchModalTab('Mine'));
       $("nostrLoginBtn").addEventListener("click", nostrLogin);
       $("nostrProfileBtn").addEventListener("click", () => {
-        $('nostrModal').classList.add('open');
-        switchModalTab('Mine');
+        const pk = normalizePubkey(state.community?.myPubkey || '');
+        if (pk) openProfilePage(pk);
+        else {
+          $('nostrModal').classList.add('open');
+          switchModalTab('Mine');
+        }
       });
 
       document.querySelectorAll('.feedTypeBtn').forEach(btn => {
@@ -10309,6 +10956,25 @@
       on('closeProjectCancelBtn', 'click', closeCloseProjectModal);
       const closeProjectModalEl = $('closeProjectModal');
       if (closeProjectModalEl) closeProjectModalEl.addEventListener('click', e => { if (e.target === closeProjectModalEl) closeCloseProjectModal(); });
+      on('profileCloseBtn', 'click', () => closeProfilePage());
+      const profileModalEl = $('profileModal');
+      if (profileModalEl) profileModalEl.addEventListener('click', e => { if (e.target === profileModalEl) closeProfilePage(); });
+      on('profileDesignFilter', 'change', () => {
+        if (_profilePagePubkey) renderProfileDesigns(_profilePagePubkey);
+      });
+
+      // ESC closes whichever overlay modal is on top.
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const profileM = $('profileModal');
+        if (profileM && profileM.getAttribute('aria-hidden') === 'false') { closeProfilePage(); return; }
+        const reportM = $('reportModal');
+        if (reportM && reportM.getAttribute('aria-hidden') === 'false') { closeReportModal(); return; }
+        const closeProjM = $('closeProjectModal');
+        if (closeProjM && closeProjM.getAttribute('aria-hidden') === 'false') { closeCloseProjectModal(); return; }
+        const pdfM = $('pdfJpegModal');
+        if (pdfM && pdfM.getAttribute('aria-hidden') === 'false' && typeof closePdfJpegModal === 'function') { closePdfJpegModal(); return; }
+      });
       const softModToggle = $('softModEnabledToggle');
       if (softModToggle) {
         softModToggle.checked = softModEnabled();
@@ -10324,9 +10990,21 @@
         try { $('welcomeModal')?.classList.remove('open'); } catch {}
         setTimeout(() => loadSharedDesign(shareId), 200);
       }
+      const profileId = parseProfileIdFromLocation();
+      if (profileId) {
+        try { $('welcomeModal')?.classList.remove('open'); } catch {}
+        setTimeout(() => openProfilePage(profileId, { pushState: false }), 200);
+      }
       window.addEventListener('popstate', () => {
-        const id = parseShareIdFromLocation();
-        if (id) loadSharedDesign(id);
+        const sid = parseShareIdFromLocation();
+        if (sid) { loadSharedDesign(sid); return; }
+        const pid = parseProfileIdFromLocation();
+        if (pid) { openProfilePage(pid, { pushState: false }); return; }
+        // URL no longer matches any route — close any open profile/preview modal.
+        const profileModalEl = $('profileModal');
+        if (profileModalEl && profileModalEl.getAttribute('aria-hidden') === 'false') {
+          closeProfilePage({ popState: false });
+        }
       });
     }
 
