@@ -1,5 +1,7 @@
 # Custom Art Mode
 
+> **Status as of last update**: Phases A, B, and C are **shipped**. Custom Art is end-to-end functional — you can create, save, publish, share, browse, and export to JPEG. See [Status & remaining work](#status--remaining-work) below for the detailed breakdown and the Phase D wishlist.
+
 ## Goals
 Add a fifth template mode — **Custom Art** — alongside the existing cover, disc, jewel, and disc-design modes. The aim is to let CaseWrap Studio be used for general-purpose digital art at arbitrary aspect ratios (wallpapers, banners, social posts, posters, etc.) while keeping everything else about the app — Nostr publish/share, layer system, soft-moderation, mini-preview browser — intact.
 
@@ -273,6 +275,87 @@ Allows the same title to have a custom-art design *plus* a cover/disc/disc-desig
 - Each card mini-preview shows the canvas at its native aspect ratio (16:9 cards are wider than they are tall in the grid; portrait designs are letterboxed in the square thumb like the other modes).
 - Clicking a card opens the full preview at the canvas's natural aspect.
 - Export JPEG produces a flat 1920×1080 (or whatever) JPEG with the design's contents.
+
+---
+
+## Status & remaining work
+
+### Phase A — Editor foundation — ✅ **SHIPPED** (commit `a49d0b0`)
+
+- ✅ `state.customArt = { width, height, background, preset }` default object
+- ✅ `CUSTOM_ART_PRESETS` constant (10 entries)
+- ✅ `customArtCanvasInches()` pixel→inch helper
+- ✅ `normalizeTemplateMode` recognizes `customart` + `payload.customArt` fallback
+- ✅ `sheetW()` / `sheetH()` return canvas dimensions in inches for customart mode
+- ✅ `targetBounds('canvas')` for the layer target
+- ✅ `applyTargetMode` routes `canvas` target → customart mode
+- ✅ `updateLayerTargetOptions` shows the `Canvas` option in customart mode
+- ✅ `templateLayerTargetsForMode` returns `[{ key: 'canvas', label: 'Canvas' }]` for customart
+- ✅ Body class `template-customart` toggled by `updateBodyClasses`
+- ✅ CSS hides bleed/trim/fold/slot UI when in customart mode
+- ✅ Layout-tab button `Custom art` in sidebar mode switcher
+- ✅ `customArtFieldset` HTML with preset dropdown, width/height inputs, background picker
+- ✅ Width/height range enforcement (100–8192 px)
+- ✅ Preset → snap to matching preset key, or `custom` when manual
+- ✅ Background color applied to `.sheet` inline; reset on mode change
+- ✅ `customArtPayload()` for JSON / publish payloads
+- ✅ `exportPayload()` includes `customArt` blob
+- ✅ `downloadProject` saves as `custom_art_<wxh>.json`
+- ✅ `loadProjectFromText` has a customart branch that restores state without clobbering other modes
+
+### Phase B — Publish & share-link round-trip — ✅ **SHIPPED** (commit `f67467c`)
+
+- ✅ `templateTypeForMode('customart') → 'customart'`
+- ✅ `publishCurrentTemplateToNostr` customart branch with `casewrap-customart` type tag and `customart:<dValue>` d-tag (with `WxH` fallback)
+- ✅ Pre-publish guard rejects an empty white canvas with no layers (so the feed doesn't fill with blank squares)
+- ✅ `previewFromPayload(payload, 'customart')` returns first image-layer src as the thumbnail/broken-image-detection target
+- ✅ `shareIdForRow` generates a NIP-19 `naddr` for new-style customart events (mode-prefixed d-tag); falls back to `nevent` for legacy
+- ✅ `loadSharedDesign` queries by `naddr` / `nevent` and re-renders correctly for shared customart URLs
+- ✅ `getTemplateTags` emits the standard `template_type`, `category`, `language`, and identifier tags (`['i', 'imdb:...']`, `['i', 'upc:...']`, etc.) for customart designs same as the other modes
+
+### Phase C — Browser, preview, export — ✅ **SHIPPED** (commit `f67467c`)
+
+- ✅ `Custom art` option added to the welcome modal's `Type` select
+- ✅ `Custom art` option added to the community modal's search `Type` select
+- ✅ `Custom Art` button added to the New / Popular / Mine feed-type filter rows
+- ✅ `renderCustomArtPreviewDOM(container, payload, opts)` — full + compact mode, sorted layers by z, explicit z-index, image / text / color layers, background color
+- ✅ `openDesignPreview` dispatches to the customart renderer
+- ✅ `buildFeedCard` mini-preview dispatches to the customart renderer in compact mode
+- ✅ JPEG export: `enterExportPrintMode` preserves the canvas background color and uses the canvas dims as the `@page` size (no trim crop, no bleed margin); PDF.js converts the resulting PDF to a flat JPEG at native resolution
+
+---
+
+### Phase D — Polish (not started)
+
+These are deliberately deferred. Some are easy add-ons; others are bigger UX changes worth a separate spec.
+
+#### Easy
+- **Background: transparent** — checkbox in the canvas controls. Today background is always a solid color (default `#ffffff`). Useful for users who want a PNG with alpha (would need transparent-aware JPEG-or-PNG export though).
+- **Aspect-ratio size filter** inside the browse view when `Custom Art` (or `Any`) is selected. Buckets: `16:9 · 9:16 · 1:1 · 4:5 · 4:3 · 3:1 · Letter · Other`. Was in the spec; skipped because shipping without it works fine.
+- **Surface the canvas dimensions in the card metadata strip** (e.g., "Custom Art · 1920×1080"). Currently the card just shows the mode label.
+- **Default to one of the preset names in the title field** when starting a fresh custom art design (e.g., "Untitled wallpaper" for 1920×1080).
+- **Tooltip on the layout tab button** describing what Custom Art is good for, to onboard users from the existing case/disc community.
+
+#### Medium
+- **Pixel-native layer position inputs** alongside the existing inch inputs in the layer controls panel — so users who think in pixels don't have to mentally convert. Inch inputs stay for compat.
+- **Background image** (instead of solid color). Image fills the canvas, layers stack on top. Same `fit/zoom/x/y/rotate` controls as slot artwork on the other modes.
+- **Starter templates / preset compositions** — e.g., "Instagram post starter", "Twitter header starter", "YouTube thumbnail starter". Click to populate the canvas with a few placeholder layers.
+- **Larger preset library** — add common social/streaming sizes (TikTok 1080×1920 ✓ already, YouTube thumbnail 1280×720, Discord banner 600×240, Twitch panel 320×100, etc.).
+- **Export at chosen pixel resolution** — currently the JPEG is rasterized at PDF native size (a 1080-px canvas → PDF page that's ~11.25 inch wide → rasterized at PDF.js scale defaulting to ~2400-px long edge). Users may want explicit "Export at 50%" / "Export at 200%".
+- **Pixel-art mode** with snap-to-grid for small designs (e.g., 64×64 sprite). Today rendering would work but layer-drag has no grid snap.
+
+#### Larger
+- **Shape primitives** — drawn rectangle / circle / line / arrow as new layer types (not just the color-fill rectangle). Probably needs a small toolbar in the editor.
+- **Vector tools** — SVG path, freehand drawing, pen tool. Big lift; would require a new layer type with vector data and a renderer that converts SVG → canvas during export.
+- **Pixel-native units everywhere** (not just at layer-position input) — switch the internal storage from inches to pixels for customart, with a one-time migration. Bigger code change but eliminates the implicit 96-DPI conversion.
+- **Animated / multi-frame art** — render a sequence of canvases, export as GIF/APNG/MP4. Substantial.
+- **Multi-page custom art** — a slidedeck-like flow where one design has multiple canvases. Would need significant payload schema changes.
+- **Crop / trim tool on the canvas itself** — interactive bounding box that visually crops layers down to the new canvas bounds.
+- **Layer effects** — drop shadow, blur, outline, color overlay. Per-layer styling that the canvas-export path would need to faithfully reproduce.
+
+#### Schema / portability
+- **NIP-73 identifier tags consumed at search time** — Phase B emits these but the community feed filter doesn't yet match against them. A user-typed UPC into the search box already finds matches via the haystack; a structured "find by external ID" filter would be a separate feature.
+- **Format negotiation** — a `payload.customArt.exportFormat` ("png" | "jpeg") so the publisher can hint how their design should be flattened. Today everything goes through JPEG via the PDF intermediate.
 
 ---
 

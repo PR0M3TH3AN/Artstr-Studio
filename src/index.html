@@ -1486,7 +1486,7 @@
     /* Feed wall */
     .feedLoadStatus{font-size:.78rem;color:var(--muted);padding:2px 2px 6px;font-style:italic;letter-spacing:.02em}
     .feedLoadStatus[hidden]{display:none}
-    .feedWall{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:4px;align-content:start}
+    .feedWall{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:4px;align-content:start}
     .feedCard{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;cursor:pointer;display:flex;flex-direction:column;transition:box-shadow .12s}
     .feedCard:hover{box-shadow:0 4px 18px rgba(15,23,42,.13)}
     .feedCardThumb{width:100%;aspect-ratio:1;background:#f1f5f9;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
@@ -1496,7 +1496,7 @@
     .feedCardMeta{padding:7px 8px;flex:1;display:flex;flex-direction:column;gap:2px}
     .feedCardTitle{font-weight:700;font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .feedCardSub{font-size:.68rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .feedCardActions{display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border-top:1px solid var(--line);gap:6px}
+    .feedCardActions{display:flex;flex-wrap:wrap;justify-content:flex-start;align-items:center;padding:6px 8px;border-top:1px solid var(--line);gap:5px}
     .reactionBadge{font-size:.72rem;font-weight:700;color:var(--muted)}
     .reactionBtn{border:1px solid var(--line);border-radius:20px;padding:3px 10px;background:#fff;color:var(--muted);cursor:pointer;font-size:.72rem;font-weight:800;transition:background .1s,border-color .1s,color .1s;white-space:nowrap}
     .reactionBtn:hover{background:#fef9e7;border-color:#f59e0b;color:#92400e}
@@ -2773,6 +2773,18 @@
       { key: 'front', label: 'Front cover' }
     ];
 
+    function isLayerForCurrentMode(layer) {
+      const t = String(layer?.target || '');
+      // 'page' is shared / "whole page" — render in any template mode (legacy).
+      if (t === '' || t === 'page') return true;
+      const mode = state.templateMode;
+      if (mode === 'customart') return t === 'canvas';
+      if (mode === 'disc') return t.startsWith('disc-');
+      if (mode === 'jewel') return t.startsWith('jewel-');
+      if (mode === 'cover') return t === 'cover-trim' || t === 'back' || t === 'spine' || t === 'front';
+      return true;
+    }
+
     function templateLayerTargetsForMode() {
       if (state.templateMode === 'disc') return [
         { key: 'page', label: 'Whole page' },
@@ -3787,6 +3799,34 @@
       }
     }
 
+    // Visual order of sidebar fieldsets per mode. Each list defines the
+    // workflow order shown to the user; the renumbering pass assigns 1, 2,
+    // 3… to visible fieldsets and CSS `order` re-flows them via flexbox so
+    // DOM order doesn't have to match.
+    const WORKFLOW_ORDER = {
+      cover:     ['layoutFieldset', 'coverSizeFieldset', 'coverArtworkFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
+      disc:      ['layoutFieldset', 'discArtworkFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
+      jewel:     ['layoutFieldset', 'coverSizeFieldset', 'jewelArtworkFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
+      customart: ['layoutFieldset', 'customArtFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
+      designer:  ['designerFieldset', 'layersFieldset', 'designerMetadataFieldset', 'designerPrintSaveFieldset']
+    };
+
+    function renumberWorkflowSteps() {
+      const aside = document.querySelector('aside');
+      if (!aside) return;
+      const mode = state.appMode === 'designer' ? 'designer' : (state.templateMode || 'cover');
+      const order = WORKFLOW_ORDER[mode] || WORKFLOW_ORDER.cover;
+      let step = 1;
+      for (let i = 0; i < order.length; i++) {
+        const fs = document.getElementById(order[i]);
+        if (!fs) continue;
+        fs.style.order = String(i + 1);
+        if (getComputedStyle(fs).display === 'none') continue;
+        const target = fs.querySelector('legend[data-step], summary[data-step]');
+        if (target) target.setAttribute('data-step', String(step++));
+      }
+    }
+
     function updateBodyClasses() {
       document.body.classList.toggle('template-cover', state.templateMode === 'cover');
       document.body.classList.toggle('template-disc', state.templateMode === 'disc');
@@ -3801,6 +3841,7 @@
       document.body.classList.toggle('app-designer', state.appMode === 'designer');
       document.body.classList.toggle('app-template', state.appMode !== 'designer');
       updateLayerTargetOptions();
+      renumberWorkflowSteps();
     }
 
     function renderDimensions() {
@@ -4841,6 +4882,10 @@
         const isDesignerLayer = layer.target === 'designer-disc';
         if (state.appMode === 'designer' && !isDesignerLayer) continue;
         if (state.appMode !== 'designer' && isDesignerLayer) continue;
+        // Only render layers whose target belongs to the current template mode
+        // (prevents leftover cover/disc/jewel layers from leaking into custom-art
+        // canvases and vice versa). Page-level layers render everywhere.
+        if (state.appMode !== 'designer' && !isLayerForCurrentMode(layer)) continue;
 
         const el = document.createElement('div');
         el.className = `freeLayer${layer.id === state.selectedLayerId ? ' selected' : ''}`;
@@ -6796,12 +6841,16 @@
       }
 
       if (mode === 'customart' || parsed.customArt) {
+        const customArtDefaults = { width: 1920, height: 1080, background: '#ffffff', preset: 'custom' };
         Object.assign(state, {
           templateMode: 'customart',
           meta: { ...state.meta, ...(parsed.meta || {}) },
           zoom: parsed.ui?.zoom ?? state.zoom,
           showGuides: parsed.ui?.showGuides ?? state.showGuides,
-          customArt: { ...state.customArt, ...(parsed.customArt || {}) },
+          // Fork: replace customArt entirely (don't leak the user's prior canvas dims/bg).
+          customArt: { ...customArtDefaults, ...(parsed.customArt || {}) },
+          // Keep layers from other modes (so cover/disc/jewel work-in-progress isn't lost),
+          // replace the canvas-target layers with the forked design's layers.
           layers: [
             ...state.layers.filter(l => l.target !== 'canvas'),
             ...(Array.isArray(parsed.layers) ? parsed.layers : [])
@@ -7393,19 +7442,6 @@
         state.community.status = 'Author blocked locally, but mute-list sync failed.';
       }
       await refreshCommunityView();
-      const undo = confirm('Author blocked. Click OK to undo.');
-      if (undo && _lastBlockedPubkey === normalized) {
-        _blockedAuthors.delete(normalized);
-        removeBlockMeta(normalized);
-        saveBlockedAuthors();
-        renderBlockedAuthors();
-        try {
-          await syncLocalBlocksToMuteList('undo');
-        } catch (error) {
-          state.community.status = 'Undo applied locally, but mute-list sync failed.';
-        }
-        await refreshCommunityView();
-      }
     }
     let _reportTarget = null;
 
@@ -7582,6 +7618,66 @@
       return [...seen.values()];
     }
 
+    // Content-based fingerprint that's stable across forks:
+    // ignores meta (title/imdb/etc.), event id, pubkey, created_at.
+    // Two events with the same fingerprint represent the exact same design.
+    function designFingerprint(payload) {
+      if (!payload) return '';
+      const mode = normalizeTemplateMode(payload);
+      const j = (v) => JSON.stringify(v ?? null);
+      const fields = [mode];
+      if (mode === 'cover') {
+        fields.push(j(payload.coverTemplate?.slots || payload.slots || {}));
+        fields.push(j(payload.coverTemplate?.combined || payload.combined || {}));
+        fields.push(j(payload.coverTemplate?.artworkMode || payload.artworkMode || ''));
+      } else if (mode === 'disc') {
+        fields.push(j(payload.discTemplate?.discs || payload.discs || {}));
+        fields.push(j(payload.discTemplate?.spineLabels || payload.discSpineLabels || {}));
+      } else if (mode === 'jewel') {
+        fields.push(j(payload.jewelTemplate?.inserts || payload.jewelInserts || {}));
+        fields.push(j(payload.jewelTemplate?.spineLabels || payload.jewelSpineLabels || {}));
+      } else if (mode === 'disc-design') {
+        const dd = payload.discDesign || {};
+        // Strip the layer-internal `id` from the disc-design layers if present
+        // — those are random per-creation so don't break fingerprint matching.
+        const { name: _n, ...discNoName } = dd;
+        fields.push(j(discNoName));
+      } else if (mode === 'customart') {
+        fields.push(j(payload.customArt || {}));
+      }
+      // Layers: strip the per-layer `id` and `_generatedDiscLayer` since
+      // those vary across fork sessions but the visual content is the same.
+      const layers = (payload.layers || []).map(l => {
+        const { id: _id, _generatedDiscLayer: _g, ...rest } = l;
+        return rest;
+      });
+      fields.push(j(layers));
+      return fields.join('|');
+    }
+
+    // Drop rows whose design content matches an earlier (lower created_at) row's.
+    // The earliest event for each fingerprint wins — that's "the original."
+    // When opts.preserveOwn is true, the current user's events are never
+    // dropped even if they duplicate someone else's original.
+    function dedupByFingerprint(rows, opts = {}) {
+      const myPubkey = normalizePubkey(state.community?.myPubkey || '');
+      const earliestPerFp = new Map();
+      for (const row of rows) {
+        const fp = designFingerprint(row.payload);
+        if (!fp) continue;
+        const prev = earliestPerFp.get(fp);
+        if (!prev || (row.createdAt || 0) < (prev.createdAt || 0)) {
+          earliestPerFp.set(fp, row);
+        }
+      }
+      return rows.filter(row => {
+        const fp = designFingerprint(row.payload);
+        if (!fp) return true;
+        if (opts.preserveOwn && row.e?.pubkey === myPubkey) return true;
+        return earliestPerFp.get(fp) === row;
+      });
+    }
+
     function buildFeedCard(row, onUse) {
       const el = document.createElement('div');
       el.className = 'feedCard';
@@ -7672,18 +7768,27 @@
       prevBtn.type = 'button'; prevBtn.textContent = 'Preview';
       prevBtn.addEventListener('click', e => { e.stopPropagation(); openDesignPreview(row); });
       const btn = document.createElement('button');
-      btn.type = 'button'; btn.textContent = 'Use';
+      btn.type = 'button'; btn.textContent = 'Fork off!';
+      btn.title = 'Fork this design — opens it in the editor so you can save your own version';
       btn.addEventListener('click', e => { e.stopPropagation(); onUse(); });
       const blockBtn = document.createElement('button');
       blockBtn.type = 'button';
+      blockBtn.className = 'danger';
       blockBtn.textContent = 'Block';
       blockBtn.title = 'Block this author';
       blockBtn.addEventListener('click', async e => {
         e.stopPropagation();
-        await blockAuthor(row.e?.pubkey, 'card');
+        const pk = row.e?.pubkey;
+        if (!pk) return;
+        const profile = _feedCache.profiles?.[pk] || null;
+        const name = profile?.name || profile?.display_name || shortPubkey(pk);
+        const ok = confirm(`Block ${name}?\n\nYou will no longer see designs from this author in your feed. You can unblock them later from the "Blocked authors" panel at the bottom of the Community modal.`);
+        if (!ok) return;
+        await blockAuthor(pk, 'card');
       });
       const reportBtn = document.createElement('button');
       reportBtn.type = 'button';
+      reportBtn.className = 'danger';
       reportBtn.textContent = 'Report';
       reportBtn.title = 'Report this template';
       reportBtn.addEventListener('click', e => {
@@ -7824,27 +7929,65 @@
       await loadFeedTab('New');
     }
 
+    // Card factory used by both the initial render and the streaming-update diff.
+    function buildFeedCardForRow(row) {
+      const card = buildFeedCard(row, () => {
+        if (row.mode === 'disc-design') {
+          const slotTarget = state._discImportTargetSlot;
+          if (slotTarget) {
+            importDiscDesignFromPayload(row.payload, slotTarget, { openDesigner: false });
+          } else {
+            importDiscDesignFromPayload(row.payload, 'a', { openDesigner: true });
+          }
+        } else {
+          loadProjectFromText(JSON.stringify(row.payload));
+        }
+        $('nostrModal').classList.remove('open');
+      });
+      card.dataset.eventId = row.e?.id || '';
+      return card;
+    }
+
+    // Reconcile a wall's children against the desired list of rows. Cards
+    // already in the DOM with a matching event id are kept in place (and just
+    // re-ordered if needed); new rows produce new cards via buildCardFn; cards
+    // not present in the new list are removed. This is what stops the
+    // template browser from flashing every time a new event streams in.
+    function diffWallCards(wallEl, rows, buildCardFn) {
+      if (!wallEl) return;
+      const existing = new Map();
+      for (const child of Array.from(wallEl.children)) {
+        const id = child.dataset?.eventId;
+        if (id) existing.set(id, child);
+        else child.remove(); // drop "Loading…" / "No templates" placeholder
+      }
+      let prevCard = null;
+      for (const row of rows) {
+        const id = row.e?.id;
+        if (!id) continue;
+        let card = existing.get(id);
+        if (card) {
+          existing.delete(id);
+        } else {
+          card = buildCardFn(row);
+        }
+        const expectedNext = prevCard ? prevCard.nextSibling : wallEl.firstChild;
+        if (card !== expectedNext) {
+          if (prevCard) prevCard.after(card); else wallEl.prepend(card);
+        }
+        prevCard = card;
+      }
+      // Anything left in `existing` is a card whose row dropped out — remove.
+      for (const card of existing.values()) card.remove();
+    }
+
     function appendFeedRows(tab) {
       const page = _feedPagination[tab];
       const wall = $(`feedWall${tab}`);
       if (!page || !wall || page.rendered >= page.rows.length) return false;
-      const nextRows = page.rows.slice(page.rendered, page.rendered + page.chunk);
-      page.rendered += nextRows.length;
-      nextRows.forEach(row => {
-        wall.appendChild(buildFeedCard(row, () => {
-          if (row.mode === 'disc-design') {
-            const slotTarget = state._discImportTargetSlot;
-            if (slotTarget) {
-              importDiscDesignFromPayload(row.payload, slotTarget, { openDesigner: false });
-            } else {
-              importDiscDesignFromPayload(row.payload, 'a', { openDesigner: true });
-            }
-          } else {
-            loadProjectFromText(JSON.stringify(row.payload));
-          }
-          $('nostrModal').classList.remove('open');
-        }));
-      });
+      page.rendered = Math.min(page.rows.length, page.rendered + page.chunk);
+      const visibleRows = page.rows.slice(0, page.rendered);
+      diffWallCards(wall, visibleRows, buildFeedCardForRow);
       const scroller = wall.closest('.modalCard');
       if (scroller && page.rendered < page.rows.length && scroller.scrollHeight <= scroller.clientHeight + 40) {
         requestAnimationFrame(() => appendFeedRows(tab));
@@ -7881,6 +8024,9 @@
         const trustFilter = _feedState[`trustFilter${tab}`] || 'all';
         if (trustFilter === 'trusted') rows = rows.filter(r => r.trust === 'self' || r.trust === 'trusted');
         else if (trustFilter === 'extended') rows = rows.filter(r => r.trust === 'self' || r.trust === 'trusted' || r.trust === 'extended');
+        // Content-based dedup: collapse content-identical forks to the original.
+        // "Mine" tab keeps everything because users want to see their own posts.
+        if (tab !== 'Mine') rows = dedupByFingerprint(rows);
         if (tab === 'New') {
           rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b))) || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust]) || (b.createdAt - a.createdAt));
         } else {
@@ -7891,14 +8037,21 @@
         if (!rows.length) {
           if (!_feedCache.loading) {
             wallEl.innerHTML = `<div class="hint" style="grid-column:1/-1">No templates found on these relays yet${_blockedAuthors.size ? ' (some authors may be blocked)' : ''}.</div>`;
+          } else {
+            // Loading and still no rows — keep the wall empty (or the existing
+            // placeholder text). Don't wipe / re-paint.
           }
+          _feedPagination[tab].rows = [];
+          _feedPagination[tab].rendered = 0;
           return;
         }
-        wallEl.innerHTML = '';
         _feedPagination[tab].rows = rows;
-        _feedPagination[tab].rendered = 0;
+        if (!_feedPagination[tab].rendered || _feedPagination[tab].rendered > rows.length) {
+          _feedPagination[tab].rendered = Math.min(rows.length, _feedPagination[tab].chunk);
+        }
         initInfiniteScroll(tab);
-        appendFeedRows(tab);
+        const visibleRows = rows.slice(0, _feedPagination[tab].rendered);
+        diffWallCards(wallEl, visibleRows, buildFeedCardForRow);
       };
 
       _currentFeedRerender = rerender;
@@ -8108,7 +8261,8 @@
       prevBtn.addEventListener('click', e => { e.stopPropagation(); openDesignPreview(row); });
       const useBtn = document.createElement('button');
       useBtn.type = 'button';
-      useBtn.textContent = 'Use this';
+      useBtn.textContent = 'Fork off!';
+      useBtn.title = 'Fork this design — opens it in the editor so you can save your own version';
       useBtn.addEventListener('click', e => { e.stopPropagation(); onUse(); });
       actions.append(makeReactionBtn(row), prevBtn, useBtn);
 
@@ -9014,6 +9168,7 @@
       out.innerHTML = '<div class="hint">Searching…</div>';
       await fetchFeedAndReactions();
       let rows = buildRowsFromEvents(_feedCache.events || [], type, q, false, category);
+      rows = dedupByFingerprint(rows);
       if (q) rows = deduplicateRows(rows);
       rows.sort((a, b) => b.reactions - a.reactions);
       out.innerHTML = rows.length ? '' : '<div class="hint">No templates found.</div>';
@@ -9258,6 +9413,7 @@
       const category = $('welcomeCategory').value;
       const rerender = () => {
         let rows = buildRowsFromEvents(_feedCache.events || [], type, '', false, category);
+        rows = dedupByFingerprint(rows);
         if (tab === 'Popular') {
           rows = deduplicateRows(rows);
           rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b))) || (b.reactions - a.reactions) || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust]) || (b.createdAt - a.createdAt));
@@ -9286,6 +9442,7 @@
       out.innerHTML = '<div class="hint" style="grid-column:1/-1">Searching relays…</div>';
       const rerender = () => {
         let rows = buildRowsFromEvents(_feedCache.events || [], type, q, false, category);
+        rows = dedupByFingerprint(rows);
         if (q) rows = deduplicateRows(rows);
         rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b))) || (b.reactions - a.reactions));
         renderWelcomeRows(rows);
