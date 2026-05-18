@@ -2674,6 +2674,19 @@
     </div>
   </div>
 
+  <div class="modal" id="closeProjectModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:440px">
+      <h2 style="font-size:1.05rem;margin:0 0 8px;font-family:inherit">Close this project?</h2>
+      <p class="hint" id="closeProjectBody" style="margin:0 0 16px"></p>
+      <p class="hint" id="closeProjectError" style="margin:0 0 10px;color:var(--warn);min-height:0"></p>
+      <div class="buttonRow" style="margin:0;justify-content:flex-end;flex-wrap:wrap;gap:8px">
+        <button type="button" id="closeProjectCancelBtn">Cancel</button>
+        <button type="button" id="closeProjectDiscardBtn" class="danger">Close without saving</button>
+        <button type="button" id="closeProjectSaveBtn" class="primary">Save and close</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="pdfJpegModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:480px">
       <h2 style="font-size:1.05rem;margin:0 0 8px;font-family:inherit">Export as JPEG</h2>
@@ -6696,27 +6709,15 @@
 
     function closeDiscDesignerProject() {
       const hasContent = state.discDesign?.src || (state.layers && state.layers.some(l => l.target === 'designer-disc'));
-      if (hasContent) {
-        const action = confirm('Save this design before closing?\n\nOK = Save to file\nCancel = Close without saving');
-        if (action) {
-          try {
-            downloadSingleDesign();
-          } catch (e) {
-            const publishAnyway = confirm(`Could not save: ${e.message}\n\nPublish to Nostr instead?`);
-            if (publishAnyway) {
-              try {
-                publishDiscDesignToNostr();
-              } catch (e2) {
-                alert(`Error: ${e2.message}`);
-                return;
-              }
-            } else {
-              return;
-            }
-          }
-        }
+      if (!hasContent) {
+        resetDiscDesignerState();
+        return;
       }
-      resetDiscDesignerState();
+      openCloseProjectModal({
+        body: 'Save this disc design before closing? Unsaved changes will be lost.',
+        save: () => downloadSingleDesign(),
+        reset: () => resetDiscDesignerState()
+      });
     }
 
     function resetTemplateProjectState() {
@@ -6745,11 +6746,15 @@
       const hasSpine = !!(state.discSpineLabels?.top || state.discSpineLabels?.bottom || state.jewelSpineLabels?.left || state.jewelSpineLabels?.right);
       const hasTitle = !!(state.meta?.title?.trim());
       const hasContent = hasSlotContent || hasJewel || hasLayers || hasSpine || hasTitle;
-      if (hasContent) {
-        const action = confirm('Save this project before closing?\n\nOK = Save to file\nCancel = Close without saving');
-        if (action) downloadProject();
+      if (!hasContent) {
+        resetTemplateProjectState();
+        return;
       }
-      resetTemplateProjectState();
+      openCloseProjectModal({
+        body: 'Save this project before closing? Unsaved changes will be lost.',
+        save: () => downloadProject(),
+        reset: () => resetTemplateProjectState()
+      });
     }
 
     function loadProjectFromText(text) {
@@ -7464,6 +7469,56 @@
       const modal = $('reportModal');
       if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
       _reportTarget = null;
+    }
+
+    let _closeProjectTarget = null;
+
+    function openCloseProjectModal({ body, save, reset }) {
+      _closeProjectTarget = { save, reset };
+      const modal = $('closeProjectModal');
+      if (!modal) return;
+      const bodyEl = $('closeProjectBody');
+      const errEl = $('closeProjectError');
+      const saveBtn = $('closeProjectSaveBtn');
+      const discardBtn = $('closeProjectDiscardBtn');
+      if (bodyEl) bodyEl.textContent = body || 'Save this project before closing? Unsaved changes will be lost.';
+      if (errEl) errEl.textContent = '';
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save and close'; }
+      if (discardBtn) discardBtn.disabled = false;
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeCloseProjectModal() {
+      const modal = $('closeProjectModal');
+      if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+      _closeProjectTarget = null;
+    }
+
+    function handleCloseProjectSave() {
+      const target = _closeProjectTarget;
+      if (!target) return;
+      const errEl = $('closeProjectError');
+      const saveBtn = $('closeProjectSaveBtn');
+      const discardBtn = $('closeProjectDiscardBtn');
+      if (errEl) errEl.textContent = '';
+      if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+      if (discardBtn) discardBtn.disabled = true;
+      try {
+        target.save();
+        target.reset();
+        closeCloseProjectModal();
+      } catch (e) {
+        if (errEl) errEl.textContent = `Could not save: ${e?.message || e}. Try Close without saving or Cancel.`;
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save and close'; }
+        if (discardBtn) discardBtn.disabled = false;
+      }
+    }
+
+    function handleCloseProjectDiscard() {
+      const target = _closeProjectTarget;
+      if (!target) return;
+      try { target.reset(); } finally { closeCloseProjectModal(); }
     }
 
     async function submitReport() {
@@ -10249,6 +10304,11 @@
       $('reportSubmitBtn').addEventListener('click', submitReport);
       $('reportCancelBtn').addEventListener('click', closeReportModal);
       $('reportModal').addEventListener('click', e => { if (e.target === $('reportModal')) closeReportModal(); });
+      on('closeProjectSaveBtn', 'click', handleCloseProjectSave);
+      on('closeProjectDiscardBtn', 'click', handleCloseProjectDiscard);
+      on('closeProjectCancelBtn', 'click', closeCloseProjectModal);
+      const closeProjectModalEl = $('closeProjectModal');
+      if (closeProjectModalEl) closeProjectModalEl.addEventListener('click', e => { if (e.target === closeProjectModalEl) closeCloseProjectModal(); });
       const softModToggle = $('softModEnabledToggle');
       if (softModToggle) {
         softModToggle.checked = softModEnabled();
