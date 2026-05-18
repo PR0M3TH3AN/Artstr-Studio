@@ -1617,6 +1617,10 @@
     .publishConfirmMetaRow dt { min-width:108px; font-weight:600; color:var(--muted); margin:0; }
     .publishConfirmMetaRow dd { margin:0; flex:1; word-break:break-word; color:var(--ink); }
 
+    .layerClipboardRow { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:0 0 8px; }
+    .layerClipboardRow button { font-size:.78rem; padding:4px 10px; }
+    .layerClipboardRow .hint { font-size:.72rem; margin-left:auto; }
+
     .editingBanner { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 14px; background:rgba(251,191,36,.12); border-bottom:1px solid rgba(251,191,36,.4); font-size:.85rem; color:#92400e; flex-wrap:wrap; }
     body.dark .editingBanner { background:rgba(251,191,36,.1); color:#fbbf24; }
     .editingBannerText { flex:1; min-width:0; }
@@ -2288,6 +2292,11 @@
 
       <fieldset class="workflowStep template-only" id="layersFieldset">
         <legend data-step="2">Layers</legend>
+        <div class="layerClipboardRow">
+          <button type="button" id="layerCopyAllBtn">Copy all</button>
+          <button type="button" id="layerPasteBtn" disabled>Paste</button>
+          <span class="hint" id="layerClipboardStatus">Clipboard: empty</span>
+        </div>
         <div class="layerList" id="layerList"></div>
 
         <details id="layerControls">
@@ -2377,6 +2386,8 @@
             <button type="button" id="layerForward">Move forward</button>
             <button type="button" id="layerBackward">Move back</button>
             <button type="button" id="layerDuplicate">Duplicate</button>
+            <button type="button" id="layerCopyBtn">Copy</button>
+            <button type="button" id="layerCutBtn">Cut</button>
             <button type="button" class="danger" id="deleteLayer">Delete layer</button>
           </div>
         </details>
@@ -3038,17 +3049,24 @@
     ];
 
     const TEMPLATE_LAYER_TARGETS = [
-      { key: 'page', label: 'Whole page' },
       { key: 'cover-trim', label: 'Cover trim area' },
       { key: 'back', label: 'Back cover' },
       { key: 'spine', label: 'Spine' },
       { key: 'front', label: 'Front cover' }
     ];
 
+    // The "primary" target for each sub-mode — used when migrating legacy
+    // page/empty-target layers and as the paste destination for the clipboard.
+    function primaryTargetForMode(mode) {
+      if (mode === 'disc') return 'disc-top';
+      if (mode === 'jewel') return 'jewel-front';
+      if (mode === 'customart') return 'canvas';
+      return 'cover-trim'; // cover mode
+    }
+
     function isLayerForCurrentMode(layer) {
       const t = String(layer?.target || '');
-      // 'page' is shared / "whole page" — render in any template mode (legacy).
-      if (t === '' || t === 'page') return true;
+      if (!t) return false; // strict isolation: no target = doesn't belong here
       const mode = state.templateMode;
       if (mode === 'customart') return t === 'canvas';
       if (mode === 'disc') return t.startsWith('disc-');
@@ -3057,14 +3075,25 @@
       return true;
     }
 
+    // Legacy payloads (and any layer with target='page' or no target) were
+    // implicitly rendered in every template sub-mode, which is what caused
+    // case art to leak into the disc preview. Migrate them to the current
+    // sub-mode's primary target on load so they belong to exactly one mode.
+    function migrateLegacyLayerTargets(layers, mode) {
+      const primary = primaryTargetForMode(mode || state.templateMode || 'cover');
+      return (layers || []).map(l => {
+        const t = String(l?.target || '');
+        if (t === '' || t === 'page') return { ...l, target: primary };
+        return l;
+      });
+    }
+
     function templateLayerTargetsForMode() {
       if (state.templateMode === 'disc') return [
-        { key: 'page', label: 'Whole page' },
         { key: 'disc-top', label: 'Disc 1' },
         { key: 'disc-bottom', label: 'Disc 2' }
       ];
       if (state.templateMode === 'jewel') return [
-        { key: 'page', label: 'Whole page' },
         { key: 'jewel-front', label: 'Jewel front insert' },
         { key: 'jewel-tray', label: 'Jewel tray insert' }
       ];
@@ -3173,6 +3202,7 @@
       darkMode: false,
       appMode: 'template',
       templateMode: 'cover',
+      savedMetaByMode: {},
       editingDTag: '',
       editingKind: 0,
       editingEventId: '',
@@ -5054,6 +5084,100 @@
 
     function makeLayerId() {
       return `layer-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    }
+
+    // Session-only layer clipboard — copy/cut/paste layers between sub-modes
+    // (cover ↔ disc ↔ jewel ↔ customart) and across the Template ↔ Disc
+    // Designer boundary. Items are layer payloads with id/z stripped so paste
+    // mints fresh ones.
+    const _layerClipboard = { items: [], fromLabel: '' };
+
+    function currentPasteTarget() {
+      if (state.appMode === 'designer') return 'designer-disc';
+      return primaryTargetForMode(state.templateMode || 'cover');
+    }
+
+    function modeLabelForClipboard() {
+      if (state.appMode === 'designer') return 'Disc Designer';
+      const m = state.templateMode || 'cover';
+      if (m === 'cover') return 'Cover';
+      if (m === 'disc') return 'Disc sheet';
+      if (m === 'jewel') return 'Jewel';
+      if (m === 'customart') return 'Custom art';
+      return m;
+    }
+
+    function updateLayerClipboardUI() {
+      const status = $('layerClipboardStatus');
+      const pasteBtn = $('layerPasteBtn');
+      if (status) {
+        status.textContent = _layerClipboard.items.length
+          ? `Clipboard: ${_layerClipboard.items.length} layer${_layerClipboard.items.length === 1 ? '' : 's'} from ${_layerClipboard.fromLabel}`
+          : 'Clipboard: empty';
+      }
+      if (pasteBtn) pasteBtn.disabled = _layerClipboard.items.length === 0;
+    }
+
+    function snapshotLayerForClipboard(layer) {
+      // Strip identity / stack fields; keep visual/positional ones.
+      const { id, z, _generatedDiscLayer, _staleGenerated, target, ...rest } = layer;
+      return { ...rest };
+    }
+
+    function copySelectedLayerToClipboard() {
+      const layer = selectedLayer();
+      if (!layer) { toastError('No layer selected.'); return; }
+      _layerClipboard.items = [snapshotLayerForClipboard(layer)];
+      _layerClipboard.fromLabel = modeLabelForClipboard();
+      updateLayerClipboardUI();
+      toastSuccess('Copied layer.');
+    }
+
+    function cutSelectedLayerToClipboard() {
+      const layer = selectedLayer();
+      if (!layer) { toastError('No layer selected.'); return; }
+      _layerClipboard.items = [snapshotLayerForClipboard(layer)];
+      _layerClipboard.fromLabel = modeLabelForClipboard();
+      state.layers = state.layers.filter(l => l.id !== layer.id);
+      state.selectedLayerId = '';
+      updateLayerClipboardUI();
+      render();
+      toastSuccess('Cut layer to clipboard.');
+    }
+
+    function copyAllLayersToClipboard() {
+      const all = state.layers
+        .filter(l => state.appMode === 'designer'
+          ? l.target === 'designer-disc' && !l._generatedDiscLayer
+          : isLayerForCurrentMode(l));
+      if (!all.length) { toastError('No layers in this view to copy.'); return; }
+      _layerClipboard.items = all.map(snapshotLayerForClipboard);
+      _layerClipboard.fromLabel = modeLabelForClipboard();
+      updateLayerClipboardUI();
+      toastSuccess(`Copied ${all.length} layer${all.length === 1 ? '' : 's'}.`);
+    }
+
+    function pasteLayersFromClipboard() {
+      const items = _layerClipboard.items;
+      if (!items.length) { toastError('Clipboard is empty.'); return; }
+      const target = currentPasteTarget();
+      const bounds = targetBounds(target);
+      let newLast = null;
+      for (const item of items) {
+        const w = Math.max(0.1, Math.min(item.w || bounds.w * 0.7, bounds.w));
+        const h = Math.max(0.1, Math.min(item.h || bounds.h * 0.7, bounds.h));
+        let x = typeof item.x === 'number' ? item.x : bounds.x + (bounds.w - w) / 2;
+        let y = typeof item.y === 'number' ? item.y : bounds.y + (bounds.h - h) / 2;
+        // Clamp inside the target bounds so cross-sub-mode pastes don't land off-canvas.
+        if (x < bounds.x || x + w > bounds.x + bounds.w) x = bounds.x + (bounds.w - w) / 2;
+        if (y < bounds.y || y + h > bounds.y + bounds.h) y = bounds.y + (bounds.h - h) / 2;
+        const layer = { ...item, id: makeLayerId(), target, x, y, w, h, z: nextLayerZ() };
+        state.layers.push(layer);
+        newLast = layer;
+      }
+      if (newLast) state.selectedLayerId = newLast.id;
+      render();
+      toastSuccess(`Pasted ${items.length} layer${items.length === 1 ? '' : 's'} into ${modeLabelForClipboard()}.`);
     }
 
     function targetBounds(target) {
@@ -7400,7 +7524,7 @@
               const target = String(l.target || '');
               return target.startsWith('disc') || target.startsWith('jewel');
             }),
-            ...(Array.isArray(parsed.layers) ? parsed.layers : [])
+            ...migrateLegacyLayerTargets(parsed.layers, 'cover')
           ],
           selectedLayerId: ''
         });
@@ -7420,7 +7544,7 @@
           ...(spineLabels ? { discSpineLabels: { ...state.discSpineLabels, ...spineLabels } } : {}),
           layers: [
             ...state.layers.filter(l => !String(l.target || '').startsWith('disc')),
-            ...(Array.isArray(parsed.layers) ? parsed.layers : [])
+            ...migrateLegacyLayerTargets(parsed.layers, 'disc')
           ],
           selectedLayerId: ''
         });
@@ -7442,7 +7566,7 @@
           ...(jewelSpineLabels ? { jewelSpineLabels: { ...state.jewelSpineLabels, ...jewelSpineLabels } } : {}),
           layers: [
             ...state.layers.filter(l => !String(l.target || '').startsWith('jewel')),
-            ...(Array.isArray(parsed.layers) ? parsed.layers : [])
+            ...migrateLegacyLayerTargets(parsed.layers, 'jewel')
           ],
           selectedLayerId: ''
         });
@@ -7464,7 +7588,7 @@
           // replace the canvas-target layers with the forked design's layers.
           layers: [
             ...state.layers.filter(l => l.target !== 'canvas'),
-            ...(Array.isArray(parsed.layers) ? parsed.layers : [])
+            ...migrateLegacyLayerTargets(parsed.layers, 'customart')
           ],
           selectedLayerId: ''
         });
@@ -7504,6 +7628,8 @@
             layers: Array.isArray(parsed.layers) ? parsed.layers : []
           }
         : parsed;
+      const sourceTemplateMode = source.templateMode || state.templateMode || 'cover';
+      const migratedLayers = migrateLegacyLayerTargets(source.layers, sourceTemplateMode);
       const next = {
         ...state,
         ...source,
@@ -7514,7 +7640,7 @@
         // backward compat handled in normalizeDiscState
         jewelInserts: { ...state.jewelInserts, ...(source.jewelInserts || {}) },
         community: { ...state.community, ...(source.community || {}) },
-        layers: Array.isArray(source.layers) ? source.layers : [],
+        layers: migratedLayers,
         selectedLayerId: ''
       };
       Object.assign(state, next);
@@ -11223,6 +11349,7 @@
       state._discImportTargetSlot = null;
 
       if (!isSlotImport && openDesigner) {
+        swapMetaForAppMode('designer');
         state.appMode = 'designer';
         if (state.templateMode !== 'disc') {
           state._prevTemplateMode = state.templateMode;
@@ -11306,8 +11433,25 @@
       }
     }
 
+    // Save the metadata currently in state.meta into savedMetaByMode for the
+    // old appMode, and load the saved metadata for the new appMode (or a fresh
+    // blank if we've never been there). omdbApiKey is treated as a per-user
+    // preference and stays sticky across mode switches.
+    function swapMetaForAppMode(newMode) {
+      if (!state.savedMetaByMode) state.savedMetaByMode = {};
+      const oldMode = state.appMode;
+      if (oldMode === newMode) return;
+      const apiKey = state.meta?.omdbApiKey || '';
+      state.savedMetaByMode[oldMode] = { ...state.meta };
+      const next = state.savedMetaByMode[newMode];
+      state.meta = next
+        ? { ...next, omdbApiKey: apiKey || next.omdbApiKey || '' }
+        : { ...blankMeta(), omdbApiKey: apiKey };
+    }
+
     function switchAppMode(mode) {
       if (state.appMode === 'designer') persistCurrentDiscDesign();
+      swapMetaForAppMode(mode);
       state.appMode = mode;
       if (mode === 'designer') {
         if (state.templateMode !== 'disc') {
@@ -12220,6 +12364,11 @@
         render();
       });
 
+      on('layerCopyAllBtn', 'click', copyAllLayersToClipboard);
+      on('layerPasteBtn', 'click', pasteLayersFromClipboard);
+      on('layerCopyBtn', 'click', copySelectedLayerToClipboard);
+      on('layerCutBtn', 'click', cutSelectedLayerToClipboard);
+
       const duplicateBtn = $('layerDuplicate');
       if (duplicateBtn) duplicateBtn.addEventListener('click', () => {
         const layer = selectedLayer();
@@ -12274,6 +12423,7 @@
       normalizeDiscState();
       normalizeJewelState();
       populateCategorySelects();
+      updateLayerClipboardUI();
       if (!localStorage.getItem('casewrap-welcomed')) {
         $('welcomeModal').classList.add('open');
         setTimeout(() => loadWelcomeTab('New'), 0);
