@@ -1593,6 +1593,24 @@
     .previewActionsRow > #nostrPreviewActions[data-visible="false"] { display:none; }
     .previewActionsRow button { font-size:.78rem; padding:5px 10px; line-height:1.2; white-space:nowrap; }
 
+    .toastStack { position:fixed; bottom:20px; right:20px; z-index:2000; display:flex; flex-direction:column; gap:8px; pointer-events:none; max-width:calc(100vw - 40px); }
+    .toast { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:10px 36px 10px 14px; max-width:380px; box-shadow:0 6px 18px rgba(0,0,0,.3); font-size:.85rem; pointer-events:auto; position:relative; line-height:1.35; animation:toastIn .18s ease-out; }
+    .toast.toast-error { border-left:3px solid var(--warn); }
+    .toast.toast-success { border-left:3px solid var(--accent); }
+    .toast.toast-info { border-left:3px solid var(--muted); }
+    .toast .toastClose { position:absolute; top:6px; right:6px; width:22px; height:22px; border:0; background:transparent; color:var(--muted); cursor:pointer; font-size:16px; line-height:1; padding:0; border-radius:4px; }
+    .toast .toastClose:hover { background:rgba(127,127,127,.15); color:var(--ink); }
+    .toast.toastOut { opacity:0; transition:opacity .2s; }
+    @keyframes toastIn { from { transform:translateY(8px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+
+    .publishConfirmPreview { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; margin:0 0 12px; display:flex; justify-content:center; align-items:center; max-height:280px; overflow:hidden; }
+    .publishConfirmPreview > * { max-width:100%; max-height:260px; }
+    .publishConfirmMeta { margin:0 0 12px; font-size:.82rem; }
+    .publishConfirmMetaRow { display:flex; gap:10px; padding:5px 0; border-bottom:1px solid var(--line); }
+    .publishConfirmMetaRow:last-child { border-bottom:0; }
+    .publishConfirmMetaRow dt { min-width:108px; font-weight:600; color:var(--muted); margin:0; }
+    .publishConfirmMetaRow dd { margin:0; flex:1; word-break:break-word; color:var(--ink); }
+
     .editingBanner { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 14px; background:rgba(251,191,36,.12); border-bottom:1px solid rgba(251,191,36,.4); font-size:.85rem; color:#92400e; flex-wrap:wrap; }
     body.dark .editingBanner { background:rgba(251,191,36,.1); color:#fbbf24; }
     .editingBannerText { flex:1; min-width:0; }
@@ -2807,6 +2825,24 @@
     </div>
   </div>
 
+  <div id="toastStack" class="toastStack" aria-live="polite" aria-atomic="false"></div>
+
+  <div class="modal" id="publishConfirmModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:580px;position:relative">
+      <button type="button" id="publishConfirmCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
+      <h2 id="publishConfirmTitle" style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Ready to publish?</h2>
+      <p class="hint" id="publishConfirmSubtitle" style="margin:0 0 12px">Double-check the details below before posting to Nostr. You can edit or delete later, but the original event will exist on relays.</p>
+      <div id="publishConfirmPreview" class="publishConfirmPreview"></div>
+      <dl id="publishConfirmMetaList" class="publishConfirmMeta"></dl>
+      <p id="publishConfirmEditNote" class="hint" style="display:none;margin:0 0 12px;padding:8px 10px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.1);color:#92400e;border-radius:6px;font-size:.78rem"></p>
+      <p id="publishConfirmError" class="hint" style="display:none;margin:0 0 12px;color:var(--warn);font-size:.82rem"></p>
+      <div class="buttonRow" style="margin:0;justify-content:flex-end;flex-wrap:wrap;gap:8px">
+        <button type="button" id="publishConfirmCancelBtn">Cancel</button>
+        <button type="button" id="publishConfirmPublishBtn" class="primary">Publish</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="tipModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:420px;position:relative">
       <button type="button" id="tipCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
@@ -2893,6 +2929,38 @@
     const $ = (id) => document.getElementById(id);
     const safe$ = (id) => { try { return $(id); } catch { return null; } };
     const on = (id, type, fn) => { const el = $(id); if (el) el.addEventListener(type, fn); };
+
+    // In-app toast — replaces all uses of native toastError(). Default type is
+    // 'info'; use toastError / toastSuccess for the common severity flavors.
+    function toast(message, opts = {}) {
+      const type = opts.type || 'info';
+      const duration = typeof opts.duration === 'number' ? opts.duration : (type === 'error' ? 5500 : 3500);
+      const stack = $('toastStack');
+      const text = String(message ?? '');
+      if (!stack) { console.log('[toast]', type, text); return null; }
+      const el = document.createElement('div');
+      el.className = `toast toast-${type}`;
+      const body = document.createElement('span');
+      body.textContent = text;
+      el.appendChild(body);
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'toastClose';
+      close.setAttribute('aria-label', 'Dismiss');
+      close.textContent = '×';
+      const dismiss = () => {
+        if (!el.isConnected) return;
+        el.classList.add('toastOut');
+        setTimeout(() => { if (el.isConnected) el.remove(); }, 220);
+      };
+      close.addEventListener('click', dismiss);
+      el.appendChild(close);
+      stack.appendChild(el);
+      if (duration > 0) setTimeout(dismiss, duration);
+      return el;
+    }
+    function toastError(message, opts = {}) { return toast(message, { ...opts, type: 'error' }); }
+    function toastSuccess(message, opts = {}) { return toast(message, { ...opts, type: 'success' }); }
 
     function copyUrl(id) {
       const input = $(id);
@@ -4314,7 +4382,7 @@
             syncInputs();
             render();
           } catch (error) {
-            alert(error.message || 'Invalid image URL.');
+            toastError(error.message || 'Invalid image URL.');
           }
         });
 
@@ -4420,7 +4488,7 @@
             syncInputs();
             render();
           } catch (error) {
-            alert(error.message || 'Invalid image URL.');
+            toastError(error.message || 'Invalid image URL.');
           }
         });
 
@@ -4655,7 +4723,7 @@
                   const preview = $(`disc-preview-${key}`);
                   if (preview) preview.textContent = 'Loaded from project';
                 }
-              } catch { alert('Could not load disc design from this file.'); }
+              } catch { toastError('Could not load disc design from this file.'); }
             };
             reader.readAsText(file);
           });
@@ -5151,34 +5219,92 @@
       if (!list) return;
       list.innerHTML = '';
       if (state.appMode === 'designer') {
+        // Single Add-layer panel for designer mode — discs are one target, so
+        // there's no per-section grouping like the template editor has.
+        const panel = document.createElement('section');
+        panel.className = 'templateLayerPanel';
+
+        const head = document.createElement('div');
+        head.className = 'templateLayerPanelHead';
         const listedLayers = state.layers
           .filter((layer) => layer.target === 'designer-disc')
           .filter((layer) => !layer._generatedDiscLayer);
+        head.innerHTML = `<span>Disc layers</span><span>${listedLayers.length} layer${listedLayers.length === 1 ? '' : 's'}</span>`;
+        panel.appendChild(head);
+
+        const actions = document.createElement('div');
+        actions.className = 'templateLayerPanelActions';
+
+        const urlRow = document.createElement('div');
+        urlRow.className = 'urlRow';
+        const urlInput = document.createElement('input');
+        urlInput.type = 'url';
+        urlInput.placeholder = 'https://example.com/layer.png';
+        urlInput.id = 'designer-layer-url';
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'copyUrlBtn';
+        copyBtn.textContent = 'Copy';
+        copyBtn.addEventListener('click', () => copyUrl(urlInput.id));
+        urlRow.append(urlInput, copyBtn);
+
+        const buttonRow = document.createElement('div');
+        buttonRow.className = 'buttonRow';
+        const addImageBtn = document.createElement('button');
+        addImageBtn.type = 'button';
+        addImageBtn.textContent = 'Add image layer';
+        addImageBtn.addEventListener('click', () => {
+          const raw = urlInput.value.trim();
+          if (!raw) return;
+          try {
+            const url = normalizeImageUrl(raw);
+            addImageLayer(url, url.split('/').pop() || 'Image layer', 'designer-disc');
+            urlInput.value = '';
+          } catch (error) {
+            toastError(error.message || 'Invalid image URL.');
+          }
+        });
+        const addTextBtn = document.createElement('button');
+        addTextBtn.type = 'button';
+        addTextBtn.textContent = 'Add text layer';
+        addTextBtn.addEventListener('click', () => addTextLayer('designer-disc'));
+        const addColorBtn = document.createElement('button');
+        addColorBtn.type = 'button';
+        addColorBtn.textContent = 'Add color block';
+        addColorBtn.addEventListener('click', () => addColorLayer('designer-disc'));
+        buttonRow.append(addImageBtn, addTextBtn, addColorBtn);
+
+        actions.append(urlRow, buttonRow);
+        panel.appendChild(actions);
+
+        const listWrap = document.createElement('div');
+        listWrap.className = 'templateLayerPanelList';
         if (!listedLayers.length) {
           const empty = document.createElement('p');
           empty.className = 'hint';
           empty.textContent = 'No extra layers yet.';
-          list.appendChild(empty);
-          return;
+          listWrap.appendChild(empty);
+        } else {
+          const ordered = [...listedLayers].sort((a, b) => (b.z || 0) - (a.z || 0));
+          for (const layer of ordered) {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = `layerItem${layer.id === state.selectedLayerId ? ' active' : ''}`;
+            const rawName = layer.type === 'text'
+              ? (layerHtmlToPlainText(layer.html).split('\n')[0].trim() || layer.name || 'Text layer')
+              : (layer.name || layer.type);
+            const displayName = rawName.length > 32 ? rawName.slice(0, 29) + '...' : rawName;
+            const lockTag = layer.locked ? '<span class="layerLockTag" title="Locked">LOCK</span>' : '';
+            item.innerHTML = `<span title="${rawName}">${lockTag}${displayName}</span><span>${layer.type}</span>`;
+            item.addEventListener('click', () => {
+              state.selectedLayerId = layer.id;
+              render();
+            });
+            listWrap.appendChild(item);
+          }
         }
-
-        const ordered = [...listedLayers].sort((a, b) => (b.z || 0) - (a.z || 0));
-        for (const layer of ordered) {
-          const item = document.createElement('button');
-          item.type = 'button';
-          item.className = `layerItem${layer.id === state.selectedLayerId ? ' active' : ''}`;
-          const rawName = layer.type === 'text'
-            ? (layerHtmlToPlainText(layer.html).split('\n')[0].trim() || layer.name || 'Text layer')
-            : (layer.name || layer.type);
-          const displayName = rawName.length > 32 ? rawName.slice(0, 29) + '...' : rawName;
-          const lockTag = layer.locked ? '<span class="layerLockTag" title="Locked">LOCK</span>' : '';
-          item.innerHTML = `<span title="${rawName}">${lockTag}${displayName}</span><span>${layer.type}</span>`;
-          item.addEventListener('click', () => {
-            state.selectedLayerId = layer.id;
-            render();
-          });
-          list.appendChild(item);
-        }
+        panel.appendChild(listWrap);
+        list.appendChild(panel);
         return;
       }
 
@@ -5222,7 +5348,7 @@
             addImageLayer(url, url.split('/').pop() || 'Image layer', targetDef.key);
             urlInput.value = '';
           } catch (error) {
-            alert(error.message || 'Invalid image URL.');
+            toastError(error.message || 'Invalid image URL.');
           }
         });
         const addTextBtn = document.createElement('button');
@@ -5638,7 +5764,7 @@
             await loadFeedTab('New');
           }
         } catch (error) {
-          alert(error.message || 'Could not delete this template.');
+          toastError(error.message || 'Could not delete this template.');
         }
       });
       actionsDiv.insertBefore(deleteBtn, insertBeforeNode);
@@ -6876,8 +7002,8 @@
     function downloadProject() {
       const title = (state.meta.title || '').trim();
       const category = (state.meta.category || '').trim();
-      if (!title) { alert('Please enter a title in Project Metadata before saving.'); return; }
-      if (!category) { alert('Please select a category in Project Metadata before saving.'); return; }
+      if (!title) { toastError('Please enter a title in Project Metadata before saving.'); return; }
+      if (!category) { toastError('Please select a category in Project Metadata before saving.'); return; }
       if (state.templateMode === 'disc') {
         triggerDownload(discSheetPayload(), discProjectFilename());
       } else if (state.templateMode === 'jewel') {
@@ -6893,8 +7019,8 @@
     function downloadSingleDesign() {
       const title = (state.meta.title || '').trim();
       const category = (state.meta.category || '').trim();
-      if (!title) { alert('Please enter a title in Project Metadata before saving.'); return; }
-      if (!category) { alert('Please select a category in Project Metadata before saving.'); return; }
+      if (!title) { toastError('Please enter a title in Project Metadata before saving.'); return; }
+      if (!category) { toastError('Please select a category in Project Metadata before saving.'); return; }
       const design = state.discDesign;
       if (!design?.src) return;
       const payload = discDesignPayload();
@@ -6910,7 +7036,7 @@
     function resetDiscDesignerState() {
       state.discDesign = { name: '', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 };
       state.layers = (state.layers || []).filter(l => l.target !== 'designer-disc');
-      state.meta = { title: '', imdbId: '', omdbApiKey: '', category: '', language: 'en' };
+      state.meta = blankMeta();
       state.selectedLayerId = '';
       exitEditMode();
       syncInputs();
@@ -6939,7 +7065,7 @@
       state.jewelInserts = { front: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, tray: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
       state.discSpineLabels = { top: '', bottom: '' };
       state.jewelSpineLabels = { left: '', right: '' };
-      state.meta = { title: '', imdbId: '', omdbApiKey: '', category: '', language: 'en' };
+      state.meta = blankMeta();
       state.layers = (state.layers || []).filter(l => l.target === 'designer-disc');
       state.selectedLayerId = '';
       exitEditMode();
@@ -6955,6 +7081,10 @@
 
     function isEditing() {
       return !!state.editingDTag;
+    }
+
+    function blankMeta() {
+      return { title: '', imdbId: '', upc: '', tvdbId: '', musicbrainzDiscId: '', omdbApiKey: state.meta?.omdbApiKey || '', category: '', language: 'en' };
     }
 
     function enterEditMode({ dTag, kind, eventId, title }) {
@@ -7007,7 +7137,7 @@
 
     function startEditFromRow(row) {
       const dTag = rowDTag(row);
-      if (!dTag) { alert('This design has no d-tag and cannot be edited in place. You can fork it instead.'); return; }
+      if (!dTag) { toastError('This design has no d-tag and cannot be edited in place. You can fork it instead.'); return; }
       // Close the surrounding browser/profile modal so the editor is visible.
       const nostrModalEl = $('nostrModal');
       if (nostrModalEl) nostrModalEl.classList.remove('open');
@@ -7024,7 +7154,7 @@
           loadProjectFromText(JSON.stringify(row.payload));
         }
       } catch (err) {
-        alert(`Could not load this design: ${err?.message || err}`);
+        toastError(`Could not load this design: ${err?.message || err}`);
         return;
       }
       enterEditMode({
@@ -7033,6 +7163,106 @@
         eventId: row.e?.id || '',
         title: row.title || state.meta?.title || 'Untitled design'
       });
+    }
+
+    // ---- Publish-confirm modal: preview + metadata review before posting ----
+
+    const MODE_LABELS_PRETTY = {
+      cover: 'Case cover wrap',
+      disc: 'Disc-label sheet',
+      jewel: 'Jewel-case insert',
+      'disc-design': 'Disc design',
+      customart: 'Custom art'
+    };
+
+    let _publishConfirmTarget = null; // { onConfirm }
+
+    function openPublishConfirmModal({ mode, payload, meta, isUpdate, onConfirm }) {
+      _publishConfirmTarget = { onConfirm };
+      const modal = $('publishConfirmModal');
+      if (!modal) return;
+      const titleEl = $('publishConfirmTitle');
+      const subtitleEl = $('publishConfirmSubtitle');
+      const publishBtn = $('publishConfirmPublishBtn');
+      const editNote = $('publishConfirmEditNote');
+      const errEl = $('publishConfirmError');
+
+      if (titleEl) titleEl.textContent = isUpdate ? 'Publish this update?' : 'Ready to publish?';
+      if (subtitleEl) subtitleEl.textContent = isUpdate
+        ? 'This replaces the original event with the new version below.'
+        : 'Double-check the details below before posting to Nostr. You can edit or delete later.';
+      if (publishBtn) { publishBtn.disabled = false; publishBtn.textContent = isUpdate ? 'Publish update' : 'Publish'; }
+      if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+      if (editNote) {
+        if (isUpdate) {
+          editNote.textContent = 'Reactions and Lightning zaps on the old version stay on relays but no longer link to this design — totals reset. naddr share links keep working; nevent links don\'t.';
+          editNote.style.display = '';
+        } else {
+          editNote.style.display = 'none';
+          editNote.textContent = '';
+        }
+      }
+
+      // Render preview
+      const previewEl = $('publishConfirmPreview');
+      if (previewEl) {
+        previewEl.innerHTML = '';
+        try {
+          if (mode === 'disc-design') renderDiscPreviewDOM(previewEl, payload, { compact: true });
+          else if (mode === 'disc') renderDiscSheetPreviewDOM(previewEl, payload, { compact: true });
+          else if (mode === 'jewel') renderJewelPreviewDOM(previewEl, payload, { compact: true });
+          else if (mode === 'customart') renderCustomArtPreviewDOM(previewEl, payload, { compact: true });
+          else renderTemplatePreviewDOM(previewEl, payload, { compact: true });
+          fitMiniPreview(previewEl);
+        } catch (err) {
+          previewEl.innerHTML = `<p class="hint">Preview unavailable: ${escapeHtml(err?.message || String(err))}</p>`;
+        }
+      }
+
+      // Populate metadata
+      const metaEl = $('publishConfirmMetaList');
+      if (metaEl) {
+        const rows = [];
+        rows.push(['Type', MODE_LABELS_PRETTY[mode] || mode || 'Design']);
+        if (meta?.title) rows.push(['Title', meta.title]);
+        if (meta?.category) rows.push(['Category', categoryLabel(meta.category) || meta.category]);
+        if (meta?.language) rows.push(['Language', meta.language]);
+        if (meta?.imdbId) rows.push(['IMDb ID', meta.imdbId]);
+        if (meta?.upc) rows.push(['UPC', meta.upc]);
+        if (meta?.tvdbId) rows.push(['TheTVDB ID', meta.tvdbId]);
+        if (meta?.musicbrainzDiscId) rows.push(['MusicBrainz Disc ID', meta.musicbrainzDiscId]);
+        const myProfile = state.community?.myProfile || null;
+        const authorName = myProfile?.display_name || myProfile?.name || (state.community?.myPubkey ? shortPubkey(state.community.myPubkey) : 'You');
+        rows.push(['Author', authorName]);
+        metaEl.innerHTML = rows.map(([k, v]) => `<div class="publishConfirmMetaRow"><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(String(v))}</dd></div>`).join('');
+      }
+
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+      bringModalToFront(modal);
+    }
+
+    function closePublishConfirmModal() {
+      const modal = $('publishConfirmModal');
+      if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+      _publishConfirmTarget = null;
+    }
+
+    async function handlePublishConfirmPublish() {
+      const target = _publishConfirmTarget;
+      if (!target?.onConfirm) return;
+      const btn = $('publishConfirmPublishBtn');
+      const errEl = $('publishConfirmError');
+      if (btn) { btn.disabled = true; btn.textContent = 'Publishing…'; }
+      if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+      try {
+        await target.onConfirm();
+        closePublishConfirmModal();
+      } catch (err) {
+        const msg = err?.message || String(err);
+        if (errEl) { errEl.textContent = msg; errEl.style.display = ''; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Publish'; }
+      }
     }
 
     let _editConfirmShownThisSession = false;
@@ -7348,6 +7578,14 @@
       _feedCache.reactions = {};
       _feedCache.profiles = {};
       _feedCache.fetchedAt = 0;
+      // Zap totals are derived from kind-9735 receipts that arrive after a tip
+      // settles. If we don't clear the dedup set here, refresh never picks up
+      // newly-sent zaps because every event id is already marked "fetched".
+      _zapCache.byEvent.clear();
+      _zapCache.byAuthor.clear();
+      _zapCache.receiptIds.clear();
+      _zapCache.fetchedForEvents.clear();
+      _zapCache.fetchedForAuthors.clear();
     }
 
     async function fetchFeedAndReactions() {
@@ -7816,7 +8054,7 @@
             await syncLocalBlocksToMuteList('unblock');
           } catch (error) {
             state.community.status = 'Author unblocked locally, but mute-list sync failed.';
-            alert(error.message || 'Could not sync mute list to relays.');
+            toastError(error.message || 'Could not sync mute list to relays.');
           }
           await refreshCommunityView();
         });
@@ -8576,6 +8814,16 @@
       return formatSats(sats);
     }
 
+    let _zapStreamRerenderPending = false;
+    function scheduleZapStreamRerender() {
+      if (_zapStreamRerenderPending) return;
+      _zapStreamRerenderPending = true;
+      setTimeout(() => {
+        _zapStreamRerenderPending = false;
+        try { notifyFeedProgress(); } catch {}
+      }, 200);
+    }
+
     async function fetchZapsForEvents(eventIds, hintRelays = []) {
       const fresh = (eventIds || []).filter(id => id && !_zapCache.fetchedForEvents.has(id));
       if (!fresh.length) return false;
@@ -8584,17 +8832,23 @@
       const relays = [...new Set([...(hintRelays || []), ...userRelays])];
       let mutated = false;
       // Batch in groups of 30 ids per subscription to avoid oversized filters.
+      // Chunks run in parallel; each receipt streams a debounced rerender so
+      // zap totals appear progressively instead of after all chunks finish.
       const CHUNK = 30;
-      for (let i = 0; i < fresh.length; i += CHUNK) {
-        const ids = fresh.slice(i, i + CHUNK);
-        try {
-          const events = await queryRelays(relays, { kinds: [9735], '#e': ids, limit: 500 }, {
-            timeoutMs: 4000,
-            onEvent: ev => { if (ingestZapReceipt(ev)) mutated = true; }
-          });
-          for (const ev of events || []) { if (ingestZapReceipt(ev)) mutated = true; }
-        } catch { /* keep going */ }
-      }
+      const chunks = [];
+      for (let i = 0; i < fresh.length; i += CHUNK) chunks.push(fresh.slice(i, i + CHUNK));
+      await Promise.all(chunks.map(ids =>
+        queryRelays(relays, { kinds: [9735], '#e': ids, limit: 500 }, {
+          timeoutMs: 4500,
+          onEvent: ev => {
+            if (ingestZapReceipt(ev)) { mutated = true; scheduleZapStreamRerender(); }
+          }
+        }).then(events => {
+          for (const ev of events || []) {
+            if (ingestZapReceipt(ev)) { mutated = true; scheduleZapStreamRerender(); }
+          }
+        }).catch(() => null)
+      ));
       return mutated;
     }
 
@@ -8936,7 +9190,7 @@
 
     async function submitReport() {
       if (!_reportTarget) return;
-      if (!window.nostr) { alert('Install a Nostr extension (like Alby or nos2x) to send reports.'); return; }
+      if (!window.nostr) { toastError('Install a Nostr extension (like Alby or nos2x) to send reports.'); return; }
       const { eventId, authorPubkey } = _reportTarget;
       const reason = $('reportReason')?.value || 'other';
       const note = ($('reportNote')?.value || '').trim();
@@ -8971,7 +9225,8 @@
 
     const _feedPagination = {
       New: { rows: [], rendered: 0, chunk: 24, initialized: false },
-      Popular: { rows: [], rendered: 0, chunk: 24, initialized: false }
+      Popular: { rows: [], rendered: 0, chunk: 24, initialized: false },
+      Zapped: { rows: [], rendered: 0, chunk: 24, initialized: false }
     };
 
     function buildRowsFromEvents(events, typeFilter = 'any', query = '', skipVersionFilter = false, categoryFilter = '', languageFilter = '') {
@@ -9368,7 +9623,7 @@
       try {
         const pubkey = await getNostrPublicKey();
         if (!pubkey) {
-          alert('No Nostr extension found. Install Alby, nos2x, or another NIP-07 extension.');
+          toastError('No Nostr extension found. Install Alby, nos2x, or another NIP-07 extension.');
           return;
         }
         state.community.myPubkey = pubkey;
@@ -9662,7 +9917,7 @@
 
     async function reactToNostrEvent(eventId, pubkey) {
       if (!window.nostr) {
-        alert('Install a Nostr extension (like Alby or nos2x) to react to templates.');
+        toastError('Install a Nostr extension (like Alby or nos2x) to react to templates.');
         return false;
       }
       try {
@@ -9677,7 +9932,7 @@
         _feedCache.reactions[eventId] = (_feedCache.reactions[eventId] || 0) + 1;
         return true;
       } catch (e) {
-        alert(e.message || 'Could not send reaction.');
+        toastError(e.message || 'Could not send reaction.');
         return false;
       }
     }
@@ -9978,7 +10233,7 @@
             loadProjectFromText(JSON.stringify(p));
           } catch (e) {
             console.error(e);
-            alert('This template could not be loaded for printing.');
+            toastError('This template could not be loaded for printing.');
             document.title = previousTitle;
             Object.assign(state, stateSnapshot);
             syncInputs();
@@ -11199,11 +11454,11 @@
         state.meta.omdbApiKey = key;
         const res = await fetch(`https://www.omdbapi.com/?i=${encodeURIComponent(imdb)}&apikey=${encodeURIComponent(key)}`);
         const data = await res.json();
-        if (data && data.Title) { state.meta.title = data.Title; $("titleField").value = data.Title; render(); } else alert("IMDb import failed");
+        if (data && data.Title) { state.meta.title = data.Title; $("titleField").value = data.Title; render(); } else toastError("IMDb import failed");
       });
 
       $("nostrExportBtn").addEventListener("click", async ()=>{
-        if (!window.nostr) return alert("No Nostr extension found");
+        if (!window.nostr) return toastError("No Nostr extension found");
         const payload = state.templateMode === 'disc'
           ? discSheetPayload()
           : state.templateMode === 'jewel'
@@ -11223,7 +11478,7 @@
         evt.pubkey = await window.nostr.getPublicKey();
         const signed = await window.nostr.signEvent(evt);
         await navigator.clipboard.writeText(JSON.stringify(signed));
-        alert("Signed Nostr event copied to clipboard");
+        toastSuccess("Signed Nostr event copied to clipboard");
       });
 
       $("nostrClose").addEventListener("click", () => { closeNostrPreview(); $("nostrModal").classList.remove("open"); _feedCache.softModRevealed.clear(); });
@@ -11242,12 +11497,12 @@
       $("nostrBackBtn").addEventListener("click", closeNostrPreview);
       $("copyTemplateEventIdBtn").addEventListener("click", () => {
         const id = state.community.lastPublish?.id;
-        if (!id) return alert('Publish a template first.');
+        if (!id) return toastError('Publish a template first.');
         navigator.clipboard.writeText(id);
       });
       $("copyDesignerEventIdBtn").addEventListener("click", () => {
         const id = state.community.lastPublish?.id;
-        if (!id) return alert('Publish a disc design first.');
+        if (!id) return toastError('Publish a disc design first.');
         navigator.clipboard.writeText(id);
       });
       $("nostrRunSearch").addEventListener("click", runNostrSearch);
@@ -11310,17 +11565,48 @@
 
       $('communityPublishBtn').addEventListener('click', async () => {
         if (!state.community.myPubkey) {
-          alert('Please sign in with Nostr (top right) before publishing.');
+          toastError('Please sign in with Nostr (top right) before publishing.');
           return;
         }
-        if (isEditing() && !confirmEditPublish()) return;
-        const wasEditing = isEditing();
+        // Pre-validate so the confirm modal only opens for publishable designs.
+        if (!state.meta.title?.trim()) { toastError('Add a title in Project Metadata before publishing.'); return; }
+        if (!state.meta.category?.trim()) { toastError('Select a category in Project Metadata before publishing.'); return; }
+        let payload, mode;
         try {
-          await publishCurrentTemplateToNostr();
-          alert(wasEditing ? 'Design updated.' : 'Published to Nostr.');
-        } catch (error) {
-          alert(error.message || 'Could not publish the template.');
+          if (state.templateMode === 'disc') {
+            payload = discSheetPayload();
+            mode = 'disc';
+            if (!previewFromPayload(payload, 'disc')) throw new Error('Assign at least one disc design before publishing.');
+          } else if (state.templateMode === 'jewel') {
+            payload = jewelTemplatePayload();
+            mode = 'jewel';
+            if (!previewFromPayload(payload, 'jewel')) throw new Error('Load jewel insert artwork before publishing.');
+          } else if (state.templateMode === 'customart') {
+            payload = customArtPayload();
+            mode = 'customart';
+            const hasContent = (state.layers || []).some(l => l.target === 'canvas');
+            const hasNonWhiteBg = (state.customArt?.background || '#ffffff').toLowerCase() !== '#ffffff';
+            if (!hasContent && !hasNonWhiteBg) throw new Error('Add at least one layer or set a non-white background before publishing.');
+          } else {
+            payload = coverTemplatePayload();
+            mode = 'cover';
+            if (!previewFromPayload(payload, 'cover')) throw new Error('Load cover artwork before publishing.');
+          }
+        } catch (err) {
+          toastError(err.message || 'Could not prepare the template for publishing.');
+          return;
         }
+        const wasEditing = isEditing();
+        openPublishConfirmModal({
+          mode,
+          payload,
+          meta: state.meta,
+          isUpdate: wasEditing,
+          onConfirm: async () => {
+            await publishCurrentTemplateToNostr();
+            toastSuccess(wasEditing ? 'Design updated.' : 'Published to Nostr.');
+          }
+        });
       });
 
       $('printBtn').addEventListener('click', () => {
@@ -11446,7 +11732,7 @@
         try {
           downloadSingleDesign();
         } catch (error) {
-          alert(error.message || 'Could not save this disc design.');
+          toastError(error.message || 'Could not save this disc design.');
         }
       });
       $('designerLoadProjectBtn').addEventListener('click', openDiscDesignNostrSearch);
@@ -11467,7 +11753,7 @@
             const payload = JSON.parse(String(reader.result));
             importDiscDesignFromPayload(payload, 'a');
           } catch {
-            alert('Could not load that disc project file.');
+            toastError('Could not load that disc project file.');
           }
           event.target.value = '';
         };
@@ -11485,7 +11771,7 @@
           state.discDesign.src = normalizeImageUrl(raw);
           render();
         } catch (error) {
-          alert(error.message || 'Invalid image URL.');
+          toastError(error.message || 'Invalid image URL.');
         }
       });
 
@@ -11537,17 +11823,27 @@
 
       $('designerPublishBtn').addEventListener('click', async () => {
         if (!state.community.myPubkey) {
-          alert('Please sign in with Nostr (top right) before publishing.');
+          toastError('Please sign in with Nostr (top right) before publishing.');
           return;
         }
-        if (isEditing() && !confirmEditPublish()) return;
+        const design = state.discDesign;
+        if (!design?.src) { toastError('Load an image URL before publishing this disc design.'); return; }
+        const designName = (design.name || '').trim() || state.meta.title;
+        if (!designName?.trim()) { toastError('Add a title in Project Metadata or a custom design name before publishing.'); return; }
+        if (!state.meta.category?.trim()) { toastError('Select a category in Project Metadata before publishing.'); return; }
+        const payload = discDesignPayload();
         const wasEditing = isEditing();
-        try {
-          await publishDiscDesignToNostr();
-          alert(wasEditing ? 'Design updated.' : `${state.discDesign.name || 'Design'} published to Nostr.`);
-        } catch (error) {
-          alert(error.message || 'Could not publish.');
-        }
+        const previewMeta = { ...state.meta, title: state.meta.title || designName };
+        openPublishConfirmModal({
+          mode: 'disc-design',
+          payload,
+          meta: previewMeta,
+          isUpdate: wasEditing,
+          onConfirm: async () => {
+            await publishDiscDesignToNostr();
+            toastSuccess(wasEditing ? 'Design updated.' : `${designName} published to Nostr.`);
+          }
+        });
       });
 
       $('browseCommunityBtn').addEventListener('click', () => {
@@ -11591,7 +11887,7 @@
           try {
             loadProjectFromText(String(reader.result));
           } catch (error) {
-            alert('Could not load that project JSON.');
+            toastError('Could not load that project JSON.');
             console.error(error);
           }
         };
@@ -11613,7 +11909,7 @@
           syncInputs();
           render();
         } catch (error) {
-          alert(error.message || 'Invalid image URL.');
+          toastError(error.message || 'Invalid image URL.');
         }
       });
 
@@ -11699,6 +11995,8 @@
         state.combined.src = '';
         $('combinedUrl').value = '';
 
+        state.meta = blankMeta();
+        syncInputs();
         render();
       });
 
@@ -11707,6 +12005,8 @@
         state.discDesign.layers = [];
         state.layers = state.layers.filter(l => l.target !== 'designer-disc');
         $('designerUrl').value = '';
+        state.meta = blankMeta();
+        syncInputs();
         render();
       });
 
@@ -11716,6 +12016,8 @@
           const input = $(`jewel-url-${key}`);
           if (input) input.value = '';
         }
+        state.meta = blankMeta();
+        syncInputs();
         render();
       });
 
@@ -11730,7 +12032,7 @@
             addImageLayer(url, url.split('/').pop() || 'Image layer');
             if (newLayerUrl) newLayerUrl.value = '';
           } catch (error) {
-            alert(error.message || 'Invalid image URL.');
+            toastError(error.message || 'Invalid image URL.');
           }
         });
       }
@@ -11753,7 +12055,7 @@
         try {
           updateSelectedLayer('src', normalizeImageUrl(raw));
         } catch (error) {
-          alert(error.message || 'Invalid image URL.');
+          toastError(error.message || 'Invalid image URL.');
           syncLayerInputs();
         }
       });
@@ -11910,6 +12212,11 @@
       on('closeProjectDiscardBtn', 'click', handleCloseProjectDiscard);
       on('closeProjectCancelBtn', 'click', closeCloseProjectModal);
       on('editingBannerCancel', 'click', () => exitEditMode());
+      on('publishConfirmCloseBtn', 'click', closePublishConfirmModal);
+      on('publishConfirmCancelBtn', 'click', closePublishConfirmModal);
+      on('publishConfirmPublishBtn', 'click', handlePublishConfirmPublish);
+      const publishConfirmModalEl = $('publishConfirmModal');
+      if (publishConfirmModalEl) publishConfirmModalEl.addEventListener('click', e => { if (e.target === publishConfirmModalEl) closePublishConfirmModal(); });
       const closeProjectModalEl = $('closeProjectModal');
       if (closeProjectModalEl) closeProjectModalEl.addEventListener('click', e => { if (e.target === closeProjectModalEl) closeCloseProjectModal(); });
       on('profileCloseBtn', 'click', () => closeProfilePage());
@@ -11946,6 +12253,8 @@
         if (e.key !== 'Escape') return;
         const tipM = $('tipModal');
         if (tipM && tipM.getAttribute('aria-hidden') === 'false') { closeTipModal(); return; }
+        const pubConfirmM = $('publishConfirmModal');
+        if (pubConfirmM && pubConfirmM.getAttribute('aria-hidden') === 'false') { closePublishConfirmModal(); return; }
         const profileM = $('profileModal');
         if (profileM && profileM.getAttribute('aria-hidden') === 'false') { closeProfilePage(); return; }
         const reportM = $('reportModal');
@@ -11990,7 +12299,7 @@
 
     async function loadSharedDesign(rawId) {
       const decoded = decodeNostrId(rawId);
-      if (!decoded) { alert('Share link is not a recognized Nostr identifier.'); return; }
+      if (!decoded) { toastError('Share link is not a recognized Nostr identifier.'); return; }
       const modal = $('nostrModal');
       if (modal) modal.classList.add('open');
       const previewPanel = $('nostrPreviewPanel');
