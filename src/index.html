@@ -1862,8 +1862,18 @@
         height: auto !important;
         overflow: visible !important;
       }
-      body.export-print > *:not(#exportPrintContainer) {
+      body.export-print > *:not(#exportPrintContainer):not(#globalClipDefs) {
         display: none !important;
+      }
+      /* The shared SVG defs container holds <clipPath> definitions that
+         layer wrappers reference via clip-path: url(#…). Keep it in the
+         document during print mode so the references resolve. */
+      body.export-print > #globalClipDefs {
+        display: block !important;
+        position: absolute !important;
+        width: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
       }
       #exportPrintContainer {
         position: absolute !important;
@@ -2029,7 +2039,7 @@
         <details class="compactDetails">
           <summary data-step="5">Project metadata</summary>
         <label for="titleField">Title *</label><input id="titleField" type="text" placeholder="Movie title" required />
-        <details class="addIdentifiersDetails" style="margin:10px 0">
+        <details id="mediaIdentifiersWrap" class="addIdentifiersDetails" style="margin:10px 0">
           <summary class="addIdentifiersBtn"><span id="identifierBtnLabel">+ Add Media Identifiers</span></summary>
           <div class="identifierFields">
             <div data-identifier="imdb"><label for="imdbField">IMDb ID</label><input id="imdbField" type="text" placeholder="tt1234567" /></div>
@@ -2039,6 +2049,11 @@
             <p class="hint" style="margin:6px 0 0">Optional — used for search and cross-referencing. Fields shown reflect what's common for this category.</p>
           </div>
         </details>
+        <div id="customTagWrap" style="display:none;margin:10px 0">
+          <label for="customTagField">Custom tag</label>
+          <input id="customTagField" type="text" placeholder="e.g. wallpaper, banner, logo" />
+          <p class="hint" style="margin:6px 0 0;font-size:.74rem">Optional free-form tag for your custom art. Used for search.</p>
+        </div>
         <label for="categoryField">Category</label>
         <select id="categoryField"></select>
         <label for="languageField">Language</label>
@@ -2054,10 +2069,10 @@
           <option value="zh">Chinese</option>
           <option value="other">Other</option>
         </select>
-        <div class="buttonRow">
+        <div id="imdbImportRow" class="buttonRow">
           <button type="button" id="imdbImportBtn">Import IMDb data</button>
         </div>
-        <p class="hint">IMDb import uses OMDb-compatible endpoint + API key. Title and category are required to save or export.</p>
+        <p id="imdbImportHint" class="hint">IMDb import uses OMDb-compatible endpoint + API key. Title and category are required to save or export.</p>
         </details>
       </fieldset>
 
@@ -3662,6 +3677,19 @@
         const visible = !allowed || allowed.has(key);
         el.style.display = visible ? '' : 'none';
       });
+      // Custom Art mode collapses the standard media-identifier panel and
+      // the IMDb import affordance, and shows a single optional "Custom tag"
+      // field instead — IMDb / UPC / TheTVDB / MusicBrainz don't apply to
+      // generic art / wallpaper / banner work.
+      const isCustomArt = state.templateMode === 'customart';
+      const idWrap = $('mediaIdentifiersWrap');
+      const customWrap = $('customTagWrap');
+      const imdbRow = $('imdbImportRow');
+      const imdbHint = $('imdbImportHint');
+      if (idWrap) idWrap.style.display = isCustomArt ? 'none' : '';
+      if (customWrap) customWrap.style.display = isCustomArt ? '' : 'none';
+      if (imdbRow) imdbRow.style.display = isCustomArt ? 'none' : '';
+      if (imdbHint) imdbHint.style.display = isCustomArt ? 'none' : '';
     }
 
     function categoryOptions(emptyLabel = 'Any category') {
@@ -3737,6 +3765,7 @@
       const upc = (payload?.meta?.upc || '').trim();
       const tvdb = (payload?.meta?.tvdbId || '').trim();
       const mbDisc = (payload?.meta?.musicbrainzDiscId || '').trim();
+      const customTag = (payload?.meta?.customTag || '').trim();
       const category = payload?.meta?.category || payload?.category || '';
       const language = payload?.meta?.language || 'en';
       const templateType = payload?.templateType || '';
@@ -3750,6 +3779,12 @@
       if (upc) tags.push(['i', `upc:${upc}`]);
       if (tvdb) tags.push(['i', `tvdb:${tvdb}`]);
       if (mbDisc) tags.push(['i', `musicbrainz:${mbDisc}`]);
+      if (customTag) {
+        // Free-form user tag for custom art. Emitted as both an 'i' identifier
+        // (mirroring the other IDs) and a topical 't' tag for search filters.
+        tags.push(['i', `custom:${customTag}`]);
+        tags.push(['t', customTag.toLowerCase().replace(/\s+/g, '-').slice(0, 64)]);
+      }
       tags.push(['t', 'casewrap']);
       if (typeTag) tags.push(['t', typeTag]);
       if (templateType) {
@@ -4279,6 +4314,7 @@
       const upcEl = $('upcField'); if (upcEl) upcEl.value = state.meta?.upc || '';
       const tvdbEl = $('tvdbField'); if (tvdbEl) tvdbEl.value = state.meta?.tvdbId || '';
       const mbEl = $('musicbrainzField'); if (mbEl) mbEl.value = state.meta?.musicbrainzDiscId || '';
+      const customTagEl = $('customTagField'); if (customTagEl) customTagEl.value = state.meta?.customTag || '';
       const cf = $('categoryField'); if (cf) cf.value = state.meta?.category || '';
       const lf = $('languageField'); if (lf) lf.value = state.meta?.language || 'en';
       const dt = $('designerTitleField'); if (dt) dt.value = state.meta?.title || "";
@@ -9030,7 +9066,7 @@
     }
 
     function blankMeta() {
-      return { title: '', imdbId: '', upc: '', tvdbId: '', musicbrainzDiscId: '', omdbApiKey: state.meta?.omdbApiKey || '', category: '', language: 'en' };
+      return { title: '', imdbId: '', upc: '', tvdbId: '', musicbrainzDiscId: '', customTag: '', omdbApiKey: state.meta?.omdbApiKey || '', category: '', language: 'en' };
     }
 
     function enterEditMode({ dTag, kind, eventId, title }) {
@@ -13361,6 +13397,12 @@
             state.preset = 'dvd';
             Object.assign(state, presets.dvd);
           }
+          // Auto-pick the "Custom art" category the first time the user
+          // enters customart mode without one set — saves them a step and
+          // matches what most users would have picked anyway.
+          if (mode === 'customart' && !state.meta.category) {
+            state.meta.category = 'custom-art';
+          }
           syncInputs();
           render();
         });
@@ -13427,6 +13469,8 @@
       const tvdbInput = $("tvdbField"); if (tvdbInput) tvdbInput.addEventListener("input", (e)=>{state.meta.tvdbId=e.target.value; render();});
       const mbInput = $("musicbrainzField"); if (mbInput) mbInput.addEventListener("input", (e)=>{state.meta.musicbrainzDiscId=e.target.value; render();});
       $("categoryField").addEventListener("change", (e)=>{state.meta.category=e.target.value; syncIdentifierVisibility(); render();});
+      const customTagInput = $("customTagField");
+      if (customTagInput) customTagInput.addEventListener("input", (e)=>{state.meta.customTag = e.target.value; render();});
       $("languageField").addEventListener("change", (e)=>{state.meta.language=e.target.value; render();});
       $("designerTitleField").addEventListener("input", (e)=>{state.meta.title=e.target.value; if (state.discDesign) state.discDesign.name = e.target.value; render();});
       $("designerImdbField").addEventListener("input", (e)=>{state.meta.imdbId=e.target.value; render();});
