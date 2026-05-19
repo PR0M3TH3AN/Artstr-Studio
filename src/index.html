@@ -1493,7 +1493,7 @@
     .feedLoadStatus{font-size:.78rem;color:var(--muted);padding:2px 2px 6px;font-style:italic;letter-spacing:.02em}
     .feedLoadStatus[hidden]{display:none}
     .feedWall{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:4px;align-content:start}
-    .feedCard{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff;cursor:pointer;display:flex;flex-direction:column;transition:box-shadow .12s}
+    .feedCard{border:1px solid var(--line);border-radius:10px;overflow:visible;background:#fff;cursor:pointer;display:flex;flex-direction:column;transition:box-shadow .12s;position:relative}
     .feedCard:hover{box-shadow:0 4px 18px rgba(15,23,42,.13)}
     .feedCardThumb{width:100%;aspect-ratio:1;background:#f1f5f9;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
     .feedCardThumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1}
@@ -1510,6 +1510,14 @@
     body.dark .reactionBtn{background:#0b1220}
     body.dark .reactionBtn:hover,.body.dark .reactionBtn.reacted{background:#1c1805;border-color:#f59e0b;color:#fcd34d}
     .feedCardActions button{font-size:.76rem;padding:4px 10px}
+    .actionMenu{position:relative;display:inline-flex;align-items:center}
+    .actionMenu summary{list-style:none;border:1px solid var(--line);border-radius:7px;padding:3px 9px;background:#fff;color:var(--ink);cursor:pointer;font-size:.82rem;font-weight:800;line-height:1.2;user-select:none}
+    .actionMenu summary::-webkit-details-marker{display:none}
+    .actionMenu summary:hover{background:rgba(127,127,127,.08)}
+    .actionMenuPanel{position:absolute;right:0;top:calc(100% + 4px);z-index:40;display:flex;flex-direction:column;gap:4px;min-width:138px;padding:6px;border:1px solid var(--line);border-radius:8px;background:var(--panel);box-shadow:0 10px 24px rgba(15,23,42,.18)}
+    .feedCardActions .actionMenuPanel{top:auto;bottom:calc(100% + 4px)}
+    .actionMenuPanel button{width:100%;text-align:left;justify-content:flex-start}
+    body.dark .actionMenu summary{background:#0b1220;color:var(--ink);border-color:var(--line)}
     body.dark .feedCard{background:var(--panel)}
     body.dark .feedCardThumb{background:#0b1220}
 
@@ -1597,6 +1605,10 @@
        Back / Close instead of forming a separate row. */
     .previewActionsRow > #nostrPreviewActions[data-visible="true"] { display:contents; }
     .previewActionsRow > #nostrPreviewActions[data-visible="false"] { display:none; }
+    .previewActionsRow > #nostrPreviewOverflow[data-visible="true"] { display:inline-flex; order:99; }
+    .previewActionsRow > #nostrPreviewOverflow[data-visible="false"] { display:none; }
+    #nostrBackBtn { order:97; }
+    #nostrClose { order:98; }
     .previewActionsRow button { font-size:.78rem; padding:5px 10px; line-height:1.2; white-space:nowrap; }
 
     .toastStack { position:fixed; bottom:20px; right:20px; z-index:2000; display:flex; flex-direction:column; gap:8px; pointer-events:none; max-width:calc(100vw - 40px); }
@@ -1616,6 +1628,29 @@
     .publishConfirmMetaRow:last-child { border-bottom:0; }
     .publishConfirmMetaRow dt { min-width:108px; font-weight:600; color:var(--muted); margin:0; }
     .publishConfirmMetaRow dd { margin:0; flex:1; word-break:break-word; color:var(--ink); }
+
+    .svgElementsList { display:flex; flex-direction:column; gap:4px; max-height:240px; overflow:auto; padding-right:4px; }
+    .svgElementRow { display:flex; align-items:center; gap:6px; padding:4px 6px; border:1px solid var(--line); border-radius:6px; background:var(--bg); font-size:.78rem; }
+    .svgElementRow .svgElementTag { flex:1; font-family:ui-monospace,SFMono-Regular,monospace; color:var(--muted); }
+    .svgElementRow .svgSwatchGroup { display:flex; align-items:center; gap:4px; }
+    .svgElementRow .svgSwatchLabel { font-size:.65rem; color:var(--muted); }
+    .svgElementRow input[type="color"] { width:30px; height:24px; padding:0; border:1px solid var(--line); border-radius:4px; background:transparent; cursor:pointer; }
+    .svgElementRow input[type="color"]::-webkit-color-swatch-wrapper { padding:0; }
+    .svgElementRow input[type="color"]::-webkit-color-swatch { border:0; border-radius:3px; }
+
+    .aspectLockRow { display:flex; align-items:flex-end; gap:6px; }
+    .aspectLockRow > div { flex:1; min-width:0; }
+    .aspectLockBtn { background:transparent; border:1px solid var(--line); border-radius:6px; padding:6px 8px; cursor:pointer; font-size:.9rem; line-height:1; align-self:flex-end; flex-shrink:0; margin-bottom:2px; }
+    .aspectLockBtn[aria-pressed="true"] { background:rgba(0,184,230,.12); border-color:var(--accent); color:var(--accent); }
+
+    .addShapeMenu { display:inline-block; position:relative; }
+    .addShapeMenu > summary { list-style:none; cursor:pointer; padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink); font-size:.86rem; }
+    .addShapeMenu > summary::-webkit-details-marker { display:none; }
+    .addShapeMenu > summary::marker { content:''; }
+    .addShapeMenu > summary:hover { filter:brightness(.97); }
+    .addShapeMenu[open] > summary { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .addShapeGrid { position:absolute; top:calc(100% + 4px); left:0; z-index:5; display:grid; grid-template-columns:1fr 1fr; gap:4px; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:6px; box-shadow:0 6px 18px rgba(0,0,0,.2); min-width:200px; }
+    .addShapeGrid button { font-size:.78rem; padding:6px 10px; text-align:left; }
 
     .layerClipboardRow { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:0 0 8px; }
     .layerClipboardRow button { font-size:.78rem; padding:4px 10px; }
@@ -2005,24 +2040,7 @@
           </div>
         </details>
         <label for="categoryField">Category</label>
-        <select id="categoryField">
-          <option value="">Uncategorized</option>
-          <option value="blu-ray">Blu-ray</option>
-          <option value="dvd">DVD</option>
-          <option value="ps1">PS1</option>
-          <option value="ps2">PS2</option>
-          <option value="ps3">PS3</option>
-          <option value="xbox">Xbox</option>
-          <option value="xbox-360">Xbox 360</option>
-          <option value="pc">PC</option>
-          <option value="cd">CD</option>
-          <option value="dreamcast">Dreamcast</option>
-          <option value="gamecube">GameCube</option>
-          <option value="wii">Wii</option>
-          <option value="sega-saturn">Sega Saturn</option>
-          <option value="sega-cd">Sega CD</option>
-          <option value="audio-cd">Audio CD</option>
-        </select>
+        <select id="categoryField"></select>
         <label for="languageField">Language</label>
         <select id="languageField">
           <option value="en">English</option>
@@ -2077,7 +2095,6 @@
           <summary>Nostr</summary>
           <div class="buttonRow">
             <button type="button" id="communityPublishBtn">Publish to Nostr</button>
-            <button type="button" id="nostrExportBtn">Copy Nostr event</button>
           </div>
           <div class="miniReadout" id="templatePublishReadout">No template has been published yet.</div>
           <div class="buttonRow">
@@ -2324,11 +2341,12 @@
             </div>
           </div>
 
-          <div class="row">
+          <div class="row aspectLockRow">
             <div>
               <label for="layerW">Width, in</label>
               <input id="layerW" type="number" min="0.1" step="0.01" />
             </div>
+            <button type="button" id="layerAspectLock" class="aspectLockBtn" aria-pressed="true" title="Aspect ratio locked — changing one dimension updates the other">🔒</button>
             <div>
               <label for="layerH">Height, in</label>
               <input id="layerH" type="number" min="0.1" step="0.01" />
@@ -2376,6 +2394,151 @@
             <label for="colorLayerFill">Fill color</label>
             <input id="colorLayerFill" type="color" />
           </div>
+
+          <div id="shapeLayerControls" style="display:none">
+            <label for="shapeFillType">Fill</label>
+            <select id="shapeFillType">
+              <option value="solid">Solid color</option>
+              <option value="linear-gradient">Linear gradient</option>
+              <option value="radial-gradient">Radial gradient</option>
+              <option value="none">No fill</option>
+            </select>
+
+            <div id="shapeFillSolidRow">
+              <label for="shapeFillColor">Color</label>
+              <input id="shapeFillColor" type="color" />
+            </div>
+
+            <div id="shapeFillGradientRow" style="display:none">
+              <div class="row">
+                <div>
+                  <label for="shapeFillStop0">Start color</label>
+                  <input id="shapeFillStop0" type="color" />
+                </div>
+                <div>
+                  <label for="shapeFillStop1">End color</label>
+                  <input id="shapeFillStop1" type="color" />
+                </div>
+              </div>
+              <div id="shapeFillLinearRow">
+                <label for="shapeFillAngle">Angle (deg)</label>
+                <div class="rangeLine">
+                  <input id="shapeFillAngle" type="range" min="0" max="360" step="1" />
+                  <output id="shapeFillAngleOut"></output>
+                </div>
+              </div>
+              <div id="shapeFillRadialRow" style="display:none">
+                <div class="row">
+                  <div>
+                    <label for="shapeFillCx">Center X</label>
+                    <input id="shapeFillCx" type="range" min="0" max="1" step="0.01" />
+                  </div>
+                  <div>
+                    <label for="shapeFillCy">Center Y</label>
+                    <input id="shapeFillCy" type="range" min="0" max="1" step="0.01" />
+                  </div>
+                </div>
+                <label for="shapeFillRadius">Radius</label>
+                <input id="shapeFillRadius" type="range" min="0.05" max="1" step="0.01" />
+              </div>
+            </div>
+
+            <div id="shapeStrokeBlock" style="margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
+              <label for="shapeStrokeType">Stroke</label>
+              <select id="shapeStrokeType">
+                <option value="none">None</option>
+                <option value="solid">Solid</option>
+              </select>
+              <div id="shapeStrokeRow" style="display:none;margin-top:6px">
+                <div class="row">
+                  <div>
+                    <label for="shapeStrokeColor">Color</label>
+                    <input id="shapeStrokeColor" type="color" />
+                  </div>
+                  <div>
+                    <label for="shapeStrokeWidth">Width</label>
+                    <input id="shapeStrokeWidth" type="number" min="0.1" max="50" step="0.1" />
+                  </div>
+                </div>
+                <label for="shapeStrokeDash">Dash</label>
+                <select id="shapeStrokeDash">
+                  <option value="solid">Solid</option>
+                  <option value="dashed">Dashed</option>
+                  <option value="dotted">Dotted</option>
+                </select>
+              </div>
+            </div>
+
+            <div id="shapeKindControls" style="margin-top:8px">
+              <div id="shapeCornerRadiusRow" style="display:none">
+                <label for="shapeCornerRadius">Corner radius</label>
+                <input id="shapeCornerRadius" type="number" min="0" max="50" step="1" />
+              </div>
+              <div id="shapeSidesRow" style="display:none">
+                <label for="shapeSides">Sides</label>
+                <input id="shapeSides" type="number" min="3" max="20" step="1" />
+              </div>
+              <div id="shapeStarRow" style="display:none">
+                <label for="shapeStarPoints">Star points</label>
+                <input id="shapeStarPoints" type="number" min="3" max="20" step="1" />
+                <label for="shapeStarInner">Inner / outer ratio</label>
+                <input id="shapeStarInner" type="range" min="0.05" max="0.95" step="0.01" />
+              </div>
+              <div id="shapeLineRow" style="display:none">
+                <p class="hint" style="font-size:.74rem;margin:4px 0 8px">Line stroke uses the fill paint (solid or gradient).</p>
+                <label for="shapeLineStrokeWidth">Stroke width</label>
+                <input id="shapeLineStrokeWidth" type="number" min="0.5" max="50" step="0.5" />
+              </div>
+              <div id="shapePathRow" style="display:none">
+                <button type="button" id="shapePathEditBtn">Replace SVG…</button>
+              </div>
+              <div id="svgElementsRow" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)">
+                <label style="display:block;margin-bottom:6px">SVG elements</label>
+                <div id="svgElementsList" class="svgElementsList"></div>
+              </div>
+            </div>
+          </div>
+
+          <details id="layerClipControls" style="margin-top:8px">
+            <summary style="cursor:pointer;font-size:.84rem;font-weight:600">Clip to shape</summary>
+            <div style="margin-top:8px">
+              <label for="layerClipKind">Clip source</label>
+              <select id="layerClipKind">
+                <option value="none">No clip</option>
+                <option value="rect">Inline: Rectangle</option>
+                <option value="rounded-rect">Inline: Rounded rectangle</option>
+                <option value="circle">Inline: Circle</option>
+                <option value="ellipse">Inline: Ellipse</option>
+                <option value="triangle">Inline: Triangle</option>
+                <option value="polygon">Inline: Polygon</option>
+                <option value="star">Inline: Star</option>
+                <option value="path">Inline: Custom path</option>
+                <option value="layer-ref">From another layer…</option>
+              </select>
+              <div id="layerClipCornerRow" style="display:none;margin-top:6px">
+                <label for="layerClipCornerRadius">Corner radius</label>
+                <input id="layerClipCornerRadius" type="number" min="0" max="50" step="1" />
+              </div>
+              <div id="layerClipSidesRow" style="display:none;margin-top:6px">
+                <label for="layerClipSides">Sides</label>
+                <input id="layerClipSides" type="number" min="3" max="20" step="1" />
+              </div>
+              <div id="layerClipStarRow" style="display:none;margin-top:6px">
+                <label for="layerClipStarPoints">Star points</label>
+                <input id="layerClipStarPoints" type="number" min="3" max="20" step="1" />
+                <label for="layerClipStarInner">Inner / outer ratio</label>
+                <input id="layerClipStarInner" type="range" min="0.05" max="0.95" step="0.01" />
+              </div>
+              <div id="layerClipPathRow" style="display:none;margin-top:6px">
+                <button type="button" id="layerClipPathEditBtn">Set path…</button>
+              </div>
+              <div id="layerClipLayerRefRow" style="display:none;margin-top:6px">
+                <label for="layerClipLayerSelect">Mask shape layer</label>
+                <select id="layerClipLayerSelect"></select>
+                <p class="hint" id="layerClipLayerHint" style="font-size:.72rem;margin:4px 0 0">Pick a shape layer in the same target to use its geometry as a mask.</p>
+              </div>
+            </div>
+          </details>
 
           <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer;font-size:.84rem">
             <input type="checkbox" id="layerLocked" style="accent-color:var(--accent)" />
@@ -2617,6 +2780,7 @@
           <button type="button" id="nostrRefreshBtn">Refresh</button>
           <button type="button" id="nostrBackBtn" style="display:none">← Back</button>
           <button type="button" id="nostrClose">Close</button>
+          <div id="nostrPreviewOverflow" data-visible="false"></div>
         </div>
       </div>
       <div class="modalTabs">
@@ -2851,6 +3015,26 @@
   </div>
 
   <div id="toastStack" class="toastStack" aria-live="polite" aria-atomic="false"></div>
+
+  <div class="modal" id="shapePathModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:520px;position:relative">
+      <button type="button" id="shapePathCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
+      <h2 style="font-size:1.05rem;margin:0 0 4px;font-family:inherit">Upload SVG</h2>
+      <p class="hint" style="margin:0 0 10px">Pick an <code>.svg</code> file. Multi-element SVGs preserve their original fills; single-path SVGs stay color-editable.</p>
+      <div style="margin:0 0 10px;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px;display:flex;justify-content:center;align-items:center;min-height:160px">
+        <div id="shapePathPreview" style="width:140px;height:140px"></div>
+      </div>
+      <p class="hint" id="shapePathError" style="display:none;color:var(--warn);margin:6px 0 0;font-size:.78rem"></p>
+      <div style="margin:8px 0">
+        <input type="file" id="shapePathFile" accept=".svg,image/svg+xml" style="width:100%;font-size:.82rem" />
+        <p class="hint" style="font-size:.72rem;margin:6px 0 0">Up to 256 KB. SVGs are sanitized — <code>&lt;script&gt;</code>, external image refs, and event handlers are stripped before render.</p>
+      </div>
+      <div class="buttonRow" style="margin:0;justify-content:flex-end;flex-wrap:wrap;gap:8px">
+        <button type="button" id="shapePathCancelBtn">Cancel</button>
+        <button type="button" id="shapePathConfirmBtn" class="primary" disabled>Use this SVG</button>
+      </div>
+    </div>
+  </div>
 
   <div class="modal" id="publishConfirmModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:580px;position:relative">
@@ -3178,7 +3362,8 @@
       { value: 'wii', label: 'Wii' },
       { value: 'sega-saturn', label: 'Sega Saturn' },
       { value: 'sega-cd', label: 'Sega CD' },
-      { value: 'audio-cd', label: 'Audio CD' }
+      { value: 'audio-cd', label: 'Audio CD' },
+      { value: 'custom-art', label: 'Custom art' }
     ];
 
     const DEFAULT_NOSTR_RELAYS = [
@@ -3461,7 +3646,8 @@
       'sega-saturn': new Set(['upc']),
       'sega-cd':     new Set(['upc']),
       'cd':          new Set(['upc', 'mb']),
-      'audio-cd':    new Set(['upc', 'mb'])
+      'audio-cd':    new Set(['upc', 'mb']),
+      'custom-art':  new Set()
     };
 
     function relevantIdentifiersForCategory(category) {
@@ -3489,9 +3675,13 @@
       document.querySelectorAll('.categorySelect').forEach((select) => {
         select.innerHTML = options;
       });
+      // The two project-metadata category selects use a different empty
+      // label ("Uncategorized") and have hardcoded id, so populate them
+      // explicitly with the canonical mediaCategories list.
       const designerMetaSelect = $('designerCategoryField');
       if (designerMetaSelect) designerMetaSelect.innerHTML = categoryOptions('Uncategorized');
       const metaSelect = $('categoryField');
+      if (metaSelect) metaSelect.innerHTML = categoryOptions('Uncategorized');
       if (metaSelect) {
         const current = metaSelect.value || state.meta?.category || '';
         metaSelect.value = mediaCategories.some((item) => item.value === current) ? current : '';
@@ -4385,6 +4575,9 @@
     }
 
     function render() {
+      // Rebuild global clip-path <defs> before any renderer so layer
+      // wrappers can reference them via clip-path: url(#…).
+      rebuildClipDefs(state.layers);
       renderDimensions();
       renderSlots();
       renderDiscSlots();
@@ -5314,6 +5507,1058 @@
       });
     }
 
+    // ---- Vector shape layers (Phase A: primitives + solid fill) ----
+
+    const SHAPE_KINDS = ['rect', 'rounded-rect', 'circle', 'ellipse', 'triangle', 'polygon', 'star', 'line', 'path'];
+    const SHAPE_LABELS = {
+      'rect': 'Rectangle',
+      'rounded-rect': 'Rounded rectangle',
+      'circle': 'Circle',
+      'ellipse': 'Ellipse',
+      'triangle': 'Triangle',
+      'polygon': 'Polygon',
+      'star': 'Star',
+      'line': 'Line',
+      'path': 'Upload SVG…',
+      'svg': 'SVG import'
+    };
+    const SHAPE_DEFAULT_FILL = '#3b82f6';
+    const SHAPE_PATH_MAX_LEN = 100 * 1024; // generous cap; reject pasted blobs above this
+    const SHAPE_SVG_MAX_LEN = 256 * 1024; // multi-element SVGs are bigger; still bounded
+    const SVG_ALLOWED_TAGS = new Set([
+      'svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline', 'line',
+      'defs', 'lineargradient', 'radialgradient', 'stop', 'clippath', 'mask',
+      'title', 'desc', 'use', 'symbol'
+    ]);
+    const SVG_FORBIDDEN_TAGS = new Set(['script', 'foreignobject', 'iframe', 'embed', 'object', 'image', 'animate', 'animatetransform', 'animatemotion', 'set', 'a']);
+
+    function defaultShapeData(kind) {
+      const out = { kind };
+      if (kind === 'rounded-rect') out.cornerRadius = 12;
+      if (kind === 'polygon') out.sides = 6;
+      if (kind === 'star') { out.points = 5; out.innerRadiusRatio = 0.45; }
+      if (kind === 'line') { out.x1 = 0; out.y1 = 50; out.x2 = 100; out.y2 = 50; out.strokeWidth = 6; }
+      if (kind === 'path') {
+        // Default heart shape so a fresh path layer is immediately useful.
+        out.d = 'M 50 90 C 0 60 0 20 30 10 C 40 5 50 20 50 30 C 50 20 60 5 70 10 C 100 20 100 60 50 90 Z';
+        out.viewBox = { x: 0, y: 0, w: 100, h: 100 };
+      }
+      return out;
+    }
+
+    // Walk a parsed SVG DOM, removing disallowed elements and dangerous
+    // attributes. Returns true if the node was kept, false if removed.
+    function sanitizeSvgNode(el) {
+      const tag = el.nodeName.toLowerCase();
+      if (SVG_FORBIDDEN_TAGS.has(tag)) { el.remove(); return false; }
+      if (!SVG_ALLOWED_TAGS.has(tag)) { el.remove(); return false; }
+      for (const attr of Array.from(el.attributes || [])) {
+        const name = attr.name.toLowerCase();
+        const value = String(attr.value || '');
+        // Strip every event handler
+        if (name.startsWith('on')) { el.removeAttribute(attr.name); continue; }
+        // External hrefs / xlink:href: only allow intra-SVG '#id' refs
+        if (name === 'href' || name === 'xlink:href') {
+          if (!value.startsWith('#')) el.removeAttribute(attr.name);
+          continue;
+        }
+        // style="..." with javascript: or url(http...) is rejected
+        if (name === 'style' && /(javascript|url\s*\(\s*['"]?\s*(?:https?:|data:|\/\/))/i.test(value)) {
+          el.removeAttribute(attr.name);
+        }
+      }
+      for (const child of Array.from(el.childNodes)) {
+        if (child.nodeType === 1) sanitizeSvgNode(child);
+        else if (child.nodeType !== 3) child.remove(); // strip comments / processing instructions
+      }
+      return true;
+    }
+
+    // Parse and sanitize a full <svg>...</svg> string. Returns { inner, viewBox }
+    // where `inner` is the serialized inner content (children of <svg>) and
+    // `viewBox` is read from the svg's viewBox attribute (with width/height
+    // fallbacks). Returns null on parse failure or empty result.
+    function parseSvgDocument(rawSvg) {
+      const s = String(rawSvg || '').trim();
+      if (!s || s.length > SHAPE_SVG_MAX_LEN) return null;
+      let doc;
+      try { doc = new DOMParser().parseFromString(s, 'image/svg+xml'); }
+      catch { return null; }
+      if (!doc || doc.querySelector('parsererror')) return null;
+      const root = doc.documentElement;
+      if (!root || root.nodeName.toLowerCase() !== 'svg') return null;
+      sanitizeSvgNode(root);
+      if (!root.firstElementChild) return null;
+      let vb = null;
+      const vbAttr = root.getAttribute('viewBox');
+      if (vbAttr) {
+        const parts = vbAttr.trim().split(/[\s,]+/).map(Number);
+        if (parts.length === 4 && parts.every(n => Number.isFinite(n)) && parts[2] > 0 && parts[3] > 0) {
+          vb = { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
+        }
+      }
+      if (!vb) {
+        const w = Number(root.getAttribute('width')) || 100;
+        const h = Number(root.getAttribute('height')) || 100;
+        vb = { x: 0, y: 0, w, h };
+      }
+      const serializer = new XMLSerializer();
+      const inner = Array.from(root.childNodes)
+        .filter(n => n.nodeType === 1)
+        .map(n => serializer.serializeToString(n))
+        .join('');
+      if (!inner.trim()) return null;
+      return { inner, viewBox: vb };
+    }
+
+    // Per-element editing for kind:'svg' shape layers.
+    // We parse the stored inner SVG into a DOM, walk it for paintable
+    // primitives, and round-trip mutations through the inner string so it
+    // stays the canonical source of truth on the layer.
+
+    const SVG_PAINTABLE_TAGS = new Set(['path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline', 'line']);
+
+    function parseSvgInnerWrapper(inner) {
+      const wrapped = `<svg xmlns="http://www.w3.org/2000/svg">${inner || ''}</svg>`;
+      const doc = new DOMParser().parseFromString(wrapped, 'image/svg+xml');
+      if (!doc || doc.querySelector('parsererror')) return null;
+      return doc.documentElement;
+    }
+
+    function listSvgPaintableElements(inner) {
+      const root = parseSvgInnerWrapper(inner);
+      if (!root) return [];
+      const out = [];
+      function walk(el) {
+        const tag = el.nodeName.toLowerCase();
+        if (SVG_PAINTABLE_TAGS.has(tag)) {
+          out.push({
+            index: out.length,
+            tag,
+            fill: el.getAttribute('fill'),
+            stroke: el.getAttribute('stroke'),
+            strokeWidth: el.getAttribute('stroke-width')
+          });
+        }
+        for (const child of Array.from(el.childNodes)) {
+          if (child.nodeType === 1) walk(child);
+        }
+      }
+      walk(root);
+      return out;
+    }
+
+    function setSvgPaintableAttribute(inner, elementIndex, attrName, attrValue) {
+      const root = parseSvgInnerWrapper(inner);
+      if (!root) return inner;
+      let i = -1;
+      let target = null;
+      function walk(el) {
+        if (target) return;
+        const tag = el.nodeName.toLowerCase();
+        if (SVG_PAINTABLE_TAGS.has(tag)) {
+          i += 1;
+          if (i === elementIndex) { target = el; return; }
+        }
+        for (const child of Array.from(el.childNodes)) {
+          if (child.nodeType === 1 && !target) walk(child);
+        }
+      }
+      walk(root);
+      if (!target) return inner;
+      if (attrValue === '' || attrValue == null) {
+        target.removeAttribute(attrName);
+      } else {
+        target.setAttribute(attrName, attrValue);
+        // Many SVG icons use style="fill:..." instead of a fill attribute;
+        // strip any conflicting style entry so the attribute wins.
+        const style = target.getAttribute('style');
+        if (style) {
+          const cleaned = style
+            .split(';')
+            .map(s => s.trim())
+            .filter(s => s && !s.toLowerCase().startsWith(`${attrName.toLowerCase()}:`))
+            .join('; ');
+          if (cleaned) target.setAttribute('style', cleaned);
+          else target.removeAttribute('style');
+        }
+      }
+      const serializer = new XMLSerializer();
+      return Array.from(root.childNodes)
+        .filter(n => n.nodeType === 1)
+        .map(n => serializer.serializeToString(n))
+        .join('');
+    }
+
+    // Best-effort: normalize whatever colour string the SVG carries
+    // (named color, hex, rgb()) into a 7-char #rrggbb that <input type=color>
+    // can display. Falls back to black when we can't parse.
+    function normalizeSvgColorForPicker(raw) {
+      if (!raw || raw === 'none') return '';
+      const s = String(raw).trim();
+      if (/^#[0-9a-f]{6}$/i.test(s)) return s.toLowerCase();
+      if (/^#[0-9a-f]{3}$/i.test(s)) {
+        const r = s[1], g = s[2], b = s[3];
+        return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+      }
+      // Use the browser to resolve any other color string (named, rgb(), etc.)
+      try {
+        const probe = document.createElement('div');
+        probe.style.color = s;
+        probe.style.display = 'none';
+        document.body.appendChild(probe);
+        const computed = getComputedStyle(probe).color;
+        probe.remove();
+        const m = computed.match(/^rgba?\((\d+)\D+(\d+)\D+(\d+)/);
+        if (m) {
+          const toHex = (n) => Number(n).toString(16).padStart(2, '0');
+          return `#${toHex(m[1])}${toHex(m[2])}${toHex(m[3])}`.toLowerCase();
+        }
+      } catch {}
+      return '';
+    }
+
+    // SVG defaults strokes to 1 user-space unit. In a 124-unit viewBox at a
+    // 1-inch shape that's hair-thin, so a freshly-applied stroke looks
+    // invisible. Default it to ~2% of the bigger viewBox dimension on first
+    // apply, which reads clearly without dominating most icons.
+    function defaultSvgStrokeWidth(viewBox) {
+      const vb = viewBox || { w: 100, h: 100 };
+      return Math.max(1, Math.round(Math.max(vb.w, vb.h) * 0.02));
+    }
+
+    function renderSvgElementsList(layer) {
+      const wrap = $('svgElementsRow');
+      const list = $('svgElementsList');
+      if (!wrap || !list) return;
+      if (layer?.shape?.kind !== 'svg') {
+        wrap.style.display = 'none';
+        list.innerHTML = '';
+        return;
+      }
+      const items = listSvgPaintableElements(layer.shape.inner);
+      if (!items.length) {
+        wrap.style.display = '';
+        list.innerHTML = '<p class="hint" style="font-size:.75rem;margin:4px 0">No editable elements in this SVG.</p>';
+        return;
+      }
+      wrap.style.display = '';
+      list.innerHTML = '';
+      const viewBox = layer.shape.viewBox;
+      const fallbackWidth = defaultSvgStrokeWidth(viewBox);
+      for (const item of items) {
+        const row = document.createElement('div');
+        row.className = 'svgElementRow';
+        row.dataset.index = String(item.index);
+
+        const tag = document.createElement('span');
+        tag.className = 'svgElementTag';
+        tag.textContent = `${item.index + 1}. ${item.tag}`;
+        row.appendChild(tag);
+
+        const fillSwatch = makeSvgSwatch('Fill', item.fill, (color) => {
+          updateSvgElementAttr(item.index, 'fill', color);
+        });
+        row.appendChild(fillSwatch);
+
+        // Stroke color picker — auto-applies a sensible width on first set.
+        const strokeSwatch = makeSvgSwatch('Stroke', item.stroke, (color) => {
+          // setSvgPaintableAttribute is single-attr; we batch via two calls so
+          // the rendered SVG always has both stroke + stroke-width set together.
+          updateSvgElementAttr(item.index, 'stroke', color);
+          const fresh = listSvgPaintableElements(selectedLayer()?.shape?.inner || '');
+          const cur = fresh.find(i => i.index === item.index);
+          if (cur && (!cur.strokeWidth || cur.strokeWidth === '0')) {
+            updateSvgElementAttr(item.index, 'stroke-width', String(fallbackWidth));
+          }
+        });
+        row.appendChild(strokeSwatch);
+
+        const widthGroup = document.createElement('div');
+        widthGroup.className = 'svgSwatchGroup';
+        const widthLabel = document.createElement('span');
+        widthLabel.className = 'svgSwatchLabel';
+        widthLabel.textContent = 'W';
+        widthLabel.title = 'Stroke width (in this SVG\'s user units)';
+        const widthInput = document.createElement('input');
+        widthInput.type = 'number';
+        widthInput.min = '0';
+        widthInput.step = '0.5';
+        widthInput.style.cssText = 'width:54px;font-size:.72rem;padding:2px 4px;border:1px solid var(--line);border-radius:4px';
+        widthInput.value = item.strokeWidth || '';
+        widthInput.title = 'Stroke width';
+        widthInput.addEventListener('input', (e) => {
+          const v = e.target.value;
+          updateSvgElementAttr(item.index, 'stroke-width', v === '' ? '' : String(v));
+        });
+        widthGroup.append(widthLabel, widthInput);
+        row.appendChild(widthGroup);
+
+        list.appendChild(row);
+      }
+    }
+
+    function makeSvgSwatch(label, currentValue, onChange) {
+      const group = document.createElement('div');
+      group.className = 'svgSwatchGroup';
+      const lab = document.createElement('span');
+      lab.className = 'svgSwatchLabel';
+      lab.textContent = label;
+      const isNone = currentValue === 'none';
+      const hex = normalizeSvgColorForPicker(currentValue);
+      const picker = document.createElement('input');
+      picker.type = 'color';
+      picker.value = hex || '#000000';
+      picker.title = isNone ? 'No paint — click to set' : `Currently: ${currentValue || 'default'}`;
+      picker.addEventListener('input', (e) => onChange(e.target.value));
+      group.append(lab, picker);
+      return group;
+    }
+
+    function updateSvgElementAttr(elementIndex, attrName, attrValue) {
+      const layer = selectedLayer();
+      if (!layer || layer?.shape?.kind !== 'svg') return;
+      const nextInner = setSvgPaintableAttribute(layer.shape.inner, elementIndex, attrName, attrValue);
+      if (nextInner === layer.shape.inner) return;
+      layer.shape = { ...layer.shape, inner: nextInner };
+      render();
+    }
+
+    // Top-level entry for the path/SVG modal. Detects whether the user
+    // pasted: a full <svg>, a single <path d="..."/>, or raw path data.
+    function parsePathOrSvgInput(raw) {
+      const s = String(raw || '').trim();
+      if (!s) return null;
+      if (/^<svg[\s>]/i.test(s)) {
+        const r = parseSvgDocument(s);
+        return r ? { kind: 'svg', inner: r.inner, viewBox: r.viewBox } : null;
+      }
+      if (/^<path[\s>]/i.test(s)) {
+        const m = s.match(/\bd\s*=\s*"([^"]+)"/);
+        if (!m) return null;
+        const r = parseSvgPathBBox(m[1]);
+        return r ? { kind: 'path', d: r.d, viewBox: r.viewBox } : null;
+      }
+      // Otherwise: treat as raw path data.
+      const r = parseSvgPathBBox(s);
+      return r ? { kind: 'path', d: r.d, viewBox: r.viewBox } : null;
+    }
+
+    // Validate and compute the bounding box of a raw SVG path 'd' string.
+    // Returns { d, viewBox } on success or null on failure. The bbox lets us
+    // normalize arbitrary path coords (icons usually live in 0..512 or
+    // 0..1024 viewBoxes) to our 0..100 shape-local space.
+    function parseSvgPathBBox(rawD) {
+      const d = String(rawD || '').trim();
+      if (!d || d.length > SHAPE_PATH_MAX_LEN) return null;
+      // Defensive — paths can't legally contain '<' or '>'; reject pastes
+      // that look like an SVG fragment rather than just path data.
+      if (/[<>]/.test(d)) return null;
+      try {
+        const svgNs = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNs, 'svg');
+        svg.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;width:1px;height:1px';
+        const p = document.createElementNS(svgNs, 'path');
+        p.setAttribute('d', d);
+        svg.appendChild(p);
+        document.body.appendChild(svg);
+        let bbox;
+        try { bbox = p.getBBox(); } finally { svg.remove(); }
+        if (!bbox || !Number.isFinite(bbox.width) || !Number.isFinite(bbox.height) || bbox.width <= 0 || bbox.height <= 0) {
+          return null;
+        }
+        return { d, viewBox: { x: bbox.x, y: bbox.y, w: bbox.width, h: bbox.height } };
+      } catch { return null; }
+    }
+
+    function addShapeLayer(kind, targetOverride = '') {
+      if (!SHAPE_KINDS.includes(kind)) return;
+      const target = targetOverride || $('layerTarget')?.value || primaryTargetForMode(state.templateMode || 'cover');
+      const bounds = targetBounds(target);
+      applyTargetMode(target);
+      // Shapes spawn 1:1 by default — use the smaller bound at 40% so the
+      // shape stays square and fits inside whatever target it's added to.
+      const size = Math.min(bounds.w, bounds.h) * 0.4;
+      const w = size;
+      const h = size;
+      addLayer({
+        id: makeLayerId(),
+        type: 'shape',
+        name: SHAPE_LABELS[kind] || 'Shape',
+        target,
+        x: bounds.x + (bounds.w - w) / 2,
+        y: bounds.y + (bounds.h - h) / 2,
+        w,
+        h,
+        rotate: 0,
+        opacity: 1,
+        z: nextLayerZ(),
+        shape: defaultShapeData(kind),
+        fill: { type: 'solid', color: SHAPE_DEFAULT_FILL },
+        stroke: { type: 'none', color: '#000000', width: 2, dash: 'solid' }
+      });
+    }
+
+    function strokeDashAttr(dashStyle, strokeW) {
+      if (dashStyle === 'dashed') return `${(strokeW * 3).toFixed(2)},${(strokeW * 2).toFixed(2)}`;
+      if (dashStyle === 'dotted') return `${strokeW.toFixed(2)},${(strokeW * 2).toFixed(2)}`;
+      return '';
+    }
+
+    function strokeDashArrayForCanvas(dashStyle, strokeW) {
+      if (dashStyle === 'dashed') return [strokeW * 3, strokeW * 2];
+      if (dashStyle === 'dotted') return [strokeW, strokeW * 2];
+      return [];
+    }
+
+    // Build the SVG stroke attribute fragment to append to a fillable element.
+    // Returns '' when the layer has no stroke. Skipped for line layers since
+    // they already render as a stroke from their fill paint.
+    function buildShapeStrokeAttrs(stroke) {
+      if (!stroke || stroke.type !== 'solid') return '';
+      const color = stroke.color || '#000000';
+      const width = Math.max(0.1, Math.min(50, Number(stroke.width) || 2));
+      const dash = strokeDashAttr(stroke.dash || 'solid', width);
+      const cap = (stroke.dash === 'dotted') ? 'round' : 'butt';
+      const join = (stroke.dash === 'dotted') ? 'round' : 'miter';
+      return ` stroke="${color}" stroke-width="${width}"${dash ? ` stroke-dasharray="${dash}"` : ''} stroke-linecap="${cap}" stroke-linejoin="${join}"`;
+    }
+
+    function normalizeGradientStops(stops) {
+      if (!Array.isArray(stops) || stops.length < 2) {
+        return [{ at: 0, color: '#3b82f6' }, { at: 1, color: '#dc2626' }];
+      }
+      return stops.map(s => ({
+        at: Math.max(0, Math.min(1, Number(s.at) || 0)),
+        color: s.color || '#000000'
+      }));
+    }
+
+    // Convert an angle in degrees (CSS linear-gradient convention: 0deg =
+    // bottom-to-top, 90deg = left-to-right) into a 0–1 bounding-box vector
+    // suitable for SVG linearGradient x1/y1/x2/y2 or canvas createLinearGradient.
+    function linearGradientPoints(angleDeg) {
+      const rad = (Number(angleDeg) || 0) * Math.PI / 180;
+      const dx = Math.sin(rad);
+      const dy = -Math.cos(rad);
+      return { x1: 0.5 - 0.5 * dx, y1: 0.5 - 0.5 * dy, x2: 0.5 + 0.5 * dx, y2: 0.5 + 0.5 * dy };
+    }
+
+    function buildGradientDef(id, fill) {
+      const stops = normalizeGradientStops(fill?.stops);
+      const stopsXml = stops.map(s => `<stop offset="${s.at}" stop-color="${escapeHtml(s.color)}"/>`).join('');
+      if (fill?.type === 'linear-gradient') {
+        const { x1, y1, x2, y2 } = linearGradientPoints(fill.angle);
+        return `<linearGradient id="${id}" x1="${x1.toFixed(3)}" y1="${y1.toFixed(3)}" x2="${x2.toFixed(3)}" y2="${y2.toFixed(3)}">${stopsXml}</linearGradient>`;
+      }
+      if (fill?.type === 'radial-gradient') {
+        const cx = clamp01(fill.center?.x ?? 0.5, 0, 1);
+        const cy = clamp01(fill.center?.y ?? 0.5, 0, 1);
+        const r = clamp01(fill.radius ?? 0.5, 0.01, 1);
+        return `<radialGradient id="${id}" cx="${cx.toFixed(3)}" cy="${cy.toFixed(3)}" r="${r.toFixed(3)}">${stopsXml}</radialGradient>`;
+      }
+      return '';
+    }
+
+    function resolveFillAttribute(fill, gradId) {
+      if (!fill) return 'transparent';
+      if (fill.type === 'solid' && fill.color) return fill.color;
+      if (fill.type === 'linear-gradient' || fill.type === 'radial-gradient') return `url(#${gradId})`;
+      if (fill.type === 'none') return 'transparent';
+      return 'transparent';
+    }
+
+    // Pure-string SVG inner content. Shape coordinates live in a 0–100
+    // viewBox so the same string scales to whatever bounds the surface uses.
+    function buildShapeSvgInner(shape, fill, stroke) {
+      if (!shape) return '';
+      const isGradient = fill?.type === 'linear-gradient' || fill?.type === 'radial-gradient';
+      const gradId = isGradient ? 'g' + Math.random().toString(36).slice(2, 9) : '';
+      const defs = isGradient ? `<defs>${buildGradientDef(gradId, fill)}</defs>` : '';
+      const fillAttr = resolveFillAttribute(fill, gradId);
+      const strokeAttr = buildShapeStrokeAttrs(stroke);
+      const kind = shape.kind;
+      let body = '';
+      if (kind === 'rect') {
+        body = `<rect x="0" y="0" width="100" height="100" fill="${fillAttr}"${strokeAttr}/>`;
+      } else if (kind === 'rounded-rect') {
+        const r = Math.max(0, Math.min(50, Number(shape.cornerRadius) || 0));
+        body = `<rect x="0" y="0" width="100" height="100" rx="${r}" ry="${r}" fill="${fillAttr}"${strokeAttr}/>`;
+      } else if (kind === 'circle' || kind === 'ellipse') {
+        body = `<ellipse cx="50" cy="50" rx="50" ry="50" fill="${fillAttr}"${strokeAttr}/>`;
+      } else if (kind === 'triangle') {
+        body = `<polygon points="50,0 100,100 0,100" fill="${fillAttr}"${strokeAttr}/>`;
+      } else if (kind === 'polygon') {
+        const sides = Math.max(3, Math.min(20, Number(shape.sides) || 6));
+        const pts = [];
+        for (let i = 0; i < sides; i++) {
+          const angle = (i / sides) * Math.PI * 2 - Math.PI / 2;
+          pts.push(`${(50 + 50 * Math.cos(angle)).toFixed(2)},${(50 + 50 * Math.sin(angle)).toFixed(2)}`);
+        }
+        body = `<polygon points="${pts.join(' ')}" fill="${fillAttr}"${strokeAttr}/>`;
+      } else if (kind === 'star') {
+        const points = Math.max(3, Math.min(20, Number(shape.points) || 5));
+        const inner = Math.max(0.05, Math.min(0.95, Number(shape.innerRadiusRatio) || 0.45)) * 50;
+        const outer = 50;
+        const pts = [];
+        for (let i = 0; i < points * 2; i++) {
+          const angle = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+          const r = i % 2 === 0 ? outer : inner;
+          pts.push(`${(50 + r * Math.cos(angle)).toFixed(2)},${(50 + r * Math.sin(angle)).toFixed(2)}`);
+        }
+        body = `<polygon points="${pts.join(' ')}" fill="${fillAttr}"${strokeAttr}/>`;
+      } else if (kind === 'line') {
+        const x1 = clamp01(Number(shape.x1) ?? 0, 0, 100);
+        const y1 = clamp01(Number(shape.y1) ?? 50, 0, 100);
+        const x2 = clamp01(Number(shape.x2) ?? 100, 0, 100);
+        const y2 = clamp01(Number(shape.y2) ?? 50, 0, 100);
+        const sw = Math.max(0.5, Math.min(50, Number(shape.strokeWidth) || 6));
+        // Line strokes use the fill paint (solid color or gradient).
+        body = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${fillAttr}" stroke-width="${sw}" stroke-linecap="round" fill="none"/>`;
+      } else if (kind === 'path') {
+        const d = String(shape.d || '');
+        if (d) {
+          const vb = shape.viewBox || { x: 0, y: 0, w: 100, h: 100 };
+          const sx = vb.w > 0 ? 100 / vb.w : 1;
+          const sy = vb.h > 0 ? 100 / vb.h : 1;
+          // SVG transform applies right-to-left: translate the path's bbox to
+          // the origin, then scale so it fills the 0–100 shape space.
+          body = `<g transform="scale(${sx.toFixed(6)} ${sy.toFixed(6)}) translate(${(-vb.x).toFixed(3)} ${(-vb.y).toFixed(3)})"><path d="${escapeHtml(d)}" fill="${fillAttr}"${strokeAttr}/></g>`;
+        }
+      } else if (kind === 'svg') {
+        // Pre-sanitized multi-element SVG content. Fills / strokes are baked
+        // into the imported markup, so our fill / stroke panel is ignored
+        // here. We still respect layer.opacity / rotate / position via the
+        // surrounding layer wrapper.
+        const inner = String(shape.inner || '');
+        if (inner) {
+          const vb = shape.viewBox || { x: 0, y: 0, w: 100, h: 100 };
+          const sx = vb.w > 0 ? 100 / vb.w : 1;
+          const sy = vb.h > 0 ? 100 / vb.h : 1;
+          body = `<g transform="scale(${sx.toFixed(6)} ${sy.toFixed(6)}) translate(${(-vb.x).toFixed(3)} ${(-vb.y).toFixed(3)})">${inner}</g>`;
+        }
+      }
+      return defs + body;
+    }
+
+    function clamp01(v, lo, hi) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return lo;
+      return Math.max(lo, Math.min(hi, n));
+    }
+
+    function renderShapeIntoElement(el, layer) {
+      const inner = buildShapeSvgInner(layer?.shape, layer?.fill, layer?.stroke);
+      el.innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%;display:block;pointer-events:none">${inner}</svg>`;
+    }
+
+    // ---- Clip / mask plumbing (Phase E) ----
+    //
+    // Any layer can carry an optional `clip` field. Two flavors:
+    //   - { kind: 'inline-shape', shape: { kind, …params } }
+    //   - { kind: 'layer-ref', layerId: '…' }
+    //
+    // We turn the chosen shape into an SVG path `d` string in a 0–100 viewBox
+    // (the same space all our shape primitives already use), then apply it
+    // as a CSS `clip-path: path(…)` for DOM rendering or `ctx.clip()` with
+    // a Path2D for canvas export. The path is normalized to the layer's
+    // pixel bounding box at render time so the same `d` string works
+    // anywhere.
+
+    const CLIP_INLINE_KINDS = new Set(['rect', 'rounded-rect', 'circle', 'ellipse', 'triangle', 'polygon', 'star', 'path']);
+
+    // Build an SVG path 'd' string for a clip shape. `scale` is the size of
+    // the output coordinate range (1 for objectBoundingBox 0–1 fractional
+    // coords used by CSS clip-path; 100 for the canvas 0–100 viewBox space).
+    function clipShapeToPathD(shape, scale = 100) {
+      if (!shape) return '';
+      const s = scale;
+      const half = s / 2;
+      const k = shape.kind;
+      if (k === 'rect') return `M 0 0 L ${s} 0 L ${s} ${s} L 0 ${s} Z`;
+      if (k === 'rounded-rect') {
+        const r0 = Math.max(0, Math.min(50, Number(shape.cornerRadius) || 0));
+        const r = (r0 / 100) * s;
+        if (r <= 0) return `M 0 0 L ${s} 0 L ${s} ${s} L 0 ${s} Z`;
+        return `M ${r} 0 L ${s - r} 0 A ${r} ${r} 0 0 1 ${s} ${r} L ${s} ${s - r} A ${r} ${r} 0 0 1 ${s - r} ${s} L ${r} ${s} A ${r} ${r} 0 0 1 0 ${s - r} L 0 ${r} A ${r} ${r} 0 0 1 ${r} 0 Z`;
+      }
+      if (k === 'circle' || k === 'ellipse') {
+        // Two-arc circle so the path closes correctly at every scale.
+        return `M ${half} 0 A ${half} ${half} 0 1 1 ${half} ${s} A ${half} ${half} 0 1 1 ${half} 0 Z`;
+      }
+      if (k === 'triangle') return `M ${half} 0 L ${s} ${s} L 0 ${s} Z`;
+      if (k === 'polygon') {
+        const sides = Math.max(3, Math.min(20, Number(shape.sides) || 6));
+        const pts = [];
+        for (let i = 0; i < sides; i++) {
+          const angle = (i / sides) * Math.PI * 2 - Math.PI / 2;
+          pts.push(`${(half + half * Math.cos(angle)).toFixed(4)} ${(half + half * Math.sin(angle)).toFixed(4)}`);
+        }
+        return 'M ' + pts.map((p, i) => (i === 0 ? p : 'L ' + p)).join(' ') + ' Z';
+      }
+      if (k === 'star') {
+        const points = Math.max(3, Math.min(20, Number(shape.points) || 5));
+        const inner = Math.max(0.05, Math.min(0.95, Number(shape.innerRadiusRatio) || 0.45)) * half;
+        const outer = half;
+        const pts = [];
+        for (let i = 0; i < points * 2; i++) {
+          const angle = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+          const r = i % 2 === 0 ? outer : inner;
+          pts.push(`${(half + r * Math.cos(angle)).toFixed(4)} ${(half + r * Math.sin(angle)).toFixed(4)}`);
+        }
+        return 'M ' + pts.map((p, i) => (i === 0 ? p : 'L ' + p)).join(' ') + ' Z';
+      }
+      if (k === 'path') {
+        // The custom-path's `d` is in its own viewBox. We scale per the
+        // current request space (1 or 100). For now, only emit at scale=100
+        // (which matches the path's natural viewBox space we already use).
+        // Caller for scale=1 multiplies later.
+        const d = String(shape.d || '');
+        if (!d) return '';
+        return d; // emitted in shape's own viewBox; consumer handles transform
+      }
+      return '';
+    }
+
+    function resolveClipSourceShape(layer, allLayers) {
+      const clip = layer?.clip;
+      if (!clip || clip.kind === 'none') return null;
+      if (clip.kind === 'inline-shape') {
+        const k = clip.shape?.kind;
+        if (!CLIP_INLINE_KINDS.has(k)) return null;
+        return clip.shape;
+      }
+      if (clip.kind === 'layer-ref') {
+        const refId = clip.layerId;
+        if (!refId || refId === layer.id) return null;
+        const ref = (allLayers || state.layers || []).find(l => l.id === refId);
+        if (!ref || ref.type !== 'shape' || !ref.shape) return null;
+        // Reject cycles: if the referenced layer also points back at us.
+        if (ref.clip?.kind === 'layer-ref' && ref.clip.layerId === layer.id) return null;
+        // Only allow shape-kinds we can express as a single path.
+        if (!CLIP_INLINE_KINDS.has(ref.shape.kind)) return null;
+        return ref.shape;
+      }
+      return null;
+    }
+
+    function clipIdForLayer(layer) {
+      return 'clip-' + String(layer.id || '').replace(/[^a-z0-9-]/gi, '_');
+    }
+
+    // Ensure a hidden <svg id="globalClipDefs"> exists so we can inject
+    // <clipPath> elements that the layer wrappers reference via clip-path: url(#…).
+    function clipPathStyleFragment(layer, layers) {
+      if (!layer?.clip || layer.clip.kind === 'none') return '';
+      if (!resolveClipSourceShape(layer, layers || state.layers)) return '';
+      return `clip-path:url(#${clipIdForLayer(layer)});`;
+    }
+
+    function ensureGlobalClipDefs() {
+      let defs = document.getElementById('globalClipDefs');
+      if (defs) return defs;
+      defs = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      defs.id = 'globalClipDefs';
+      defs.setAttribute('width', '0');
+      defs.setAttribute('height', '0');
+      defs.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none';
+      const defsEl = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+      defs.appendChild(defsEl);
+      document.body.appendChild(defs);
+      return defs;
+    }
+
+    // Walk the current layer set, install a <clipPath> for every layer that
+    // has a resolvable clip, and return a map of layerId → clip-path CSS
+    // value. Clip-path uses objectBoundingBox so the same definition scales
+    // to whatever pixel size the wrapper ends up at.
+    function rebuildClipDefs(layers) {
+      const defsRoot = ensureGlobalClipDefs();
+      const defs = defsRoot.querySelector('defs');
+      defs.innerHTML = '';
+      const map = new Map();
+      for (const layer of layers || []) {
+        const src = resolveClipSourceShape(layer, layers);
+        if (!src) continue;
+        const id = clipIdForLayer(layer);
+        let dInner;
+        if (src.kind === 'path') {
+          // Use the path's own viewBox to normalize to 0..1 via the
+          // clipPath's own viewBox attribute.
+          const d = String(src.d || '');
+          if (!d) continue;
+          const vb = src.viewBox || { x: 0, y: 0, w: 100, h: 100 };
+          const sx = vb.w > 0 ? 1 / vb.w : 1;
+          const sy = vb.h > 0 ? 1 / vb.h : 1;
+          dInner = `<clipPath id="${id}" clipPathUnits="objectBoundingBox"><g transform="scale(${sx.toFixed(8)} ${sy.toFixed(8)}) translate(${(-vb.x).toFixed(4)} ${(-vb.y).toFixed(4)})"><path d="${escapeHtml(d)}"/></g></clipPath>`;
+        } else {
+          const d = clipShapeToPathD(src, 1);
+          if (!d) continue;
+          dInner = `<clipPath id="${id}" clipPathUnits="objectBoundingBox"><path d="${d}"/></clipPath>`;
+        }
+        defs.insertAdjacentHTML('beforeend', dInner);
+        map.set(layer.id, `url(#${id})`);
+      }
+      return map;
+    }
+
+    function buildAddShapeMenu(targetKey) {
+      const details = document.createElement('details');
+      details.className = 'addShapeMenu';
+      const summary = document.createElement('summary');
+      summary.textContent = '+ Shape';
+      details.appendChild(summary);
+      const grid = document.createElement('div');
+      grid.className = 'addShapeGrid';
+      for (const kind of SHAPE_KINDS) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = SHAPE_LABELS[kind];
+        btn.addEventListener('click', () => {
+          details.open = false;
+          if (kind === 'path') {
+            openShapePathModal({ targetKey });
+          } else {
+            addShapeLayer(kind, targetKey);
+          }
+        });
+        grid.appendChild(btn);
+      }
+      details.appendChild(grid);
+      return details;
+    }
+
+    // ---- Custom SVG / path upload modal ----
+
+    let _shapePathTarget = null; // { mode: 'create' | 'edit', targetKey?, layerId? }
+    let _shapePathPending = null; // { kind, d?, inner?, viewBox } from latest upload
+
+    function previewSvgForExistingShape(shape) {
+      if (!shape) return '';
+      if (shape.kind === 'svg') {
+        const vb = shape.viewBox || { x: 0, y: 0, w: 100, h: 100 };
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}">${shape.inner || ''}</svg>`;
+      }
+      if (shape.kind === 'path' && shape.d) {
+        const vb = shape.viewBox || { x: 0, y: 0, w: 100, h: 100 };
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}"><path d="${escapeHtml(shape.d)}" fill="${SHAPE_DEFAULT_FILL}"/></svg>`;
+      }
+      return '';
+    }
+
+    function openShapePathModal(opts) {
+      _shapePathTarget = opts;
+      _shapePathPending = null;
+      const modal = $('shapePathModal');
+      const fileInput = $('shapePathFile');
+      const err = $('shapePathError');
+      const confirmBtn = $('shapePathConfirmBtn');
+      if (fileInput) fileInput.value = '';
+      if (err) { err.style.display = 'none'; err.textContent = ''; }
+      if (confirmBtn) confirmBtn.disabled = true;
+      const preview = $('shapePathPreview');
+      if (preview) {
+        if (opts.mode === 'edit') {
+          const layer = selectedLayer();
+          const existing = previewSvgForExistingShape(layer?.shape);
+          preview.innerHTML = existing || '<p class="hint" style="margin:0;font-size:.75rem">No SVG loaded yet.</p>';
+        } else {
+          preview.innerHTML = '<p class="hint" style="margin:0;font-size:.75rem">Pick an SVG file to preview it here.</p>';
+        }
+      }
+      if (modal) { modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false'); bringModalToFront(modal); }
+    }
+
+    function closeShapePathModal() {
+      const modal = $('shapePathModal');
+      if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+      _shapePathTarget = null;
+      _shapePathPending = null;
+    }
+
+    async function handleShapePathFileChange(event) {
+      const file = event.target.files && event.target.files[0];
+      const err = $('shapePathError');
+      const confirmBtn = $('shapePathConfirmBtn');
+      _shapePathPending = null;
+      if (confirmBtn) confirmBtn.disabled = true;
+      if (!file) {
+        if (err) { err.style.display = 'none'; err.textContent = ''; }
+        return;
+      }
+      if (file.size > SHAPE_SVG_MAX_LEN) {
+        if (err) { err.textContent = `File is too large (${Math.round(file.size / 1024)} KB). Maximum is ${SHAPE_SVG_MAX_LEN / 1024} KB.`; err.style.display = ''; }
+        renderShapePathPreviewFor(null);
+        return;
+      }
+      let text;
+      try { text = await file.text(); }
+      catch {
+        if (err) { err.textContent = 'Could not read that file.'; err.style.display = ''; }
+        return;
+      }
+      const parsed = parsePathOrSvgInput(text);
+      if (!parsed) {
+        if (err) { err.textContent = 'Could not parse this SVG. The file may be malformed or contain only unsupported elements.'; err.style.display = ''; }
+        renderShapePathPreviewFor(null);
+        return;
+      }
+      if (err) { err.style.display = 'none'; err.textContent = ''; }
+      _shapePathPending = parsed;
+      renderShapePathPreviewFor(parsed);
+      if (confirmBtn) confirmBtn.disabled = false;
+    }
+
+    function renderShapePathPreviewFor(parsed) {
+      const preview = $('shapePathPreview');
+      if (!preview) return;
+      if (!parsed) {
+        preview.innerHTML = '<p class="hint" style="margin:0;font-size:.75rem">Preview unavailable.</p>';
+        return;
+      }
+      const sx = 100 / parsed.viewBox.w;
+      const sy = 100 / parsed.viewBox.h;
+      const tx = (-parsed.viewBox.x).toFixed(3);
+      const ty = (-parsed.viewBox.y).toFixed(3);
+      const sxs = sx.toFixed(6);
+      const sys = sy.toFixed(6);
+      const inner = parsed.kind === 'svg'
+        ? parsed.inner
+        : `<path d="${escapeHtml(parsed.d)}" fill="${SHAPE_DEFAULT_FILL}"/>`;
+      preview.innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" style="width:100%;height:100%;display:block"><g transform="scale(${sxs} ${sys}) translate(${tx} ${ty})">${inner}</g></svg>`;
+    }
+
+    function confirmShapePathModal() {
+      const err = $('shapePathError');
+      const parsed = _shapePathPending;
+      if (!parsed) {
+        if (err) { err.textContent = 'Pick an SVG file first.'; err.style.display = ''; }
+        return;
+      }
+      const target = _shapePathTarget;
+      if (!target) { closeShapePathModal(); return; }
+      const newShape = parsed.kind === 'svg'
+        ? { kind: 'svg', inner: parsed.inner, viewBox: parsed.viewBox }
+        : { kind: 'path', d: parsed.d, viewBox: parsed.viewBox };
+      if (target.mode === 'edit-clip') {
+        const layer = selectedLayer();
+        if (layer) {
+          // Clips only support single-path shapes — we coerce an svg
+          // import down to its first path's bbox if needed.
+          const clipShape = parsed.kind === 'path'
+            ? { kind: 'path', d: parsed.d, viewBox: parsed.viewBox }
+            : null;
+          if (!clipShape) {
+            if (err) { err.textContent = 'Multi-element SVGs can\'t be used as a clip. Upload a single-path SVG instead.'; err.style.display = ''; }
+            return;
+          }
+          layer.clip = { kind: 'inline-shape', shape: clipShape };
+          syncLayerClipInputs(layer);
+          render();
+        }
+        closeShapePathModal();
+        return;
+      }
+      if (target.mode === 'edit') {
+        const layer = selectedLayer();
+        if (layer && layer.type === 'shape') {
+          layer.shape = newShape;
+          syncShapeLayerInputs(layer);
+          render();
+        }
+      } else {
+        // Create flow — bypass addShapeLayer's defaults so we land the parsed shape directly.
+        const target_ = target.targetKey || $('layerTarget')?.value || primaryTargetForMode(state.templateMode || 'cover');
+        const bounds = targetBounds(target_);
+        applyTargetMode(target_);
+        const size = Math.min(bounds.w, bounds.h) * 0.4;
+        addLayer({
+          id: makeLayerId(),
+          type: 'shape',
+          name: parsed.kind === 'svg' ? 'SVG import' : 'Custom path',
+          target: target_,
+          x: bounds.x + (bounds.w - size) / 2,
+          y: bounds.y + (bounds.h - size) / 2,
+          w: size, h: size,
+          rotate: 0, opacity: 1, z: nextLayerZ(),
+          shape: newShape,
+          fill: { type: 'solid', color: SHAPE_DEFAULT_FILL },
+          stroke: { type: 'none', color: '#000000', width: 2, dash: 'solid' }
+        });
+      }
+      closeShapePathModal();
+    }
+
+    function roundedRectPath(ctx, x, y, w, h, r) {
+      r = Math.max(0, Math.min(r, w / 2, h / 2));
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.arcTo(x + w, y, x + w, y + r, r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+      ctx.lineTo(x + r, y + h);
+      ctx.arcTo(x, y + h, x, y + h - r, r);
+      ctx.lineTo(x, y + r);
+      ctx.arcTo(x, y, x + r, y, r);
+      ctx.closePath();
+    }
+
+    function buildCanvasFillStyle(ctx, fill) {
+      if (!fill) return null;
+      if (fill.type === 'solid' && fill.color) return fill.color;
+      if (fill.type === 'linear-gradient') {
+        const { x1, y1, x2, y2 } = linearGradientPoints(fill.angle);
+        const grad = ctx.createLinearGradient(x1 * 100, y1 * 100, x2 * 100, y2 * 100);
+        for (const s of normalizeGradientStops(fill.stops)) grad.addColorStop(s.at, s.color);
+        return grad;
+      }
+      if (fill.type === 'radial-gradient') {
+        const cx = clamp01(fill.center?.x ?? 0.5, 0, 1) * 100;
+        const cy = clamp01(fill.center?.y ?? 0.5, 0, 1) * 100;
+        const r = clamp01(fill.radius ?? 0.5, 0.01, 1) * 100;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+        for (const s of normalizeGradientStops(fill.stops)) grad.addColorStop(s.at, s.color);
+        return grad;
+      }
+      return null;
+    }
+
+    // Multi-element SVG shapes are rendered to canvas by serializing the
+    // sanitized inner content into a standalone SVG blob, loading it as an
+    // <img>, and drawing it to the centered shape bounds. Async so the
+    // image has a chance to decode.
+    async function drawSvgShapeToCanvas(ctx, layer, w, h) {
+      const shape = layer?.shape;
+      if (!shape?.inner) return;
+      const vb = shape.viewBox || { x: 0, y: 0, w: 100, h: 100 };
+      const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}">${shape.inner}</svg>`;
+      const blob = new Blob([svgString], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = reject;
+          i.src = url;
+        });
+        ctx.save();
+        ctx.drawImage(img, -w / 2, -h / 2, w, h);
+        ctx.restore();
+      } catch { /* swallow — broken SVG just won't render */ }
+      finally { URL.revokeObjectURL(url); }
+    }
+
+    // Canvas path builder for the shape primitives. ctx is already positioned
+    // at the shape's center via translate/rotate by the caller; we just need
+    // to draw within the (-w/2..w/2, -h/2..h/2) box.
+    function drawShapeLayerToCanvas(ctx, layer, w, h) {
+      const shape = layer?.shape;
+      const fill = layer?.fill;
+      if (!shape) return;
+      ctx.save();
+      // Map the 0–100 shape viewBox to (-w/2..w/2, -h/2..h/2) pixel space.
+      ctx.translate(-w / 2, -h / 2);
+      ctx.scale(w / 100, h / 100);
+      const paint = buildCanvasFillStyle(ctx, fill);
+      const kind = shape.kind;
+
+      if (kind === 'line') {
+        const x1 = clamp01(Number(shape.x1) ?? 0, 0, 100);
+        const y1 = clamp01(Number(shape.y1) ?? 50, 0, 100);
+        const x2 = clamp01(Number(shape.x2) ?? 100, 0, 100);
+        const y2 = clamp01(Number(shape.y2) ?? 50, 0, 100);
+        const sw = Math.max(0.5, Math.min(50, Number(shape.strokeWidth) || 6));
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.strokeStyle = paint || '#000';
+        ctx.lineWidth = sw;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
+
+      // Path kind has its own coord system based on its bbox; we apply a
+      // sub-transform and use Path2D to fill/stroke. Returns early so we
+      // don't share the generic beginPath() codepath below.
+      if (kind === 'path') {
+        const d = String(shape.d || '');
+        if (!d) { ctx.restore(); return; }
+        const vb = shape.viewBox || { x: 0, y: 0, w: 100, h: 100 };
+        ctx.scale(vb.w > 0 ? 100 / vb.w : 1, vb.h > 0 ? 100 / vb.h : 1);
+        ctx.translate(-vb.x, -vb.y);
+        let p2d;
+        try { p2d = new Path2D(d); } catch { ctx.restore(); return; }
+        if (paint) { ctx.fillStyle = paint; ctx.fill(p2d); }
+        const ps = layer?.stroke;
+        if (ps && ps.type === 'solid') {
+          const sw = Math.max(0.1, Math.min(50, Number(ps.width) || 2));
+          ctx.lineWidth = sw;
+          ctx.strokeStyle = ps.color || '#000000';
+          ctx.lineCap = ps.dash === 'dotted' ? 'round' : 'butt';
+          ctx.lineJoin = ps.dash === 'dotted' ? 'round' : 'miter';
+          ctx.setLineDash(strokeDashArrayForCanvas(ps.dash || 'solid', sw));
+          ctx.stroke(p2d);
+        }
+        ctx.restore();
+        return;
+      }
+
+      ctx.beginPath();
+      if (kind === 'rect') {
+        ctx.rect(0, 0, 100, 100);
+      } else if (kind === 'rounded-rect') {
+        const r = Math.max(0, Math.min(50, Number(shape.cornerRadius) || 0));
+        roundedRectPath(ctx, 0, 0, 100, 100, r);
+      } else if (kind === 'circle' || kind === 'ellipse') {
+        ctx.ellipse(50, 50, 50, 50, 0, 0, Math.PI * 2);
+      } else if (kind === 'triangle') {
+        ctx.moveTo(50, 0);
+        ctx.lineTo(100, 100);
+        ctx.lineTo(0, 100);
+        ctx.closePath();
+      } else if (kind === 'polygon') {
+        const sides = Math.max(3, Math.min(20, Number(shape.sides) || 6));
+        for (let i = 0; i < sides; i++) {
+          const angle = (i / sides) * Math.PI * 2 - Math.PI / 2;
+          const px = 50 + 50 * Math.cos(angle);
+          const py = 50 + 50 * Math.sin(angle);
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+      } else if (kind === 'star') {
+        const points = Math.max(3, Math.min(20, Number(shape.points) || 5));
+        const inner = Math.max(0.05, Math.min(0.95, Number(shape.innerRadiusRatio) || 0.45)) * 50;
+        const outer = 50;
+        for (let i = 0; i < points * 2; i++) {
+          const angle = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+          const r = i % 2 === 0 ? outer : inner;
+          const px = 50 + r * Math.cos(angle);
+          const py = 50 + r * Math.sin(angle);
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+      }
+
+      if (paint) {
+        ctx.fillStyle = paint;
+        ctx.fill();
+      }
+      // Stroke pass — only for non-line shapes (lines already drew above).
+      const stroke = layer?.stroke;
+      if (stroke && stroke.type === 'solid') {
+        const sw = Math.max(0.1, Math.min(50, Number(stroke.width) || 2));
+        ctx.lineWidth = sw;
+        ctx.strokeStyle = stroke.color || '#000000';
+        ctx.lineCap = stroke.dash === 'dotted' ? 'round' : 'butt';
+        ctx.lineJoin = stroke.dash === 'dotted' ? 'round' : 'miter';
+        ctx.setLineDash(strokeDashArrayForCanvas(stroke.dash || 'solid', sw));
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     function renderLayers() {
       const overlay = $('layerOverlay');
       const designerOverlay = $('designerLayerOverlay');
@@ -5333,6 +6578,9 @@
         const el = document.createElement('div');
         el.className = `freeLayer${layer.id === state.selectedLayerId ? ' selected' : ''}`;
         el.dataset.layerId = layer.id;
+        if (layer.clip && layer.clip.kind !== 'none' && resolveClipSourceShape(layer, state.layers)) {
+          el.style.clipPath = `url(#${clipIdForLayer(layer)})`;
+        }
         if (isDesignerLayer) {
           const discD = discTemplate.discD;
           el.style.left = `${layer.x / discD * 100}%`;
@@ -5360,6 +6608,8 @@
           el.appendChild(img);
         } else if (layer.type === 'color') {
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
+        } else if (layer.type === 'shape') {
+          renderShapeIntoElement(el, layer);
         } else {
           const text = document.createElement('div');
           text.className = 'textLayer';
@@ -5453,7 +6703,7 @@
         addColorBtn.type = 'button';
         addColorBtn.textContent = 'Add color block';
         addColorBtn.addEventListener('click', () => addColorLayer('designer-disc'));
-        buttonRow.append(addImageBtn, addTextBtn, addColorBtn);
+        buttonRow.append(addImageBtn, addTextBtn, addColorBtn, buildAddShapeMenu('designer-disc'));
 
         actions.append(urlRow, buttonRow);
         panel.appendChild(actions);
@@ -5540,7 +6790,7 @@
         addColorBtn.type = 'button';
         addColorBtn.textContent = 'Add color block';
         addColorBtn.addEventListener('click', () => addColorLayer(targetDef.key));
-        buttonRow.append(addImageBtn, addTextBtn, addColorBtn);
+        buttonRow.append(addImageBtn, addTextBtn, addColorBtn, buildAddShapeMenu(targetDef.key));
 
         actions.append(urlRow, buttonRow);
         panel.appendChild(actions);
@@ -5920,35 +7170,101 @@
       return { signedDelete, signedTombstone };
     }
 
-    function addPreviewDeleteButton(actionsDiv, row, insertBeforeNode) {
-      if (!actionsDiv || !row?.e || row.e.kind !== 30078) return;
-      if (!state.community.myPubkey || row.e.pubkey !== state.community.myPubkey) return;
-      const deleteBtn = document.createElement('button');
-      deleteBtn.type = 'button';
-      deleteBtn.className = 'danger';
-      deleteBtn.textContent = 'Delete / Tombstone';
-      deleteBtn.addEventListener('click', async () => {
-        const reason = prompt('Optional deletion reason:', '') || '';
-        if (!confirm('Publish a deletion request and tombstone this template?')) return;
-        const activeTabId = document.querySelector('.modalTab.active')?.id || '';
-        try {
-          await publishTemplateDeletion(row, reason.trim());
-          closeNostrPreview();
-          $('nostrModal').classList.remove('open');
-          if (activeTabId === 'tabMine') {
-            await loadMyDesigns();
-          } else if (activeTabId === 'tabPopular') {
-            await loadFeedTab('Popular');
-          } else if (activeTabId === 'tabSearch') {
-            await runNostrSearch();
-          } else {
-            await loadFeedTab('New');
-          }
-        } catch (error) {
-          toastError(error.message || 'Could not delete this template.');
-        }
+    function closeActionMenus(except = null) {
+      document.querySelectorAll('.actionMenu[open]').forEach((menu) => {
+        if (menu !== except) menu.removeAttribute('open');
       });
-      actionsDiv.insertBefore(deleteBtn, insertBeforeNode);
+    }
+
+    function makeActionMenu(actions, { title = 'More actions' } = {}) {
+      const usableActions = (actions || []).filter(Boolean);
+      if (!usableActions.length) return null;
+      const menu = document.createElement('details');
+      menu.className = 'actionMenu';
+      const summary = document.createElement('summary');
+      summary.textContent = '...';
+      summary.title = title;
+      summary.setAttribute('aria-label', title);
+      const panel = document.createElement('div');
+      panel.className = 'actionMenuPanel';
+      for (const action of usableActions) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = action.label;
+        btn.title = action.title || action.label;
+        if (action.danger) btn.className = 'danger';
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          menu.removeAttribute('open');
+          await action.onClick?.(e);
+        });
+        panel.appendChild(btn);
+      }
+      menu.addEventListener('click', (e) => e.stopPropagation());
+      menu.addEventListener('toggle', () => {
+        if (menu.open) closeActionMenus(menu);
+      });
+      menu.append(summary, panel);
+      return menu;
+    }
+
+    function blockAuthorAction(row, source = 'card') {
+      if (!row?.e?.pubkey || rowIsOwnedByMe(row)) return null;
+      return {
+        label: 'Block author',
+        title: 'Block this author',
+        danger: true,
+        onClick: async () => {
+          const pk = row.e?.pubkey;
+          if (!pk) return;
+          const profile = _feedCache.profiles?.[pk] || null;
+          const name = profile?.name || profile?.display_name || shortPubkey(pk);
+          const ok = confirm(`Block ${name}?\n\nYou will no longer see designs from this author in your feed. You can unblock them later from the "Blocked authors" panel at the bottom of the Community modal.`);
+          if (!ok) return;
+          await blockAuthor(pk, source);
+        }
+      };
+    }
+
+    function reportTemplateAction(row) {
+      if (!row?.e?.id || !row?.e?.pubkey || rowIsOwnedByMe(row)) return null;
+      return {
+        label: 'Report',
+        title: 'Report this template',
+        danger: true,
+        onClick: () => openReportModal(row.e?.id, row.e?.pubkey)
+      };
+    }
+
+    function deleteTemplateAction(row) {
+      if (!row?.e || row.e.kind !== 30078) return null;
+      if (!state.community.myPubkey || row.e.pubkey !== state.community.myPubkey) return null;
+      return {
+        label: 'Delete / Tombstone',
+        title: 'Publish a deletion request and tombstone this template',
+        danger: true,
+        onClick: async () => {
+          const reason = prompt('Optional deletion reason:', '') || '';
+          if (!confirm('Publish a deletion request and tombstone this template?')) return;
+          const activeTabId = document.querySelector('.modalTab.active')?.id || '';
+          try {
+            await publishTemplateDeletion(row, reason.trim());
+            closeNostrPreview();
+            $('nostrModal').classList.remove('open');
+            if (activeTabId === 'tabMine') {
+              await loadMyDesigns();
+            } else if (activeTabId === 'tabPopular') {
+              await loadFeedTab('Popular');
+            } else if (activeTabId === 'tabSearch') {
+              await runNostrSearch();
+            } else {
+              await loadFeedTab('New');
+            }
+          } catch (error) {
+            alert(error.message || 'Could not delete this template.');
+          }
+        }
+      };
     }
 
     async function publishCurrentTemplateToNostr() {
@@ -6062,6 +7378,15 @@
       if (templateReadout) templateReadout.textContent = text;
       const designerReadout = $('designerPublishReadout');
       if (designerReadout) designerReadout.textContent = last?.label === 'Disc design' ? text : (last ? text : 'No disc design has been published yet.');
+      // The "Copy event ID" buttons (and their containing rows) only make
+      // sense once something has been published. Hide them until then.
+      const hasPublish = !!last;
+      const tmplCopyBtn = $('copyTemplateEventIdBtn');
+      const designerCopyBtn = $('copyDesignerEventIdBtn');
+      const tmplCopyRow = tmplCopyBtn?.parentElement;
+      const designerCopyRow = designerCopyBtn?.parentElement;
+      if (tmplCopyRow) tmplCopyRow.style.display = hasPublish ? '' : 'none';
+      if (designerCopyRow) designerCopyRow.style.display = hasPublish ? '' : 'none';
     }
 
     async function finalizePublishedTemplateEvent(signed, { label = 'Template' } = {}) {
@@ -6471,6 +7796,368 @@
       return getLayer(state.selectedLayerId);
     }
 
+    function syncShapeLayerInputs(layer) {
+      const kindIsSvg = layer?.shape?.kind === 'svg';
+      renderSvgElementsList(layer);
+      // For multi-element SVG imports, fills / strokes / dashes are baked in.
+      // Hide those panels entirely and show a brief explainer.
+      const fillTypeLabel = $('shapeFillType')?.previousElementSibling;
+      const fillTypeEl = $('shapeFillType');
+      const solidRow = $('shapeFillSolidRow');
+      const gradRow = $('shapeFillGradientRow');
+      const strokeBlockEl = $('shapeStrokeBlock');
+      let svgHint = $('shapeSvgHint');
+      if (kindIsSvg) {
+        if (fillTypeLabel) fillTypeLabel.style.display = 'none';
+        if (fillTypeEl) fillTypeEl.style.display = 'none';
+        if (solidRow) solidRow.style.display = 'none';
+        if (gradRow) gradRow.style.display = 'none';
+        if (strokeBlockEl) strokeBlockEl.style.display = 'none';
+        if (!svgHint) {
+          svgHint = document.createElement('p');
+          svgHint.id = 'shapeSvgHint';
+          svgHint.className = 'hint';
+          svgHint.style.cssText = 'font-size:.78rem;margin:6px 0';
+          svgHint.textContent = 'Colors are preserved from the imported SVG. Click "Edit SVG…" below to swap in different artwork.';
+          $('shapeLayerControls')?.prepend(svgHint);
+        }
+        svgHint.style.display = '';
+      } else {
+        if (fillTypeLabel) fillTypeLabel.style.display = '';
+        if (fillTypeEl) fillTypeEl.style.display = '';
+        if (svgHint) svgHint.style.display = 'none';
+      }
+
+      const fill = layer?.fill || { type: 'solid', color: SHAPE_DEFAULT_FILL };
+      const fillType = fill.type || 'solid';
+      if (fillTypeEl && !kindIsSvg) fillTypeEl.value = fillType;
+      const linearRow = $('shapeFillLinearRow');
+      const radialRow = $('shapeFillRadialRow');
+      if (!kindIsSvg) {
+        if (solidRow) solidRow.style.display = fillType === 'solid' ? '' : 'none';
+        if (gradRow) gradRow.style.display = (fillType === 'linear-gradient' || fillType === 'radial-gradient') ? '' : 'none';
+      }
+      if (linearRow) linearRow.style.display = (!kindIsSvg && fillType === 'linear-gradient') ? '' : 'none';
+      if (radialRow) radialRow.style.display = (!kindIsSvg && fillType === 'radial-gradient') ? '' : 'none';
+
+      const colorEl = $('shapeFillColor');
+      if (colorEl) colorEl.value = fill.color || SHAPE_DEFAULT_FILL;
+      const stops = normalizeGradientStops(fill.stops);
+      const stop0 = $('shapeFillStop0');
+      const stop1 = $('shapeFillStop1');
+      if (stop0) stop0.value = stops[0].color;
+      if (stop1) stop1.value = stops[stops.length - 1].color;
+      const angleEl = $('shapeFillAngle');
+      const angleOut = $('shapeFillAngleOut');
+      const angle = Number(fill.angle) || 0;
+      if (angleEl) angleEl.value = String(angle);
+      if (angleOut) angleOut.textContent = `${angle}°`;
+      const cxEl = $('shapeFillCx');
+      const cyEl = $('shapeFillCy');
+      const rEl = $('shapeFillRadius');
+      if (cxEl) cxEl.value = String(clamp01(fill.center?.x ?? 0.5, 0, 1));
+      if (cyEl) cyEl.value = String(clamp01(fill.center?.y ?? 0.5, 0, 1));
+      if (rEl) rEl.value = String(clamp01(fill.radius ?? 0.5, 0.01, 1));
+
+      const kind = layer?.shape?.kind;
+      // Stroke controls: hidden on lines (their fill paint is the stroke) and
+      // on SVG imports (their strokes are per-element via the SVG elements
+      // list). Solid stroke fields toggle on the type select for the rest.
+      const stroke = layer?.stroke || { type: 'none' };
+      const strokeBlock = $('shapeStrokeBlock');
+      const strokeRow = $('shapeStrokeRow');
+      const hideStrokeBlock = kind === 'line' || kindIsSvg;
+      if (strokeBlock) strokeBlock.style.display = hideStrokeBlock ? 'none' : '';
+      if (strokeRow) strokeRow.style.display = (!hideStrokeBlock && stroke.type === 'solid') ? '' : 'none';
+      const strokeTypeEl = $('shapeStrokeType');
+      const strokeColorEl = $('shapeStrokeColor');
+      const strokeWidthEl = $('shapeStrokeWidth');
+      const strokeDashEl = $('shapeStrokeDash');
+      if (strokeTypeEl) strokeTypeEl.value = stroke.type || 'none';
+      if (strokeColorEl) strokeColorEl.value = stroke.color || '#000000';
+      if (strokeWidthEl) strokeWidthEl.value = String(Number(stroke.width ?? 2));
+      if (strokeDashEl) strokeDashEl.value = stroke.dash || 'solid';
+
+      const showRows = {
+        shapeCornerRadiusRow: kind === 'rounded-rect',
+        shapeSidesRow: kind === 'polygon',
+        shapeStarRow: kind === 'star',
+        shapeLineRow: kind === 'line',
+        shapePathRow: kind === 'path' || kind === 'svg'
+      };
+      for (const [id, show] of Object.entries(showRows)) {
+        const el = $(id);
+        if (el) el.style.display = show ? '' : 'none';
+      }
+      if (kind === 'rounded-rect') {
+        const r = $('shapeCornerRadius');
+        if (r) r.value = String(Number(layer.shape.cornerRadius ?? 12));
+      } else if (kind === 'polygon') {
+        const s = $('shapeSides');
+        if (s) s.value = String(Number(layer.shape.sides ?? 6));
+      } else if (kind === 'star') {
+        const p = $('shapeStarPoints');
+        const i = $('shapeStarInner');
+        if (p) p.value = String(Number(layer.shape.points ?? 5));
+        if (i) i.value = String(Number(layer.shape.innerRadiusRatio ?? 0.45));
+      } else if (kind === 'line') {
+        const sw = $('shapeLineStrokeWidth');
+        if (sw) sw.value = String(Number(layer.shape.strokeWidth ?? 6));
+      }
+    }
+
+    function updateShapeFill(color) {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'shape') return;
+      layer.fill = { ...(layer.fill || {}), type: 'solid', color };
+      render();
+    }
+
+    function updateShapeFillType(newType) {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'shape') return;
+      const prev = layer.fill || {};
+      const prevColor = prev.color || SHAPE_DEFAULT_FILL;
+      const prevStops = normalizeGradientStops(prev.stops);
+      if (newType === 'solid') {
+        // Carry the first stop into the solid color slot when coming from gradient.
+        layer.fill = { type: 'solid', color: prev.type === 'solid' ? prevColor : prevStops[0].color };
+      } else if (newType === 'linear-gradient') {
+        layer.fill = {
+          type: 'linear-gradient',
+          stops: prevStops,
+          angle: typeof prev.angle === 'number' ? prev.angle : 90
+        };
+      } else if (newType === 'radial-gradient') {
+        layer.fill = {
+          type: 'radial-gradient',
+          stops: prevStops,
+          center: prev.center || { x: 0.5, y: 0.5 },
+          radius: typeof prev.radius === 'number' ? prev.radius : 0.5
+        };
+      } else if (newType === 'none') {
+        layer.fill = { type: 'none' };
+      }
+      syncShapeLayerInputs(layer);
+      render();
+    }
+
+    function updateShapeGradientStop(index, color) {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'shape') return;
+      const stops = normalizeGradientStops(layer.fill?.stops).map(s => ({ ...s }));
+      const i = Math.max(0, Math.min(stops.length - 1, Math.round(index)));
+      stops[i] = { ...stops[i], color };
+      layer.fill = { ...(layer.fill || {}), stops };
+      render();
+    }
+
+    function updateShapeFillAngle(angle) {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'shape') return;
+      const a = Math.max(0, Math.min(360, Number(angle) || 0));
+      layer.fill = { ...(layer.fill || {}), angle: a };
+      const out = $('shapeFillAngleOut');
+      if (out) out.textContent = `${a}°`;
+      render();
+    }
+
+    function updateShapeFillCenter(axis, value) {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'shape') return;
+      const v = clamp01(Number(value), 0, 1);
+      const center = { ...(layer.fill?.center || { x: 0.5, y: 0.5 }) };
+      center[axis] = v;
+      layer.fill = { ...(layer.fill || {}), center };
+      render();
+    }
+
+    function updateShapeFillRadius(value) {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'shape') return;
+      const r = clamp01(Number(value), 0.01, 1);
+      layer.fill = { ...(layer.fill || {}), radius: r };
+      render();
+    }
+
+    function updateShapeField(field, value) {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'shape') return;
+      layer.shape = { ...(layer.shape || {}), [field]: value };
+      render();
+    }
+
+    function updateShapeStrokeField(field, value) {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'shape') return;
+      layer.stroke = { type: 'none', color: '#000000', width: 2, dash: 'solid', ...(layer.stroke || {}), [field]: value };
+      render();
+    }
+
+    // ---- Layer clip wiring ----
+
+    function clipKindForSelect(layer) {
+      const clip = layer?.clip;
+      if (!clip || clip.kind === 'none') return 'none';
+      if (clip.kind === 'inline-shape') return clip.shape?.kind || 'none';
+      if (clip.kind === 'layer-ref') return 'layer-ref';
+      return 'none';
+    }
+
+    function syncLayerClipInputs(layer) {
+      const details = $('layerClipControls');
+      if (!details) return;
+      // No clip on disc-designer's auto-generated layers.
+      details.style.display = (layer?._generatedDiscLayer) ? 'none' : '';
+      const kindEl = $('layerClipKind');
+      const current = clipKindForSelect(layer);
+      if (kindEl) kindEl.value = current;
+
+      const cornerRow = $('layerClipCornerRow');
+      const sidesRow = $('layerClipSidesRow');
+      const starRow = $('layerClipStarRow');
+      const pathRow = $('layerClipPathRow');
+      const refRow = $('layerClipLayerRefRow');
+      if (cornerRow) cornerRow.style.display = current === 'rounded-rect' ? '' : 'none';
+      if (sidesRow) sidesRow.style.display = current === 'polygon' ? '' : 'none';
+      if (starRow) starRow.style.display = current === 'star' ? '' : 'none';
+      if (pathRow) pathRow.style.display = current === 'path' ? '' : 'none';
+      if (refRow) refRow.style.display = current === 'layer-ref' ? '' : 'none';
+
+      if (current === 'rounded-rect') {
+        const v = $('layerClipCornerRadius');
+        if (v) v.value = String(Number(layer.clip?.shape?.cornerRadius ?? 12));
+      } else if (current === 'polygon') {
+        const v = $('layerClipSides');
+        if (v) v.value = String(Number(layer.clip?.shape?.sides ?? 6));
+      } else if (current === 'star') {
+        const p = $('layerClipStarPoints');
+        const i = $('layerClipStarInner');
+        if (p) p.value = String(Number(layer.clip?.shape?.points ?? 5));
+        if (i) i.value = String(Number(layer.clip?.shape?.innerRadiusRatio ?? 0.45));
+      } else if (current === 'layer-ref') {
+        populateLayerClipRefSelect(layer);
+      }
+
+      // Auto-open the details when a clip is active so the user can adjust.
+      details.open = current !== 'none';
+    }
+
+    function populateLayerClipRefSelect(layer) {
+      const sel = $('layerClipLayerSelect');
+      const hint = $('layerClipLayerHint');
+      if (!sel) return;
+      sel.innerHTML = '';
+      // Allow shape layers in the same target that can serve as a single-path mask.
+      const candidates = (state.layers || []).filter(other =>
+        other.id !== layer.id &&
+        other.type === 'shape' &&
+        other.target === layer.target &&
+        other.shape &&
+        CLIP_INLINE_KINDS.has(other.shape.kind)
+      );
+      if (!candidates.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No eligible shape layers in this target';
+        sel.appendChild(opt);
+        sel.disabled = true;
+        if (hint) hint.textContent = 'Add a shape layer (rect / circle / star / …) in the same target first, then pick it here.';
+        return;
+      }
+      sel.disabled = false;
+      if (hint) hint.textContent = 'Pick a shape layer in the same target to use its geometry as a mask.';
+      const current = layer.clip?.layerId || '';
+      for (const cand of candidates) {
+        const opt = document.createElement('option');
+        opt.value = cand.id;
+        opt.textContent = `${cand.name || cand.shape.kind} (${cand.shape.kind})`;
+        if (cand.id === current) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      if (!current && candidates[0]) {
+        // Auto-select the first candidate so the user sees an immediate result.
+        sel.value = candidates[0].id;
+      }
+    }
+
+    function setLayerClipKind(newKind) {
+      const layer = selectedLayer();
+      if (!layer) return;
+      if (newKind === 'none') {
+        delete layer.clip;
+      } else if (newKind === 'layer-ref') {
+        // Try to pick the first valid same-target shape layer.
+        const ref = (state.layers || []).find(other =>
+          other.id !== layer.id && other.type === 'shape' &&
+          other.target === layer.target && other.shape && CLIP_INLINE_KINDS.has(other.shape.kind)
+        );
+        layer.clip = { kind: 'layer-ref', layerId: ref?.id || '' };
+      } else if (newKind === 'path') {
+        // Open the existing path/SVG modal in a clip-edit flow.
+        layer.clip = { kind: 'inline-shape', shape: { kind: 'path', d: 'M 50 90 C 0 60 0 20 30 10 C 40 5 50 20 50 30 C 50 20 60 5 70 10 C 100 20 100 60 50 90 Z', viewBox: { x: 0, y: 0, w: 100, h: 100 } } };
+      } else {
+        const shape = { kind: newKind };
+        if (newKind === 'rounded-rect') shape.cornerRadius = 12;
+        if (newKind === 'polygon') shape.sides = 6;
+        if (newKind === 'star') { shape.points = 5; shape.innerRadiusRatio = 0.45; }
+        layer.clip = { kind: 'inline-shape', shape };
+      }
+      syncLayerClipInputs(layer);
+      render();
+    }
+
+    function setLayerClipShapeField(field, value) {
+      const layer = selectedLayer();
+      if (!layer || layer.clip?.kind !== 'inline-shape') return;
+      layer.clip = {
+        kind: 'inline-shape',
+        shape: { ...(layer.clip.shape || {}), [field]: value }
+      };
+      render();
+    }
+
+    function setLayerClipLayerRef(layerId) {
+      const layer = selectedLayer();
+      if (!layer) return;
+      layer.clip = { kind: 'layer-ref', layerId };
+      render();
+    }
+
+    function openLayerClipPathModal() {
+      const layer = selectedLayer();
+      if (!layer) return;
+      _shapePathTarget = { mode: 'edit-clip', layerId: layer.id };
+      const modal = $('shapePathModal');
+      const fileInput = $('shapePathFile');
+      const err = $('shapePathError');
+      const confirmBtn = $('shapePathConfirmBtn');
+      _shapePathPending = null;
+      if (fileInput) fileInput.value = '';
+      if (err) { err.style.display = 'none'; err.textContent = ''; }
+      if (confirmBtn) confirmBtn.disabled = true;
+      const preview = $('shapePathPreview');
+      if (preview) {
+        const existing = previewSvgForExistingShape(layer.clip?.shape);
+        preview.innerHTML = existing || '<p class="hint" style="margin:0;font-size:.75rem">Upload an SVG to set the clip shape.</p>';
+      }
+      if (modal) { modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false'); bringModalToFront(modal); }
+    }
+
+    function updateShapeStrokeType(newType) {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'shape') return;
+      const prev = layer.stroke || {};
+      layer.stroke = {
+        type: newType,
+        color: prev.color || '#000000',
+        width: typeof prev.width === 'number' ? prev.width : 2,
+        dash: prev.dash || 'solid'
+      };
+      syncShapeLayerInputs(layer);
+      render();
+    }
+
     function layerHtmlToPlainText(html) {
       if (!html) return '';
       const tmp = document.createElement('div');
@@ -6495,6 +8182,10 @@
       $('layerImageControls').style.display = layer && layer.type === 'image' ? 'block' : 'none';
       const colorPanel = $('colorLayerControls');
       if (colorPanel) colorPanel.style.display = layer && layer.type === 'color' ? 'block' : 'none';
+      const shapePanel = $('shapeLayerControls');
+      if (shapePanel) shapePanel.style.display = layer && layer.type === 'shape' ? 'block' : 'none';
+      if (layer && layer.type === 'shape') syncShapeLayerInputs(layer);
+      if (layer) syncLayerClipInputs(layer);
       const layerNameRow = $('layerName');
       const layerNameLabel = layerNameRow?.previousElementSibling;
       const hideName = layer && layer.type === 'text';
@@ -6554,6 +8245,41 @@
       const layer = selectedLayer();
       if (!layer) return;
       layer[prop] = value;
+      render();
+    }
+
+    // Session-wide aspect-ratio lock for the W/H inputs. Default on — most
+    // shapes (and most images / text blocks) read nicer when scaled
+    // proportionally. Click the 🔒 button to free the dimensions.
+    let _aspectLocked = true;
+
+    function syncAspectLockBtn() {
+      const btn = $('layerAspectLock');
+      if (!btn) return;
+      btn.setAttribute('aria-pressed', _aspectLocked ? 'true' : 'false');
+      btn.textContent = _aspectLocked ? '🔒' : '🔓';
+      btn.title = _aspectLocked
+        ? 'Aspect ratio locked — changing one dimension updates the other. Click to unlock.'
+        : 'Aspect ratio unlocked — W and H change independently. Click to relock.';
+    }
+
+    function updateLayerDimensionLinked(changed, value) {
+      const layer = selectedLayer();
+      if (!layer) return;
+      const next = Number(value);
+      if (!Number.isFinite(next) || next <= 0) return;
+      const other = changed === 'w' ? 'h' : 'w';
+      const oldChanged = Number(layer[changed]) || 0;
+      const oldOther = Number(layer[other]) || 0;
+      layer[changed] = next;
+      if (_aspectLocked && oldChanged > 0 && oldOther > 0) {
+        layer[other] = (oldOther / oldChanged) * next;
+        const otherInput = $(other === 'w' ? 'layerW' : 'layerH');
+        // Don't stomp the input the user is actively typing in.
+        if (otherInput && document.activeElement !== otherInput) {
+          otherInput.value = layer[other].toFixed(3);
+        }
+      }
       render();
     }
 
@@ -6918,9 +8644,40 @@
       ctx.globalAlpha = layer.opacity != null ? layer.opacity : 1;
       ctx.translate(x + w / 2, y + h / 2);
       if (layer.rotate) ctx.rotate((Number(layer.rotate) || 0) * Math.PI / 180);
+      // Apply layer-level clip on canvas. The path is in 0–100 coords
+      // relative to the shape's local box; we build a Path2D and use a
+      // DOMMatrix to map 0–100 → (-w/2..w/2, -h/2..h/2) so it lines up with
+      // the layer's draw region.
+      const clipSrc = resolveClipSourceShape(layer, state.layers);
+      if (clipSrc) {
+        let clipD = clipShapeToPathD(clipSrc, 100);
+        if (clipSrc.kind === 'path') {
+          // Path shapes are stored in their own viewBox; first scale that
+          // into 0–100 manually via a sub-matrix.
+        }
+        if (clipD) {
+          try {
+            const matrix = new DOMMatrix().translate(-w / 2, -h / 2).scale(w / 100, h / 100);
+            if (clipSrc.kind === 'path') {
+              const vb = clipSrc.viewBox || { x: 0, y: 0, w: 100, h: 100 };
+              matrix.scaleSelf(100 / vb.w, 100 / vb.h);
+              matrix.translateSelf(-vb.x, -vb.y);
+            }
+            const clipPath = new Path2D();
+            clipPath.addPath(new Path2D(clipD), matrix);
+            ctx.clip(clipPath);
+          } catch { /* unsupported Path2D APIs — skip clipping */ }
+        }
+      }
       if (layer.type === 'color') {
         ctx.fillStyle = layer.color || COLOR_LAYER_DEFAULT_FILL;
         ctx.fillRect(-w / 2, -h / 2, w, h);
+      } else if (layer.type === 'shape') {
+        if (layer.shape?.kind === 'svg') {
+          await drawSvgShapeToCanvas(ctx, layer, w, h);
+        } else {
+          drawShapeLayerToCanvas(ctx, layer, w, h);
+        }
       } else if (layer.type === 'image' && layer.src) {
         try {
           const img = await loadExportImage(layer.src);
@@ -7253,6 +9010,7 @@
       state.jewelInserts = { front: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, tray: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
       state.discSpineLabels = { top: '', bottom: '' };
       state.jewelSpineLabels = { left: '', right: '' };
+      state.customArt = { width: 1920, height: 1080, background: '#ffffff', preset: '1920x1080' };
       state.meta = blankMeta();
       state.layers = (state.layers || []).filter(l => l.target === 'designer-disc');
       state.selectedLayerId = '';
@@ -9693,36 +11451,16 @@
       btn.type = 'button'; btn.textContent = 'Fork off!';
       btn.title = 'Fork this design — opens it in the editor so you can save your own version';
       btn.addEventListener('click', e => { e.stopPropagation(); onUse(); });
-      const blockBtn = document.createElement('button');
-      blockBtn.type = 'button';
-      blockBtn.className = 'danger';
-      blockBtn.textContent = 'Block';
-      blockBtn.title = 'Block this author';
-      blockBtn.addEventListener('click', async e => {
-        e.stopPropagation();
-        const pk = row.e?.pubkey;
-        if (!pk) return;
-        const profile = _feedCache.profiles?.[pk] || null;
-        const name = profile?.name || profile?.display_name || shortPubkey(pk);
-        const ok = confirm(`Block ${name}?\n\nYou will no longer see designs from this author in your feed. You can unblock them later from the "Blocked authors" panel at the bottom of the Community modal.`);
-        if (!ok) return;
-        await blockAuthor(pk, 'card');
-      });
-      const reportBtn = document.createElement('button');
-      reportBtn.type = 'button';
-      reportBtn.className = 'danger';
-      reportBtn.textContent = 'Report';
-      reportBtn.title = 'Report this template';
-      reportBtn.addEventListener('click', e => {
-        e.stopPropagation();
-        openReportModal(row.e?.id, row.e?.pubkey);
-      });
       const tipBtn = makeFeedCardTipButton(row);
       const editBtn = makeFeedCardEditButton(row);
       const isMine = rowIsOwnedByMe(row);
       actions.append(makeReactionBtn(row), prevBtn, btn);
       if (editBtn) actions.appendChild(editBtn);
-      if (!isMine) actions.append(blockBtn, reportBtn);
+      const moreMenu = makeActionMenu([
+        blockAuthorAction(row, 'card'),
+        reportTemplateAction(row)
+      ]);
+      if (!isMine && moreMenu) actions.appendChild(moreMenu);
       if (tipBtn) actions.appendChild(tipBtn);
       const zapMsats = zapTotalForEvent(row.e?.id || '');
       if (zapMsats > 0) {
@@ -10257,6 +11995,11 @@
       useBtn.title = 'Fork this design — opens it in the editor so you can save your own version';
       useBtn.addEventListener('click', e => { e.stopPropagation(); onUse(); });
       actions.append(makeReactionBtn(row), prevBtn, useBtn);
+      const moreMenu = makeActionMenu([
+        blockAuthorAction(row, 'result'),
+        reportTemplateAction(row)
+      ]);
+      if (moreMenu) actions.appendChild(moreMenu);
 
       el.append(thumb, meta, actions);
       el.addEventListener('click', () => openDesignPreview(row));
@@ -10316,6 +12059,11 @@
       const saveJsonBtn = $('previewSaveJsonBtn');
       while (actionsDiv.firstChild && actionsDiv.firstChild !== saveJsonBtn) {
         actionsDiv.removeChild(actionsDiv.firstChild);
+      }
+      const overflowDiv = $('nostrPreviewOverflow');
+      if (overflowDiv) {
+        overflowDiv.innerHTML = '';
+        overflowDiv.dataset.visible = 'false';
       }
 
       // Owner-only Edit button — replaces the published event in place via the
@@ -10410,7 +12158,6 @@
 
         actionsDiv.insertBefore(import1Btn, saveJsonBtn);
         actionsDiv.insertBefore(import2Btn, saveJsonBtn);
-        addPreviewDeleteButton(actionsDiv, row, saveJsonBtn);
       } else {
         const printBtn = document.createElement('button');
         printBtn.type = 'button';
@@ -10444,7 +12191,18 @@
           setTimeout(() => { render(); window.print(); }, 350);
         });
         actionsDiv.insertBefore(printBtn, saveJsonBtn);
-        addPreviewDeleteButton(actionsDiv, row, saveJsonBtn);
+      }
+
+      const previewMoreMenu = makeActionMenu([
+        blockAuthorAction(row, 'preview'),
+        reportTemplateAction(row),
+        deleteTemplateAction(row)
+      ]);
+      if (previewMoreMenu && overflowDiv) {
+        overflowDiv.appendChild(previewMoreMenu);
+        overflowDiv.dataset.visible = 'true';
+      } else if (previewMoreMenu) {
+        actionsDiv.insertBefore(previewMoreMenu, saveJsonBtn);
       }
 
       // Update the URL hash so the design is shareable / refreshable
@@ -10484,6 +12242,11 @@
       $('nostrBrowseHeading').style.display = '';
       $('nostrPreviewHeading').style.display = 'none';
       $('nostrPreviewActions').dataset.visible = 'false';
+      const overflowDiv = $('nostrPreviewOverflow');
+      if (overflowDiv) {
+        overflowDiv.innerHTML = '';
+        overflowDiv.dataset.visible = 'false';
+      }
       $('nostrBackBtn').style.display = 'none';
       $('nostrModal').querySelector('.modalTabs').style.display = '';
       $('nostrPreviewPanel').style.display = 'none';
@@ -10589,12 +12352,14 @@
         // z-index from the sorted index so each layer sits cleanly above the
         // last (and above the disc bg image at z:1). Hole is at z:12.
         const zi = 3 + i;
-        el.style.cssText = `position:absolute;left:${lx}%;top:${ly}%;width:${lw}%;height:${lh}%;transform:rotate(${Number(layer.rotate)||0}deg);opacity:${layer.opacity !== undefined ? layer.opacity : 1};overflow:hidden;pointer-events:none;box-sizing:border-box;z-index:${zi};`;
+        el.style.cssText = `position:absolute;left:${lx}%;top:${ly}%;width:${lw}%;height:${lh}%;transform:rotate(${Number(layer.rotate)||0}deg);opacity:${layer.opacity !== undefined ? layer.opacity : 1};overflow:hidden;pointer-events:none;box-sizing:border-box;z-index:${zi};${clipPathStyleFragment(layer)}`;
 
         if (layer.type === 'text') {
           applyPreviewLayerTextStyle(el, layer, PREVIEW_PX / DISC_D);
         } else if (layer.type === 'color') {
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
+        } else if (layer.type === 'shape') {
+          renderShapeIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -10793,12 +12558,15 @@
           'overflow:hidden',
           'pointer-events:none',
           'box-sizing:border-box',
-          'z-index:4'
-        ].join(';');
+          'z-index:4',
+          clipPathStyleFragment(layer).replace(/;$/, '')
+        ].filter(Boolean).join(';');
         if (layer.type === 'text') {
           applyPreviewLayerTextStyle(el, layer, PREVIEW_BASE_PX / totalW);
         } else if (layer.type === 'color') {
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
+        } else if (layer.type === 'shape') {
+          renderShapeIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -10866,8 +12634,9 @@
           'overflow:hidden',
           'pointer-events:none',
           'box-sizing:border-box',
-          'z-index:3'
-        ].join(';');
+          'z-index:3',
+          clipPathStyleFragment(layer).replace(/;$/, '')
+        ].filter(Boolean).join(';');
 
         if (layer.type === 'text') {
           // px/in within this disc wrap = preview_width(720)/sheetW (sheet's
@@ -10875,6 +12644,8 @@
           applyPreviewLayerTextStyle(el, layer, PREVIEW_BASE_PX / sheetW);
         } else if (layer.type === 'color') {
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
+        } else if (layer.type === 'shape') {
+          renderShapeIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -11102,12 +12873,14 @@
         const ly = (Number(layer.y) || 0) / slotH * 100;
         const lw = (Number(layer.w) || slotW) / slotW * 100;
         const lh = (Number(layer.h) || slotH) / slotH * 100;
-        el.style.cssText = `position:absolute;left:${lx}%;top:${ly}%;width:${lw}%;height:${lh}%;transform:rotate(${Number(layer.rotate)||0}deg);opacity:${layer.opacity !== undefined ? layer.opacity : 1};overflow:hidden;pointer-events:none;box-sizing:border-box;z-index:3;`;
+        el.style.cssText = `position:absolute;left:${lx}%;top:${ly}%;width:${lw}%;height:${lh}%;transform:rotate(${Number(layer.rotate)||0}deg);opacity:${layer.opacity !== undefined ? layer.opacity : 1};overflow:hidden;pointer-events:none;box-sizing:border-box;z-index:3;${clipPathStyleFragment(layer)}`;
         if (layer.type === 'text') {
           // px/in within this insert = sheet_width(720)/sheetW (uniform across sheet).
           applyPreviewLayerTextStyle(el, layer, PREVIEW_BASE_PX / sheetW);
         } else if (layer.type === 'color') {
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
+        } else if (layer.type === 'shape') {
+          renderShapeIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -11217,12 +12990,14 @@
         const lw = ((Number(layer.w) || wIn) / wIn) * 100;
         const lh = ((Number(layer.h) || hIn) / hIn) * 100;
         const zi = 3 + i;
-        el.style.cssText = `position:absolute;left:${lx}%;top:${ly}%;width:${lw}%;height:${lh}%;transform:rotate(${Number(layer.rotate)||0}deg);opacity:${layer.opacity !== undefined ? layer.opacity : 1};overflow:hidden;pointer-events:none;box-sizing:border-box;z-index:${zi};`;
+        el.style.cssText = `position:absolute;left:${lx}%;top:${ly}%;width:${lw}%;height:${lh}%;transform:rotate(${Number(layer.rotate)||0}deg);opacity:${layer.opacity !== undefined ? layer.opacity : 1};overflow:hidden;pointer-events:none;box-sizing:border-box;z-index:${zi};${clipPathStyleFragment(layer)}`;
 
         if (layer.type === 'text') {
           applyPreviewLayerTextStyle(el, layer, PREVIEW_BASE_PX / wIn);
         } else if (layer.type === 'color') {
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
+        } else if (layer.type === 'shape') {
+          renderShapeIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -11669,30 +13444,6 @@
         const res = await fetch(`https://www.omdbapi.com/?i=${encodeURIComponent(imdb)}&apikey=${encodeURIComponent(key)}`);
         const data = await res.json();
         if (data && data.Title) { state.meta.title = data.Title; $("titleField").value = data.Title; render(); } else toastError("IMDb import failed");
-      });
-
-      $("nostrExportBtn").addEventListener("click", async ()=>{
-        if (!window.nostr) return toastError("No Nostr extension found");
-        const payload = state.templateMode === 'disc'
-          ? discSheetPayload()
-          : state.templateMode === 'jewel'
-            ? jewelTemplatePayload()
-            : coverTemplatePayload();
-        const typeTag = state.templateMode === 'disc'
-          ? 'casewrap-disc'
-          : state.templateMode === 'jewel'
-            ? 'casewrap-jewel'
-            : 'casewrap-cover';
-        const clipboardMode = normalizeTemplateMode(payload);
-        const tags = [
-          ['d', `${clipboardMode}:${state.meta.imdbId || state.meta.title || 'template'}`],
-          ...getTemplateTags(payload, typeTag)
-        ];
-        const evt = { kind: 30078, created_at: Math.floor(Date.now()/1000), tags, content: JSON.stringify(payload) };
-        evt.pubkey = await window.nostr.getPublicKey();
-        const signed = await window.nostr.signEvent(evt);
-        await navigator.clipboard.writeText(JSON.stringify(signed));
-        toastSuccess("Signed Nostr event copied to clipboard");
       });
 
       $("nostrClose").addEventListener("click", () => { closeNostrPreview(); $("nostrModal").classList.remove("open"); _feedCache.softModRevealed.clear(); });
@@ -12293,13 +14044,19 @@
       for (const [id, prop] of [
         ['layerX', 'x'],
         ['layerY', 'y'],
-        ['layerW', 'w'],
-        ['layerH', 'h'],
         ['layerRotate', 'rotate'],
         ['layerOpacity', 'opacity']
       ]) {
         $(id).addEventListener('input', (event) => updateSelectedLayer(prop, Number(event.target.value)));
       }
+      // W and H respect the session aspect-lock toggle.
+      $('layerW').addEventListener('input', (event) => updateLayerDimensionLinked('w', event.target.value));
+      $('layerH').addEventListener('input', (event) => updateLayerDimensionLinked('h', event.target.value));
+      on('layerAspectLock', 'click', () => {
+        _aspectLocked = !_aspectLocked;
+        syncAspectLockBtn();
+      });
+      syncAspectLockBtn();
 
       const textContentEl = $('textLayerContent');
       if (textContentEl) {
@@ -12320,6 +14077,31 @@
       $('textAlign').addEventListener('change', (event) => updateSelectedLayer('align', event.target.value));
       const colorFillEl = $('colorLayerFill');
       if (colorFillEl) colorFillEl.addEventListener('input', (event) => updateSelectedLayer('color', event.target.value));
+      on('shapeFillColor', 'input', (event) => updateShapeFill(event.target.value));
+      on('shapeFillType', 'change', (event) => updateShapeFillType(event.target.value));
+      on('shapeFillStop0', 'input', (event) => updateShapeGradientStop(0, event.target.value));
+      on('shapeFillStop1', 'input', (event) => updateShapeGradientStop(1, event.target.value));
+      on('shapeFillAngle', 'input', (event) => updateShapeFillAngle(event.target.value));
+      on('shapeFillCx', 'input', (event) => updateShapeFillCenter('x', event.target.value));
+      on('shapeFillCy', 'input', (event) => updateShapeFillCenter('y', event.target.value));
+      on('shapeFillRadius', 'input', (event) => updateShapeFillRadius(event.target.value));
+      on('shapeStrokeType', 'change', (event) => updateShapeStrokeType(event.target.value));
+      on('shapeStrokeColor', 'input', (event) => updateShapeStrokeField('color', event.target.value));
+      on('shapeStrokeWidth', 'input', (event) => updateShapeStrokeField('width', Math.max(0.1, Math.min(50, Number(event.target.value) || 2))));
+      on('shapeStrokeDash', 'change', (event) => updateShapeStrokeField('dash', event.target.value));
+      on('shapePathEditBtn', 'click', () => openShapePathModal({ mode: 'edit', layerId: state.selectedLayerId }));
+      on('layerClipKind', 'change', (e) => setLayerClipKind(e.target.value));
+      on('layerClipCornerRadius', 'input', (e) => setLayerClipShapeField('cornerRadius', Math.max(0, Math.min(50, Number(e.target.value) || 0))));
+      on('layerClipSides', 'input', (e) => setLayerClipShapeField('sides', Math.max(3, Math.min(20, Math.round(Number(e.target.value)) || 6))));
+      on('layerClipStarPoints', 'input', (e) => setLayerClipShapeField('points', Math.max(3, Math.min(20, Math.round(Number(e.target.value)) || 5))));
+      on('layerClipStarInner', 'input', (e) => setLayerClipShapeField('innerRadiusRatio', Math.max(0.05, Math.min(0.95, Number(e.target.value) || 0.45))));
+      on('layerClipLayerSelect', 'change', (e) => setLayerClipLayerRef(e.target.value));
+      on('layerClipPathEditBtn', 'click', openLayerClipPathModal);
+      on('shapeCornerRadius', 'input', (event) => updateShapeField('cornerRadius', Number(event.target.value)));
+      on('shapeSides', 'input', (event) => updateShapeField('sides', Math.max(3, Math.min(20, Math.round(Number(event.target.value)) || 6))));
+      on('shapeStarPoints', 'input', (event) => updateShapeField('points', Math.max(3, Math.min(20, Math.round(Number(event.target.value)) || 5))));
+      on('shapeStarInner', 'input', (event) => updateShapeField('innerRadiusRatio', Math.max(0.05, Math.min(0.95, Number(event.target.value) || 0.45))));
+      on('shapeLineStrokeWidth', 'input', (event) => updateShapeField('strokeWidth', Math.max(0.5, Math.min(50, Number(event.target.value) || 6))));
       const lockEl = $('layerLocked');
       if (lockEl) lockEl.addEventListener('change', (event) => updateSelectedLayer('locked', event.target.checked));
 
@@ -12449,6 +14231,13 @@
       on('closeProjectDiscardBtn', 'click', handleCloseProjectDiscard);
       on('closeProjectCancelBtn', 'click', closeCloseProjectModal);
       on('editingBannerCancel', 'click', () => exitEditMode());
+      on('shapePathCloseBtn', 'click', closeShapePathModal);
+      on('shapePathCancelBtn', 'click', closeShapePathModal);
+      on('shapePathConfirmBtn', 'click', confirmShapePathModal);
+      on('shapePathFile', 'change', handleShapePathFileChange);
+      const shapePathModalEl = $('shapePathModal');
+      if (shapePathModalEl) shapePathModalEl.addEventListener('click', e => { if (e.target === shapePathModalEl) closeShapePathModal(); });
+
       on('publishConfirmCloseBtn', 'click', closePublishConfirmModal);
       on('publishConfirmCancelBtn', 'click', closePublishConfirmModal);
       on('publishConfirmPublishBtn', 'click', handlePublishConfirmPublish);
@@ -12487,11 +14276,14 @@
 
       // ESC closes whichever overlay modal is on top.
       document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeActionMenus();
         if (e.key !== 'Escape') return;
         const tipM = $('tipModal');
         if (tipM && tipM.getAttribute('aria-hidden') === 'false') { closeTipModal(); return; }
         const pubConfirmM = $('publishConfirmModal');
         if (pubConfirmM && pubConfirmM.getAttribute('aria-hidden') === 'false') { closePublishConfirmModal(); return; }
+        const shapePathM = $('shapePathModal');
+        if (shapePathM && shapePathM.getAttribute('aria-hidden') === 'false') { closeShapePathModal(); return; }
         const profileM = $('profileModal');
         if (profileM && profileM.getAttribute('aria-hidden') === 'false') { closeProfilePage(); return; }
         const reportM = $('reportModal');
@@ -12531,6 +14323,9 @@
         if (profileModalEl && profileModalEl.getAttribute('aria-hidden') === 'false') {
           closeProfilePage({ popState: false });
         }
+      });
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest?.('.actionMenu')) closeActionMenus();
       });
     }
 
