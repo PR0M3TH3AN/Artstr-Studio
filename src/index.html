@@ -105,6 +105,11 @@
     main {
       min-width: 0;
       padding: 26px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 100vh;
+      box-sizing: border-box;
     }
 
     .appHeader {
@@ -624,7 +629,8 @@
       border-radius: 0px;
       padding: 24px;
       overflow: auto;
-      min-height: calc(100vh - 112px);
+      flex: 1;
+      min-height: 0;
       box-shadow: inset 0 1px 0 rgba(255,255,255,.7);
     }
 
@@ -1637,6 +1643,31 @@
     .svgElementRow input[type="color"] { width:30px; height:24px; padding:0; border:1px solid var(--line); border-radius:4px; background:transparent; cursor:pointer; }
     .svgElementRow input[type="color"]::-webkit-color-swatch-wrapper { padding:0; }
     .svgElementRow input[type="color"]::-webkit-color-swatch { border:0; border-radius:3px; }
+
+    /* Off-canvas veil: a transparent box covering the sheet, with a massive
+       semi-opaque box-shadow that fills everything outside the sheet bounds.
+       Layer content that extends past the artboard sits visually under this
+       shadow so it looks faded, making the canvas edges crystal clear. */
+    .canvasVeil { position:absolute; inset:0; pointer-events:none; z-index:999; background:transparent; box-shadow:0 0 0 9999px rgba(229,231,235,.62); }
+    body.dark .canvasVeil { box-shadow:0 0 0 9999px rgba(15,22,34,.62); }
+    @media print { .canvasVeil { display:none !important; } }
+    body.export-print .canvasVeil { display:none !important; }
+    body.exporting .canvasVeil { display:none !important; }
+
+    .canvasToolbar { display:flex; align-items:center; gap:6px; padding:6px 10px; background:rgba(255,255,255,.95); border:1px solid var(--line); border-radius:8px; z-index:6; box-shadow:0 4px 12px rgba(0,0,0,.08); margin:0 auto; width:fit-content; max-width:100%; flex-shrink:0; }
+    body.dark .canvasToolbar { background:rgba(15,22,34,.92); }
+    body.app-designer .canvasToolbar { display:none; }
+    .canvasToolbarBtn { padding:4px 10px; font-size:.82rem; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink); cursor:pointer; min-width:32px; }
+    .canvasToolbarBtn:hover { filter:brightness(.97); }
+    .canvasToolbarSlider { flex:1; min-width:120px; max-width:280px; }
+    .canvasToolbarReadout { font-size:.78rem; color:var(--muted); min-width:80px; text-align:right; font-variant-numeric:tabular-nums; }
+    .canvasToolbarDivider { width:1px; height:18px; background:var(--line); margin:0 4px; }
+    @media print { .canvasToolbar { display:none !important; } }
+
+    .undoRedoGroup { display:flex; gap:4px; align-items:center; }
+    .undoRedoBtn { width:30px; height:30px; padding:0; font-size:1.1rem; line-height:1; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink); cursor:pointer; }
+    .undoRedoBtn:hover:not(:disabled) { background:rgba(127,127,127,.12); }
+    .undoRedoBtn:disabled { opacity:.4; cursor:not-allowed; }
 
     .aspectLockRow { display:flex; align-items:flex-end; gap:6px; }
     .aspectLockRow > div { flex:1; min-width:0; }
@@ -2659,6 +2690,10 @@
           <p class="subhead printHelp">Left-to-right layout is back cover, spine, front cover.</p>
         </div>
         <div class="status">
+          <div class="undoRedoGroup">
+            <button type="button" id="undoBtn" class="undoRedoBtn" disabled aria-label="Undo">↶</button>
+            <button type="button" id="redoBtn" class="undoRedoBtn" disabled aria-label="Redo">↷</button>
+          </div>
           <span class="pill" id="trimReadout"></span>
           <span class="pill" id="sheetReadout"></span>
         </div>
@@ -2735,6 +2770,7 @@
               </div>
             </div>
             <div class="layerOverlay" id="layerOverlay"></div>
+            <div class="canvasVeil" id="canvasVeil" aria-hidden="true"></div>
           </section>
         </div>
 
@@ -2747,6 +2783,16 @@
           </div>
           <div class="designerDiscLabel" id="designerDiscLabel">Design A</div>
         </div>
+      </div>
+
+      <div class="canvasToolbar" id="canvasToolbar">
+        <button type="button" id="zoomOutBtn" class="canvasToolbarBtn" title="Zoom out">−</button>
+        <input type="range" id="zoomSliderBottom" min="20" max="200" step="1" class="canvasToolbarSlider" aria-label="Zoom" />
+        <button type="button" id="zoomInBtn" class="canvasToolbarBtn" title="Zoom in">+</button>
+        <output id="zoomReadoutBottom" class="canvasToolbarReadout">60%</output>
+        <span class="canvasToolbarDivider"></span>
+        <button type="button" id="zoomFitBtn" class="canvasToolbarBtn" title="Fit to view">Fit</button>
+        <button type="button" id="zoom100Btn" class="canvasToolbarBtn" title="100% size">1:1</button>
       </div>
     </main>
   </div>
@@ -3414,6 +3460,7 @@
       bleed: presets.dvd.bleed,
       safe: presets.dvd.safe,
       zoom: 60,
+      zoomAuto: true,
       showGuides: true,
       showBleed: true,
       showCrops: true,
@@ -4272,6 +4319,7 @@
     }
 
     function applyPreset(name) {
+      if (!_isRestoring) pushHistory(`apply preset: ${name}`);
       state.preset = name;
       if (name === 'jewel8693') {
         state.templateMode = 'jewel';
@@ -4496,10 +4544,60 @@
         `;
       }
 
+      // Auto-fit: compute a zoom that lands the sheet inside the preview
+      // viewport (with a small padding margin) every render until the user
+      // touches the zoom controls themselves.
+      if (state.zoomAuto) {
+        const fit = computeFitZoom();
+        if (fit > 0) state.zoom = fit;
+      }
       const scale = state.zoom / 100;
       $('sheetWrap').style.transform = `scale(${scale})`;
       $('sheetWrap').style.width = `${sheetW() * 96 * scale}px`;
       $('sheetWrap').style.height = `${sheetH() * 96 * scale}px`;
+      syncZoomControls();
+    }
+
+    function computeFitZoom() {
+      const shell = $('previewShell');
+      if (!shell) return 0;
+      const padding = 32; // visual breathing room on each side
+      const availW = Math.max(40, shell.clientWidth - padding);
+      const availH = Math.max(40, shell.clientHeight - padding);
+      const sheetWpx = sheetW() * 96;
+      const sheetHpx = sheetH() * 96;
+      if (sheetWpx <= 0 || sheetHpx <= 0) return 0;
+      const fit = Math.min(availW / sheetWpx, availH / sheetHpx) * 100;
+      return Math.max(5, Math.min(200, Math.round(fit)));
+    }
+
+    function syncZoomControls() {
+      const out = $('zoomOut'); if (out) out.textContent = `${state.zoom}%`;
+      const sidebarSlider = $('zoom'); if (sidebarSlider) sidebarSlider.value = state.zoom;
+      const bottomSlider = $('zoomSliderBottom'); if (bottomSlider) bottomSlider.value = state.zoom;
+      const bottomOut = $('zoomReadoutBottom'); if (bottomOut) {
+        bottomOut.textContent = state.zoomAuto ? `Fit (${state.zoom}%)` : `${state.zoom}%`;
+      }
+    }
+
+    function setManualZoom(percent) {
+      const z = Math.max(5, Math.min(200, Math.round(Number(percent) || 0)));
+      state.zoomAuto = false;
+      state.zoom = z;
+      // Direct DOM scale write to skip the full render path on a slider drag.
+      const scale = z / 100;
+      const wrap = $('sheetWrap');
+      if (wrap) {
+        wrap.style.transform = `scale(${scale})`;
+        wrap.style.width = `${sheetW() * 96 * scale}px`;
+        wrap.style.height = `${sheetH() * 96 * scale}px`;
+      }
+      syncZoomControls();
+    }
+
+    function resetZoomAuto() {
+      state.zoomAuto = true;
+      render();
     }
 
     // Keep the container's crop rectangle stationary while rotating/panning the image.
@@ -4610,6 +4708,128 @@
       }
     }
 
+    // ---- Undo / Redo (per docs/UNDO_REDO_FEATURE.md) ----
+
+    // Editor-state fields that are snapshotted. Ambient state (community
+    // feeds, caches, identity, transient modal targets) is intentionally
+    // excluded so undo doesn't roll back network actions or UI state.
+    const UNDO_SNAPSHOT_FIELDS = [
+      'appMode', 'templateMode',
+      'savedMetaByMode',
+      'meta',
+      'preset', 'panelW', 'trimH', 'spineW', 'bleed', 'safe', 'artworkMode',
+      'slots', 'combined',
+      'discs', 'discMeta', 'discSpineLabels',
+      'jewelInserts', 'jewelSpineLabels',
+      'customArt',
+      'discDesign',
+      'layers',
+      'selectedLayerId',
+      'editingDTag', 'editingKind', 'editingEventId', 'editingTitle',
+      'showGuides', 'showBleed', 'showCrops', 'printGuides', 'printCrops', 'zoom'
+    ];
+    const UNDO_MAX = 50;
+    const _undoStack = [];
+    const _redoStack = [];
+    let _isRestoring = false;
+    const _undoDebounceTimers = new Map();
+
+    function cloneStateSnapshot() {
+      const snap = {};
+      for (const k of UNDO_SNAPSHOT_FIELDS) snap[k] = state[k];
+      try { return structuredClone(snap); }
+      catch { return JSON.parse(JSON.stringify(snap)); }
+    }
+
+    function restoreStateSnapshot(snapshot) {
+      _isRestoring = true;
+      try {
+        for (const k of UNDO_SNAPSHOT_FIELDS) {
+          if (k in snapshot) state[k] = snapshot[k];
+        }
+        // Re-derive computed downstream state.
+        try { normalizeDiscState?.(); } catch {}
+        try { normalizeJewelState?.(); } catch {}
+        try { paintEditingBanner?.(); } catch {}
+        try { syncModeTabsUI?.(); } catch {}
+        try { syncInputs(); } catch {}
+        try { syncAllSlotInputs?.(); } catch {}
+        try { syncAllDiscInputs?.(); } catch {}
+        try { syncAllJewelInputs?.(); } catch {}
+        try { syncCombinedInputs?.(); } catch {}
+        try { syncDesignerInputs?.(); } catch {}
+        render();
+      } finally {
+        _isRestoring = false;
+      }
+      updateUndoRedoUI();
+    }
+
+    function pushHistory(label) {
+      if (_isRestoring) return;
+      const snap = cloneStateSnapshot();
+      _undoStack.push({ label: label || 'change', snapshot: snap, at: Date.now() });
+      while (_undoStack.length > UNDO_MAX) _undoStack.shift();
+      _redoStack.length = 0;
+      updateUndoRedoUI();
+    }
+
+    // Debounced push: collapses rapid edits to the same logical input
+    // (e.g., dragging a slider) into a single history entry. The first
+    // call within the window captures the PRE-edit state; subsequent
+    // calls just reset the timer.
+    function pushHistoryDebounced(key, label, ms = 400) {
+      if (_isRestoring) return;
+      if (!_undoDebounceTimers.has(key)) {
+        // First touch — push the pre-edit snapshot immediately.
+        pushHistory(label);
+      }
+      clearTimeout(_undoDebounceTimers.get(key));
+      _undoDebounceTimers.set(key, setTimeout(() => {
+        _undoDebounceTimers.delete(key);
+      }, ms));
+    }
+
+    function undo() {
+      if (!_undoStack.length) return;
+      const current = cloneStateSnapshot();
+      _redoStack.push({ label: 'redo', snapshot: current, at: Date.now() });
+      const entry = _undoStack.pop();
+      restoreStateSnapshot(entry.snapshot);
+    }
+
+    function redo() {
+      if (!_redoStack.length) return;
+      const current = cloneStateSnapshot();
+      _undoStack.push({ label: 'undo', snapshot: current, at: Date.now() });
+      const entry = _redoStack.pop();
+      restoreStateSnapshot(entry.snapshot);
+    }
+
+    function updateUndoRedoUI() {
+      const u = $('undoBtn');
+      const r = $('redoBtn');
+      if (u) {
+        u.disabled = _undoStack.length === 0;
+        const last = _undoStack[_undoStack.length - 1];
+        u.title = last ? `Undo: ${last.label} (Ctrl+Z)` : 'Nothing to undo';
+      }
+      if (r) {
+        r.disabled = _redoStack.length === 0;
+        const last = _redoStack[_redoStack.length - 1];
+        r.title = last ? `Redo: ${last.label} (Ctrl+Shift+Z)` : 'Nothing to redo';
+      }
+    }
+
+    function isEditableFocus() {
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (el.isContentEditable) return true;
+      return false;
+    }
+
     function render() {
       // Rebuild global clip-path <defs> before any renderer so layer
       // wrappers can reference them via clip-path: url(#…).
@@ -4692,6 +4912,7 @@
           const raw = $(`url-${key}`).value.trim();
           if (!raw) return;
           try {
+            pushHistory(`load ${key} image`);
             state.templateMode = 'cover';
             state.artworkMode = 'separate';
             state.slots[key].src = normalizeImageUrl(raw);
@@ -4703,12 +4924,14 @@
         });
 
         $(`fit-${key}`).addEventListener('change', (event) => {
+          pushHistory(`change ${key} fit`);
           state.slots[key].fit = event.target.value;
           render();
         });
 
         for (const prop of ['zoom', 'x', 'y', 'rotate']) {
           $(`${prop}-${key}`).addEventListener('input', (event) => {
+            pushHistoryDebounced(`slot:${key}:${prop}`, `change ${key} ${prop}`, 400);
             state.slots[key][prop] = Number(event.target.value);
             syncSlotInputs(key);
             render();
@@ -4716,12 +4939,14 @@
         }
 
         $(`reset-${key}`).addEventListener('click', () => {
+          pushHistory(`reset ${key}`);
           Object.assign(state.slots[key], { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
           syncSlotInputs(key);
           render();
         });
 
         $(`clear-${key}`).addEventListener('click', () => {
+          pushHistory(`clear ${key} image`);
           state.slots[key].src = '';
           $(`url-${key}`).value = '';
           render();
@@ -4799,6 +5024,7 @@
           const raw = $(`jewel-url-${key}`).value.trim();
           if (!raw) return;
           try {
+            pushHistory(`load jewel ${key} image`);
             state.templateMode = 'jewel';
             state.jewelInserts[key].src = normalizeImageUrl(raw);
             syncInputs();
@@ -4809,12 +5035,14 @@
         });
 
         $(`jewel-fit-${key}`).addEventListener('change', (event) => {
+          pushHistory(`change jewel ${key} fit`);
           state.jewelInserts[key].fit = event.target.value;
           render();
         });
 
         for (const prop of ['zoom', 'x', 'y', 'rotate']) {
           $(`jewel-${prop}-${key}`).addEventListener('input', (event) => {
+            pushHistoryDebounced(`jewel:${key}:${prop}`, `change jewel ${key} ${prop}`, 400);
             state.jewelInserts[key][prop] = Number(event.target.value);
             syncJewelInputs(key);
             render();
@@ -4822,12 +5050,14 @@
         }
 
         $(`jewel-reset-${key}`).addEventListener('click', () => {
+          pushHistory(`reset jewel ${key}`);
           Object.assign(state.jewelInserts[key], { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
           syncJewelInputs(key);
           render();
         });
 
         $(`jewel-clear-${key}`).addEventListener('click', () => {
+          pushHistory(`clear jewel ${key} image`);
           state.jewelInserts[key].src = '';
           $(`jewel-url-${key}`).value = '';
           render();
@@ -5365,6 +5595,7 @@
     function cutSelectedLayerToClipboard() {
       const layer = selectedLayer();
       if (!layer) { toastError('No layer selected.'); return; }
+      pushHistory('cut layer');
       _layerClipboard.items = [snapshotLayerForClipboard(layer)];
       _layerClipboard.fromLabel = modeLabelForClipboard();
       state.layers = state.layers.filter(l => l.id !== layer.id);
@@ -5389,6 +5620,7 @@
     function pasteLayersFromClipboard() {
       const items = _layerClipboard.items;
       if (!items.length) { toastError('Clipboard is empty.'); return; }
+      pushHistory(`paste ${items.length} layer${items.length === 1 ? '' : 's'}`);
       const target = currentPasteTarget();
       const bounds = targetBounds(target);
       let newLast = null;
@@ -5480,6 +5712,7 @@
       const target = targetOverride || $('layerTarget')?.value || 'page';
       const bounds = targetBounds(target);
       applyTargetMode(target);
+      pushHistory('add image layer');
       addLayer({
         id: makeLayerId(),
         type: 'image',
@@ -5500,6 +5733,7 @@
       const target = targetOverride || $('layerTarget')?.value || 'page';
       const bounds = targetBounds(target);
       applyTargetMode(target);
+      pushHistory('add text layer');
       addLayer({
         id: makeLayerId(),
         type: 'text',
@@ -5526,6 +5760,7 @@
       const target = targetOverride || $('layerTarget')?.value || 'page';
       const bounds = targetBounds(target);
       applyTargetMode(target);
+      pushHistory('add color layer');
       addLayer({
         id: makeLayerId(),
         type: 'color',
@@ -5854,6 +6089,7 @@
     function updateSvgElementAttr(elementIndex, attrName, attrValue) {
       const layer = selectedLayer();
       if (!layer || layer?.shape?.kind !== 'svg') return;
+      pushHistoryDebounced(`svgEl:${elementIndex}:${attrName}`, `change SVG element ${attrName}`, 400);
       const nextInner = setSvgPaintableAttribute(layer.shape.inner, elementIndex, attrName, attrValue);
       if (nextInner === layer.shape.inner) return;
       layer.shape = { ...layer.shape, inner: nextInner };
@@ -5917,6 +6153,7 @@
       const size = Math.min(bounds.w, bounds.h) * 0.4;
       const w = size;
       const h = size;
+      pushHistory(`add ${SHAPE_LABELS[kind] || kind}`);
       addLayer({
         id: makeLayerId(),
         type: 'shape',
@@ -6388,6 +6625,7 @@
             if (err) { err.textContent = 'Multi-element SVGs can\'t be used as a clip. Upload a single-path SVG instead.'; err.style.display = ''; }
             return;
           }
+          pushHistory('set clip path');
           layer.clip = { kind: 'inline-shape', shape: clipShape };
           syncLayerClipInputs(layer);
           render();
@@ -6398,6 +6636,7 @@
       if (target.mode === 'edit') {
         const layer = selectedLayer();
         if (layer && layer.type === 'shape') {
+          pushHistory('replace SVG');
           layer.shape = newShape;
           syncShapeLayerInputs(layer);
           render();
@@ -6408,6 +6647,7 @@
         const bounds = targetBounds(target_);
         applyTargetMode(target_);
         const size = Math.min(bounds.w, bounds.h) * 0.4;
+        pushHistory(parsed.kind === 'svg' ? 'add SVG import' : 'add custom path');
         addLayer({
           id: makeLayerId(),
           type: 'shape',
@@ -6659,6 +6899,7 @@
           text.style.fontWeight = layer.bold ? '800' : '400';
           text.style.fontStyle = layer.italic ? 'italic' : 'normal';
           text.addEventListener('input', (event) => {
+            pushHistoryDebounced(`text:${layer.id}`, 'edit text', 600);
             layer.html = event.currentTarget.innerHTML;
             localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify(state));
           });
@@ -7945,6 +8186,7 @@
     function updateShapeFill(color) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return;
+      pushHistoryDebounced('shapeFill', 'change shape fill', 400);
       layer.fill = { ...(layer.fill || {}), type: 'solid', color };
       render();
     }
@@ -7952,6 +8194,7 @@
     function updateShapeFillType(newType) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return;
+      pushHistory('change fill type');
       const prev = layer.fill || {};
       const prevColor = prev.color || SHAPE_DEFAULT_FILL;
       const prevStops = normalizeGradientStops(prev.stops);
@@ -7981,6 +8224,7 @@
     function updateShapeGradientStop(index, color) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return;
+      pushHistoryDebounced(`gradStop:${index}`, 'change gradient color', 400);
       const stops = normalizeGradientStops(layer.fill?.stops).map(s => ({ ...s }));
       const i = Math.max(0, Math.min(stops.length - 1, Math.round(index)));
       stops[i] = { ...stops[i], color };
@@ -7991,6 +8235,7 @@
     function updateShapeFillAngle(angle) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return;
+      pushHistoryDebounced('gradAngle', 'change gradient angle', 400);
       const a = Math.max(0, Math.min(360, Number(angle) || 0));
       layer.fill = { ...(layer.fill || {}), angle: a };
       const out = $('shapeFillAngleOut');
@@ -8001,6 +8246,7 @@
     function updateShapeFillCenter(axis, value) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return;
+      pushHistoryDebounced(`gradCenter:${axis}`, 'change gradient center', 400);
       const v = clamp01(Number(value), 0, 1);
       const center = { ...(layer.fill?.center || { x: 0.5, y: 0.5 }) };
       center[axis] = v;
@@ -8011,6 +8257,7 @@
     function updateShapeFillRadius(value) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return;
+      pushHistoryDebounced('gradRadius', 'change gradient radius', 400);
       const r = clamp01(Number(value), 0.01, 1);
       layer.fill = { ...(layer.fill || {}), radius: r };
       render();
@@ -8019,6 +8266,7 @@
     function updateShapeField(field, value) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return;
+      pushHistoryDebounced(`shapeField:${field}`, `change shape ${field}`, 400);
       layer.shape = { ...(layer.shape || {}), [field]: value };
       render();
     }
@@ -8026,6 +8274,7 @@
     function updateShapeStrokeField(field, value) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return;
+      pushHistoryDebounced(`shapeStrokeField:${field}`, `change stroke ${field}`, 300);
       layer.stroke = { type: 'none', color: '#000000', width: 2, dash: 'solid', ...(layer.stroke || {}), [field]: value };
       render();
     }
@@ -8120,6 +8369,7 @@
     function setLayerClipKind(newKind) {
       const layer = selectedLayer();
       if (!layer) return;
+      pushHistory(`set clip: ${newKind}`);
       if (newKind === 'none') {
         delete layer.clip;
       } else if (newKind === 'layer-ref') {
@@ -8146,6 +8396,7 @@
     function setLayerClipShapeField(field, value) {
       const layer = selectedLayer();
       if (!layer || layer.clip?.kind !== 'inline-shape') return;
+      pushHistoryDebounced(`clipShape:${field}`, `change clip ${field}`, 400);
       layer.clip = {
         kind: 'inline-shape',
         shape: { ...(layer.clip.shape || {}), [field]: value }
@@ -8156,6 +8407,7 @@
     function setLayerClipLayerRef(layerId) {
       const layer = selectedLayer();
       if (!layer) return;
+      pushHistory('change clip layer ref');
       layer.clip = { kind: 'layer-ref', layerId };
       render();
     }
@@ -8183,6 +8435,7 @@
     function updateShapeStrokeType(newType) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return;
+      pushHistory('change stroke type');
       const prev = layer.stroke || {};
       layer.stroke = {
         type: newType,
@@ -8280,6 +8533,7 @@
     function updateSelectedLayer(prop, value) {
       const layer = selectedLayer();
       if (!layer) return;
+      pushHistoryDebounced(`updateSelectedLayer:${prop}`, `change ${prop}`, 400);
       layer[prop] = value;
       render();
     }
@@ -8304,6 +8558,7 @@
       if (!layer) return;
       const next = Number(value);
       if (!Number.isFinite(next) || next <= 0) return;
+      pushHistoryDebounced('layerDim', `resize ${changed}`, 400);
       const other = changed === 'w' ? 'h' : 'w';
       const oldChanged = Number(layer[changed]) || 0;
       const oldOther = Number(layer[other]) || 0;
@@ -8342,10 +8597,19 @@
       const startY = event.clientY;
       const originX = layer.x;
       const originY = layer.y;
+      let moved = false;
+      let snapshotted = false;
       document.body.classList.add('dragging-layer');
       el.setPointerCapture(event.pointerId);
 
       const move = (moveEvent) => {
+        if (!snapshotted) {
+          // Capture the pre-drag state on the first pointermove so a click
+          // without movement doesn't pollute the undo stack.
+          pushHistory('move layer');
+          snapshotted = true;
+        }
+        moved = true;
         const dx = (moveEvent.clientX - startX) / sheetRect.width * (isDesignerLayer ? discTemplate.discD : sheetW());
         const dy = (moveEvent.clientY - startY) / sheetRect.height * (isDesignerLayer ? discTemplate.discD : sheetH());
         layer.x = originX + dx;
@@ -8373,6 +8637,14 @@
       el.addEventListener('pointercancel', stop);
       renderLayerList();
       syncLayerInputs();
+      // Pull the Selected-layer panel into view in the sidebar so users
+      // can immediately edit the layer they just picked from the canvas.
+      // `block: 'nearest'` is a no-op when it's already visible, so this
+      // doesn't jitter when you click between adjacent layers.
+      const controlsEl = $('layerControls');
+      if (controlsEl) {
+        try { controlsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch {}
+      }
     }
 
     function readDimensionInputs() {
@@ -9015,6 +9287,7 @@
     }
 
     function resetDiscDesignerState() {
+      if (!_isRestoring) pushHistory('close disc design');
       state.discDesign = { name: '', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 };
       state.layers = (state.layers || []).filter(l => l.target !== 'designer-disc');
       state.meta = blankMeta();
@@ -9039,6 +9312,7 @@
     }
 
     function resetTemplateProjectState() {
+      if (!_isRestoring) pushHistory('close project');
       state.discs = { top: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, bottom: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
       state.discMeta = normalizeDiscMeta();
       state.slots = { back: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, spine: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }, front: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 } };
@@ -9070,6 +9344,7 @@
     }
 
     function enterEditMode({ dTag, kind, eventId, title }) {
+      if (!_isRestoring) pushHistory('enter edit mode');
       state.editingDTag = String(dTag || '');
       state.editingKind = Number(kind) || 30078;
       state.editingEventId = String(eventId || '');
@@ -9078,6 +9353,7 @@
     }
 
     function exitEditMode() {
+      if (!_isRestoring && state.editingDTag) pushHistory('exit edit mode');
       state.editingDTag = '';
       state.editingKind = 0;
       state.editingEventId = '';
@@ -9280,6 +9556,7 @@
 
     function loadProjectFromText(text) {
       const parsed = JSON.parse(text);
+      if (!_isRestoring) pushHistory('load project');
       // Loading a project file is always a fresh-start operation — never an
       // in-place edit of a published event. Drop any prior editing context.
       exitEditMode();
@@ -13261,6 +13538,8 @@
     }
 
     function switchAppMode(mode) {
+      if (state.appMode === mode) return;
+      pushHistory(`switch to ${mode === 'designer' ? 'Disc Designer' : 'Template'}`);
       if (state.appMode === 'designer') persistCurrentDiscDesign();
       swapMetaForAppMode(mode);
       state.appMode = mode;
@@ -13390,6 +13669,8 @@
         const btn = $(`mode-${mode}`);
         if (!btn) continue;
         btn.addEventListener('click', () => {
+          if (state.templateMode === mode) return;
+          pushHistory(`switch to ${mode}`);
           state.templateMode = mode;
           if (mode === 'jewel') {
             state.preset = 'jewel8693';
@@ -13412,6 +13693,7 @@
 
       const caPresetEl = $('customArtPreset');
       if (caPresetEl) caPresetEl.addEventListener('change', (e) => {
+        pushHistory('change canvas preset');
         const key = e.target.value;
         const preset = CUSTOM_ART_PRESETS.find(p => p.key === key);
         state.customArt = state.customArt || { width: 1920, height: 1080, background: '#ffffff', preset: '1920x1080' };
@@ -13424,6 +13706,7 @@
         render();
       });
       const setCustomArtSize = () => {
+        pushHistoryDebounced('customArt:size', 'resize canvas', 400);
         const w = Number($('customArtWidth')?.value) || state.customArt.width;
         const h = Number($('customArtHeight')?.value) || state.customArt.height;
         state.customArt = state.customArt || {};
@@ -13437,7 +13720,8 @@
       const caW = $('customArtWidth');  if (caW) caW.addEventListener('input', setCustomArtSize);
       const caH = $('customArtHeight'); if (caH) caH.addEventListener('input', setCustomArtSize);
       const caBg = $('customArtBg');
-      if (caBg) caBg.addEventListener('input', (e) => {
+      if (caBg) caBg.addEventListener('change', (e) => {
+        pushHistory('change canvas background');
         state.customArt = state.customArt || {};
         state.customArt.background = e.target.value;
         render();
@@ -13445,40 +13729,56 @@
 
       for (const id of ['panelW', 'trimH', 'spineW', 'bleed', 'safe']) {
         $(id).addEventListener('input', () => {
+          pushHistoryDebounced(`dim:${id}`, `change ${id}`, 400);
           setCustomWhenEdited();
           readDimensionInputs();
         });
       }
 
       $('zoom').addEventListener('input', (event) => {
-        state.zoom = Number(event.target.value);
-        $('zoomOut').textContent = `${state.zoom}%`;
-        render();
+        setManualZoom(event.target.value);
+      });
+
+      // Canvas-bottom toolbar — sticky zoom controls under the preview.
+      on('zoomSliderBottom', 'input', (e) => setManualZoom(e.target.value));
+      on('zoomOutBtn', 'click', () => setManualZoom(state.zoom - 10));
+      on('zoomInBtn', 'click', () => setManualZoom(state.zoom + 10));
+      on('zoomFitBtn', 'click', resetZoomAuto);
+      on('zoom100Btn', 'click', () => setManualZoom(100));
+
+      // Recompute fit on window resize, only while auto-fit is active.
+      let _resizeTimer = null;
+      window.addEventListener('resize', () => {
+        if (!state.zoomAuto) return;
+        clearTimeout(_resizeTimer);
+        _resizeTimer = setTimeout(() => { if (state.zoomAuto) render(); }, 120);
       });
 
       for (const id of ['showGuides', 'showBleed', 'showCrops', 'printGuides', 'printCrops']) {
         $(id).addEventListener('change', (event) => {
+          pushHistory(`toggle ${id}`);
           state[id] = event.target.checked;
           render();
         });
       }
 
-      $("titleField").addEventListener("input", (e)=>{state.meta.title=e.target.value; if (state.discDesign) state.discDesign.name = e.target.value; render();});
-      $("imdbField").addEventListener("input", (e)=>{state.meta.imdbId=e.target.value; render();});
-      const upcInput = $("upcField"); if (upcInput) upcInput.addEventListener("input", (e)=>{state.meta.upc=e.target.value; render();});
-      const tvdbInput = $("tvdbField"); if (tvdbInput) tvdbInput.addEventListener("input", (e)=>{state.meta.tvdbId=e.target.value; render();});
-      const mbInput = $("musicbrainzField"); if (mbInput) mbInput.addEventListener("input", (e)=>{state.meta.musicbrainzDiscId=e.target.value; render();});
-      $("categoryField").addEventListener("change", (e)=>{state.meta.category=e.target.value; syncIdentifierVisibility(); render();});
+      // Metadata text inputs — debounced so typing doesn't pollute history.
+      $("titleField").addEventListener("input", (e)=>{pushHistoryDebounced('meta:title', 'edit title', 600); state.meta.title=e.target.value; if (state.discDesign) state.discDesign.name = e.target.value; render();});
+      $("imdbField").addEventListener("input", (e)=>{pushHistoryDebounced('meta:imdb', 'edit IMDb ID', 600); state.meta.imdbId=e.target.value; render();});
+      const upcInput = $("upcField"); if (upcInput) upcInput.addEventListener("input", (e)=>{pushHistoryDebounced('meta:upc', 'edit UPC', 600); state.meta.upc=e.target.value; render();});
+      const tvdbInput = $("tvdbField"); if (tvdbInput) tvdbInput.addEventListener("input", (e)=>{pushHistoryDebounced('meta:tvdb', 'edit TheTVDB ID', 600); state.meta.tvdbId=e.target.value; render();});
+      const mbInput = $("musicbrainzField"); if (mbInput) mbInput.addEventListener("input", (e)=>{pushHistoryDebounced('meta:mb', 'edit MusicBrainz', 600); state.meta.musicbrainzDiscId=e.target.value; render();});
+      $("categoryField").addEventListener("change", (e)=>{pushHistory(`change category to ${e.target.value || 'Uncategorized'}`); state.meta.category=e.target.value; syncIdentifierVisibility(); render();});
       const customTagInput = $("customTagField");
-      if (customTagInput) customTagInput.addEventListener("input", (e)=>{state.meta.customTag = e.target.value; render();});
-      $("languageField").addEventListener("change", (e)=>{state.meta.language=e.target.value; render();});
-      $("designerTitleField").addEventListener("input", (e)=>{state.meta.title=e.target.value; if (state.discDesign) state.discDesign.name = e.target.value; render();});
-      $("designerImdbField").addEventListener("input", (e)=>{state.meta.imdbId=e.target.value; render();});
-      const dUpcInput = $("designerUpcField"); if (dUpcInput) dUpcInput.addEventListener("input", (e)=>{state.meta.upc=e.target.value; render();});
-      const dTvdbInput = $("designerTvdbField"); if (dTvdbInput) dTvdbInput.addEventListener("input", (e)=>{state.meta.tvdbId=e.target.value; render();});
-      const dMbInput = $("designerMusicbrainzField"); if (dMbInput) dMbInput.addEventListener("input", (e)=>{state.meta.musicbrainzDiscId=e.target.value; render();});
-      $("designerCategoryField").addEventListener("change", (e)=>{state.meta.category=e.target.value; syncIdentifierVisibility(); render();});
-      $("designerLanguageField").addEventListener("change", (e)=>{state.meta.language=e.target.value; render();});
+      if (customTagInput) customTagInput.addEventListener("input", (e)=>{pushHistoryDebounced('meta:customTag', 'edit custom tag', 600); state.meta.customTag = e.target.value; render();});
+      $("languageField").addEventListener("change", (e)=>{pushHistory('change language'); state.meta.language=e.target.value; render();});
+      $("designerTitleField").addEventListener("input", (e)=>{pushHistoryDebounced('meta:title', 'edit title', 600); state.meta.title=e.target.value; if (state.discDesign) state.discDesign.name = e.target.value; render();});
+      $("designerImdbField").addEventListener("input", (e)=>{pushHistoryDebounced('meta:imdb', 'edit IMDb ID', 600); state.meta.imdbId=e.target.value; render();});
+      const dUpcInput = $("designerUpcField"); if (dUpcInput) dUpcInput.addEventListener("input", (e)=>{pushHistoryDebounced('meta:upc', 'edit UPC', 600); state.meta.upc=e.target.value; render();});
+      const dTvdbInput = $("designerTvdbField"); if (dTvdbInput) dTvdbInput.addEventListener("input", (e)=>{pushHistoryDebounced('meta:tvdb', 'edit TheTVDB ID', 600); state.meta.tvdbId=e.target.value; render();});
+      const dMbInput = $("designerMusicbrainzField"); if (dMbInput) dMbInput.addEventListener("input", (e)=>{pushHistoryDebounced('meta:mb', 'edit MusicBrainz', 600); state.meta.musicbrainzDiscId=e.target.value; render();});
+      $("designerCategoryField").addEventListener("change", (e)=>{pushHistory(`change category to ${e.target.value || 'Uncategorized'}`); state.meta.category=e.target.value; syncIdentifierVisibility(); render();});
+      $("designerLanguageField").addEventListener("change", (e)=>{pushHistory('change language'); state.meta.language=e.target.value; render();});
 
       $("imdbImportBtn").addEventListener("click", async ()=>{
         const imdb = state.meta.imdbId.trim();
@@ -13787,6 +14087,7 @@
         const raw = $('designerUrl').value.trim();
         if (!raw) return;
         try {
+          pushHistory('load disc design image');
           state.discDesign.src = normalizeImageUrl(raw);
           render();
         } catch (error) {
@@ -13795,6 +14096,7 @@
       });
 
       $('designerClearBtn').addEventListener('click', () => {
+        pushHistory('clear disc design image');
         state.discDesign.src = '';
         state.discDesign.layers = [];
         state.layers = state.layers.filter(l => l.target !== 'designer-disc');
@@ -13803,12 +14105,14 @@
       });
 
       $('fit-designer').addEventListener('change', (e) => {
+        pushHistory('change disc design fit');
         state.discDesign.fit = e.target.value;
         render();
       });
 
       for (const prop of ['zoom', 'x', 'y', 'rotate']) {
         $(`${prop}-designer`).addEventListener('input', (e) => {
+          pushHistoryDebounced(`disc:${prop}`, `change disc ${prop}`, 400);
           state.discDesign[prop] = Number(e.target.value);
           syncDesignerInputs();
           render();
@@ -13816,26 +14120,31 @@
       }
 
       $('designerResetBtn').addEventListener('click', () => {
+        pushHistory('reset disc design transform');
         Object.assign(state.discDesign, { fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 });
         syncDesignerInputs();
         render();
       });
 
       $('spineTextTop').addEventListener('input', e => {
+        pushHistoryDebounced('spineLabel:top', 'edit top disc label', 600);
         state.discSpineLabels = { ...state.discSpineLabels, top: e.target.value };
         render();
       });
       $('spineTextBottom').addEventListener('input', e => {
+        pushHistoryDebounced('spineLabel:bottom', 'edit bottom disc label', 600);
         state.discSpineLabels = { ...state.discSpineLabels, bottom: e.target.value };
         render();
       });
       const jslEl = $('jewelSpineTextLeft');
       if (jslEl) jslEl.addEventListener('input', e => {
+        pushHistoryDebounced('jewelSpine:left', 'edit left jewel label', 600);
         state.jewelSpineLabels = { ...state.jewelSpineLabels, left: e.target.value };
         render();
       });
       const jsrEl = $('jewelSpineTextRight');
       if (jsrEl) jsrEl.addEventListener('input', e => {
+        pushHistoryDebounced('jewelSpine:right', 'edit right jewel label', 600);
         state.jewelSpineLabels = { ...state.jewelSpineLabels, right: e.target.value };
         render();
       });
@@ -13921,6 +14230,7 @@
       });
 
       $('artworkMode').addEventListener('change', (event) => {
+        pushHistory(`switch artwork mode → ${event.target.value}`);
         state.artworkMode = event.target.value;
         render();
       });
@@ -13929,6 +14239,7 @@
         const raw = $('combinedUrl').value.trim();
         if (!raw) return;
         try {
+          pushHistory('load combined wrap image');
           state.templateMode = 'cover';
           state.artworkMode = 'combined';
           state.combined.src = normalizeImageUrl(raw);
@@ -13940,17 +14251,20 @@
       });
 
       $('area-combined').addEventListener('change', (event) => {
+        pushHistory('change wrap span area');
         state.combined.area = event.target.value;
         render();
       });
 
       $('fit-combined').addEventListener('change', (event) => {
+        pushHistory('change wrap fit');
         state.combined.fit = event.target.value;
         render();
       });
 
       for (const prop of ['zoom', 'x', 'y', 'rotate']) {
         $(`${prop}-combined`).addEventListener('input', (event) => {
+          pushHistoryDebounced(`combined:${prop}`, `change wrap ${prop}`, 400);
           state.combined[prop] = Number(event.target.value);
           syncCombinedInputs();
           render();
@@ -13958,8 +14272,7 @@
       }
 
       bindRangeReset('reset-zoom', () => {
-        state.zoom = 60;
-        syncInputs();
+        resetZoomAuto();
       });
 
       bindRangeReset('reset-zoom-combined', () => { state.combined.zoom = 1; syncCombinedInputs(); });
@@ -14013,6 +14326,7 @@
       });
 
       $('clearBtn').addEventListener('click', () => {
+        pushHistory('clear cover images');
         for (const { key } of slotNames) {
           state.slots[key].src = '';
           $(`url-${key}`).value = '';
@@ -14027,6 +14341,7 @@
       });
 
       $('clearDiscBtn').addEventListener('click', () => {
+        pushHistory('clear disc design');
         state.discDesign.src = '';
         state.discDesign.layers = [];
         state.layers = state.layers.filter(l => l.target !== 'designer-disc');
@@ -14037,6 +14352,7 @@
       });
 
       $('clearJewelBtn').addEventListener('click', () => {
+        pushHistory('clear jewel images');
         for (const { key } of jewelSlotNames) {
           state.jewelInserts[key].src = '';
           const input = $(`jewel-url-${key}`);
@@ -14107,6 +14423,7 @@
         textContentEl.addEventListener('input', (event) => {
           const layer = selectedLayer();
           if (!layer || layer.type !== 'text') return;
+          pushHistoryDebounced(`text:${layer.id}`, 'edit text', 600);
           layer.html = layerPlainTextToHtml(event.target.value);
           render();
         });
@@ -14174,6 +14491,7 @@
           ? peers.find(l => (l.z || 0) > curZ)
           : [...peers].reverse().find(l => (l.z || 0) < curZ);
         if (!swap) return;
+        pushHistory(direction === 'forward' ? 'move layer forward' : 'move layer back');
         const swapZ = swap.z || 0;
         swap.z = curZ;
         layer.z = swapZ;
@@ -14185,6 +14503,7 @@
 
       $('deleteLayer').addEventListener('click', () => {
         if (!state.selectedLayerId) return;
+        pushHistory('delete layer');
         state.layers = state.layers.filter((layer) => layer.id !== state.selectedLayerId);
         state.selectedLayerId = '';
         render();
@@ -14199,6 +14518,7 @@
       if (duplicateBtn) duplicateBtn.addEventListener('click', () => {
         const layer = selectedLayer();
         if (!layer) return;
+        pushHistory('duplicate layer');
         const OFFSET = 0.1;
         const copy = {
           ...layer,
@@ -14319,6 +14639,26 @@
       });
 
       // ESC closes whichever overlay modal is on top.
+      on('undoBtn', 'click', undo);
+      on('redoBtn', 'click', redo);
+
+      // Global undo/redo keyboard shortcuts. Bypass when an editable
+      // element is focused so the browser's native text-input undo runs.
+      document.addEventListener('keydown', (e) => {
+        const k = (e.key || '').toLowerCase();
+        const mod = e.ctrlKey || e.metaKey;
+        if (mod && k === 'z' && !isEditableFocus()) {
+          e.preventDefault();
+          if (e.shiftKey) redo(); else undo();
+          return;
+        }
+        if (mod && k === 'y' && !isEditableFocus()) {
+          e.preventDefault();
+          redo();
+          return;
+        }
+      });
+
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeActionMenus();
         if (e.key !== 'Escape') return;
