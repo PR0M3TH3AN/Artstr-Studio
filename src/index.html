@@ -53,30 +53,35 @@
       color: var(--ink);
       font-family: 'VT323', 'Courier New', monospace;
       letter-spacing: 0.05em;
-      scrollbar-color: var(--accent) var(--panel);
-      scrollbar-width: 12px;
     }
 
-    /* Webkit scrollbar styling */
+    /* Thin scrollbars throughout — about half the default thickness. */
+    html {
+      scrollbar-width: thin;
+      scrollbar-color: var(--accent) var(--panel);
+    }
+
+    /* Webkit scrollbar styling — thin and sharp, matching the toolbars. */
     ::-webkit-scrollbar {
-      width: 12px;
-      height: 12px;
+      width: 6px;
+      height: 6px;
     }
 
     ::-webkit-scrollbar-track {
       background: var(--panel);
-      border: 2px solid var(--line);
     }
 
     ::-webkit-scrollbar-thumb {
       background: var(--accent);
-      border: 2px solid var(--accent);
-      box-shadow: inset 0 0 0 2px var(--panel);
+      border-radius: 0;
     }
 
     ::-webkit-scrollbar-thumb:hover {
       background: #00ffff;
-      box-shadow: inset 0 0 0 2px var(--panel), 0 0 8px rgba(0, 217, 255, 0.6);
+    }
+
+    ::-webkit-scrollbar-corner {
+      background: var(--panel);
     }
 
     button, input, select, textarea {
@@ -104,10 +109,10 @@
 
     main {
       min-width: 0;
-      padding: 26px;
+      padding: 0;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 0;
       max-height: 100vh;
       box-sizing: border-box;
     }
@@ -554,8 +559,8 @@
       align-items: center;
       justify-content: space-between;
       gap: 14px;
-      margin-bottom: 18px;
-      padding-right: 210px;
+      margin-bottom: 0;
+      padding: 22px 210px 14px 26px;
     }
 
     .status {
@@ -597,30 +602,36 @@
       to { transform: rotate(360deg); }
     }
 
-    /* Non-scrolling wrapper: the previewShell scrolls inside it, but the
-       flanking pen toolbars anchor here so they stay locked on screen. */
+    /* Unified canvas workspace — a docked grid: left tool palette, the
+       scrolling canvas, the right tool-options panel, and the bottom zoom
+       bar, all flush and sharp-edged (Illustrator-style). The `options`
+       column collapses to 0 when the panel is hidden; the `zoom` row
+       collapses to 0 when the bar is hidden. */
     .canvasArea {
       flex: 1;
       min-height: 0;
       min-width: 0;
       position: relative;
-      display: flex;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      grid-template-rows: 1fr auto;
+      grid-template-areas:
+        "palette canvas options"
+        "zoom    zoom   zoom";
+      border-top: 1px solid var(--line);
+      background: var(--panel);
     }
 
     .previewShell {
+      grid-area: canvas;
       background: #e5e7eb;
-      border: 1px solid #cbd5e1;
-      border-radius: 0px;
       padding: 24px;
       overflow: auto;
-      flex: 1;
       min-height: 0;
       min-width: 0;
       position: relative;
-      /* Own stacking context: traps the high z-index pen overlay inside so
-         the flanking toolbars (siblings in .canvasArea) stay clickable. */
+      /* Own stacking context: traps the high z-index pen overlay inside. */
       z-index: 0;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.7);
     }
 
     .sheetWrap {
@@ -1524,11 +1535,12 @@
     body.dark .feedCardThumb{background:#0b1220}
 
     /* Nostr user widget — fixed top-right */
-    .nostrWidget{position:fixed;top:12px;right:16px;z-index:500;display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:5px 10px 5px 8px;box-shadow:0 2px 12px rgba(15,23,42,.12)}
-    .nostrProfileBtn{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:8px;padding:5px 10px;background:#fff;cursor:pointer;font-size:.82rem;font-weight:600;color:var(--ink);max-width:200px}
+    /* Docked into the top-right corner, flush and sharp like the toolbars. */
+    .nostrWidget{position:fixed;top:0;right:0;z-index:500;display:flex;align-items:center;gap:6px;background:var(--panel);border-left:1px solid var(--line);border-bottom:1px solid var(--line);padding:8px 16px 8px 14px}
+    .nostrWidget .pill{box-shadow:none}
+    .nostrProfileBtn{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:0;padding:5px 10px;background:#fff;cursor:pointer;font-size:.82rem;font-weight:600;color:var(--ink);max-width:200px}
     .nostrAvatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid var(--line);background:#f1f5f9;flex:0 0 auto}
     .nostrNameEl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
-    body.dark .nostrWidget{background:var(--panel);border-color:var(--line)}
     body.dark .nostrProfileBtn{background:transparent;border:none;padding:0}
 
     /* Author info in feed cards */
@@ -1652,20 +1664,37 @@
     body.export-print .canvasVeil { display:none !important; }
     body.exporting .canvasVeil { display:none !important; }
 
-    /* Pen/pencil tool — left tool palette + right contextual options.
-       Float over the preview area, matching the bottom zoom toolbar's look. */
-    .toolPalette { position:absolute; left:12px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:4px; background:rgba(255,255,255,.95); border:1px solid var(--line); border-radius:8px; padding:5px; z-index:20; box-shadow:0 4px 12px rgba(0,0,0,.12); }
-    body.dark .toolPalette { background:rgba(15,22,34,.95); }
-    .toolPaletteBtn { width:38px; height:38px; display:flex; align-items:center; justify-content:center; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--ink); cursor:pointer; font-size:1.15rem; line-height:1; }
+    /* Pen/pencil tool — docked left tool palette + right contextual panel. */
+    .toolPalette {
+      grid-area: palette;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 6px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      z-index: 20;
+    }
+    .toolPaletteBtn { width:36px; height:36px; display:flex; align-items:center; justify-content:center; border:1px solid transparent; border-radius:0; background:transparent; color:var(--ink); cursor:pointer; font-size:1.15rem; line-height:1; }
     .toolPaletteBtn:hover { background:rgba(127,127,127,.14); }
     .toolPaletteBtn.active { background:var(--accent); color:#fff; }
-    .toolOptions { position:absolute; right:12px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:8px; background:rgba(255,255,255,.97); border:1px solid var(--line); border-radius:8px; padding:12px; z-index:20; box-shadow:0 4px 12px rgba(0,0,0,.12); width:194px; }
-    body.dark .toolOptions { background:rgba(15,22,34,.97); }
+    .toolOptions {
+      grid-area: options;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 200px;
+      padding: 12px;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      overflow-y: auto;
+      z-index: 20;
+    }
     .toolOptions h4 { margin:0 0 2px; font-size:.82rem; font-family:inherit; }
     .toolOptions label { font-size:.74rem; display:block; margin-top:4px; }
     .toolOptions .toolOptRow { display:flex; gap:8px; }
     .toolOptions .toolOptRow > div { flex:1; min-width:0; }
-    .toolOptions input[type="color"] { width:100%; height:28px; padding:0; border:1px solid var(--line); border-radius:4px; }
+    .toolOptions input[type="color"] { width:100%; height:28px; padding:0; border:1px solid var(--line); border-radius:0; }
     .toolOptions input[type="number"], .toolOptions input[type="range"] { width:100%; }
     .toolOptions .buttonRow { margin:6px 0 0; }
     .toolOptHint { font-size:.7rem; color:var(--muted); margin:4px 0 0; line-height:1.35; }
@@ -1673,13 +1702,21 @@
     body.tool-drawing .penOverlay { pointer-events:auto; cursor:crosshair; }
     body.tool-drawing .freeLayer { pointer-events:none !important; }
     @media print { .toolPalette, .toolOptions, .penOverlay { display:none !important; } }
-    body.exporting .toolPalette, body.exporting .toolOptions, body.exporting .penOverlay { display:none !important; }
+    body.exporting .toolPalette, body.exporting .toolOptions, body.exporting .penOverlay, body.exporting .canvasToolbar { display:none !important; }
 
-    .canvasToolbar { display:flex; align-items:center; gap:6px; padding:6px 10px; background:rgba(255,255,255,.95); border:1px solid var(--line); border-radius:8px; z-index:6; box-shadow:0 4px 12px rgba(0,0,0,.08); margin:0 auto; width:fit-content; max-width:100%; flex-shrink:0; }
-    body.dark .canvasToolbar { background:rgba(15,22,34,.92); }
+    .canvasToolbar {
+      grid-area: zoom;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      background: var(--panel);
+      border-top: 1px solid var(--line);
+      z-index: 6;
+    }
     body.app-designer .canvasToolbar { display:none; }
-    .canvasToolbarBtn { padding:4px 10px; font-size:.82rem; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--ink); cursor:pointer; min-width:32px; }
-    .canvasToolbarBtn:hover { filter:brightness(.97); }
+    .canvasToolbarBtn { padding:4px 10px; font-size:.82rem; border:1px solid var(--line); border-radius:0; background:transparent; color:var(--ink); cursor:pointer; min-width:32px; }
+    .canvasToolbarBtn:hover { background:rgba(127,127,127,.12); }
     .canvasToolbarSlider { flex:1; min-width:120px; max-width:280px; }
     .canvasToolbarReadout { font-size:.78rem; color:var(--muted); min-width:80px; text-align:right; font-variant-numeric:tabular-nums; }
     .canvasToolbarDivider { width:1px; height:18px; background:var(--line); margin:0 4px; }
@@ -1771,7 +1808,7 @@
     @media (max-width: 900px) {
       .app { grid-template-columns: 1fr; }
       aside { position: relative; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); }
-      main { padding: 16px; }
+      .topbar { padding: 14px 16px; }
       .previewShell { min-height: 420px; }
     }
 
@@ -2874,7 +2911,6 @@
             <p class="toolOptHint">Click and drag to draw freehand. Each stroke becomes its own layer.</p>
           </div>
         </div>
-      </div>
 
       <div class="canvasToolbar" id="canvasToolbar">
         <button type="button" id="zoomOutBtn" class="canvasToolbarBtn" title="Zoom out">−</button>
@@ -2884,6 +2920,7 @@
         <span class="canvasToolbarDivider"></span>
         <button type="button" id="zoomFitBtn" class="canvasToolbarBtn" title="Fit to view">Fit</button>
         <button type="button" id="zoom100Btn" class="canvasToolbarBtn" title="100% size">1:1</button>
+      </div>
       </div>
     </main>
   </div>
@@ -10899,7 +10936,14 @@
 
     function notifyFeedProgress() {
       if (typeof _currentFeedRerender !== 'function') return;
-      try { _currentFeedRerender(); } catch {}
+      // Throttle: events, reactions and zaps stream in fast during a load.
+      // Re-sorting/diffing the wall on every one makes cards shuffle and the
+      // browser flash. Coalesce into at most one rerender per window.
+      if (notifyFeedProgress._t) return;
+      notifyFeedProgress._t = setTimeout(() => {
+        notifyFeedProgress._t = null;
+        try { _currentFeedRerender(); } catch {}
+      }, FEED_PROGRESS_DEBOUNCE_MS);
     }
 
     function updateFeedStatus(tab, rowCount) {
