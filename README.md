@@ -24,6 +24,7 @@ Layers compose on top of the per-mode artwork:
 - **Color block** — solid-color rectangle for tints and backgrounds.
 - **Shape** — vector primitives (rectangle / rounded rectangle / circle / ellipse / triangle / polygon / star / line) with solid, linear-gradient, or radial-gradient fills and optional solid strokes (color / width / solid / dashed / dotted).
 - **Custom path / SVG upload** — upload an `.svg` file. Single-path SVGs land as editable shapes; multi-element SVGs preserve their internal fills and stacking, with a per-element editor that lets you change each `<rect>` / `<path>` / `<circle>` etc. fill and stroke individually.
+- **QR code** — encode any URL or text as a scannable QR layer. Adjustable error-correction level (L/M/Q/H), quiet zone, module / background colors, and an optional transparent background for placing over artwork.
 
 Every layer supports drag / resize / rotate / opacity / z-order, an aspect-ratio lock toggle on the W/H inputs (default on), and a lock toggle that prevents accidental drags.
 
@@ -39,6 +40,12 @@ Renders consistently in the editor, the preview surfaces, and the canvas / PDF /
 ### Layer clipboard
 
 Cross-target and cross-tool copy/paste — Copy / Cut on a selected layer, Copy all / Paste for the whole panel. Paste retargets to the current sub-mode and clamps positions so layers copied from a wide cover don't land off-canvas on a narrow disc.
+
+## Editor canvas
+
+- **Undo / redo** — Ctrl+Z / Ctrl+Shift+Z (and Ctrl+Y), or the topbar buttons. A 50-deep in-memory history covering layer edits, mode switches, artwork loads, metadata, and more. Defers to the browser's native text-input undo while an input is focused.
+- **Fit-to-view by default** — the canvas auto-scales so the whole artboard fits the preview area; it re-fits on window resize. A sticky zoom toolbar at the bottom of the canvas has zoom in/out, a 20–200% slider, Fit, and 1:1.
+- **Off-canvas veil** — layer content that extends past the artboard edge renders under a translucent veil, so the printable area is always visually clear. The veil is dropped from PDF / JPEG export.
 
 ## Nostr integration
 
@@ -88,14 +95,15 @@ Two flavors of Lightning are wired in:
 
 - `src/index.html` — the complete single-file app. Open it directly in a browser, or serve it from any static host. Vercel rewrites in `vercel.json` map `/share/:id` and `/u/:npub` to the SPA entry.
 - `src/vendor/qrcode.min.js` — vendored QR encoder (used for Lightning tip invoices).
-- `docs/` — feature plans for unbuilt work (badges, collections, QR layer, TMDB autofill, undo/redo, NWC zaps, zap-gated templates).
+- `docs/` — feature specs for unbuilt work (badges, collections, NWC zaps, zap-gated templates).
+- `TODO.md` — running list of deferred work and cleanup items.
 
 ## Schema
 
 - Current project schema version: **5**.
 - Minimum supported version: **4**. Older payloads load but won't round-trip cleanly.
 - Template-mode discriminator in payloads: `cover`, `disc`, `jewel`, `customart`, `disc-design`.
-- Layer types: `image`, `text`, `color`, `shape`. Shape kinds: `rect`, `rounded-rect`, `circle`, `ellipse`, `triangle`, `polygon`, `star`, `line`, `path`, `svg`. Any layer may carry a `clip` field for masking.
+- Layer types: `image`, `text`, `color`, `shape`, `qr`. Shape kinds: `rect`, `rounded-rect`, `circle`, `ellipse`, `triangle`, `polygon`, `star`, `line`, `path`, `svg`. Any layer may carry a `clip` field for masking.
 
 ## Defaults and stack
 

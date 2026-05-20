@@ -1473,7 +1473,9 @@
     
     .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:1000; }
     .modal.open { display:block; }
-    .modalCard { width:min(900px,92vw); max-height:88vh; overflow:auto; margin:4vh auto; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:14px; }
+    .modalCard { width:min(900px,92vw); max-height:88vh; overflow:auto; margin:4vh auto; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:14px; position:relative; }
+    #nostrModal .modalCard { padding:18px 56px 18px 18px; }
+    #nostrModal .modalHeader { gap:12px; padding-right:0; }
     .modalInner { width:92vw; max-height:88vh; overflow:auto; background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:18px 20px; box-shadow:0 12px 36px rgba(0,0,0,.45); font-family:inherit; }
     .modalInner h2 { font-family:inherit; }
     .modalInner label, .modalInner p, .modalInner .hint { font-family:inherit; }
@@ -1614,7 +1616,9 @@
     .previewActionsRow > #nostrPreviewOverflow[data-visible="true"] { display:inline-flex; order:99; }
     .previewActionsRow > #nostrPreviewOverflow[data-visible="false"] { display:none; }
     #nostrBackBtn { order:97; }
-    #nostrClose { order:98; }
+    #nostrClose { position:absolute; top:8px; right:10px; width:32px; height:32px; padding:0; border:0; background:transparent; color:var(--muted); font-size:24px; line-height:1; border-radius:6px; }
+    #nostrClose:hover { background:rgba(127,127,127,.15); color:var(--ink); }
+    #nostrPreviewHeading { padding-right:40px; }
     .previewActionsRow button { font-size:.78rem; padding:5px 10px; line-height:1.2; white-space:nowrap; }
 
     .toastStack { position:fixed; bottom:20px; right:20px; z-index:2000; display:flex; flex-direction:column; gap:8px; pointer-events:none; max-width:calc(100vw - 40px); }
@@ -2441,6 +2445,41 @@
             <input id="colorLayerFill" type="color" />
           </div>
 
+          <div id="qrLayerControls" style="display:none">
+            <label for="qrData">QR data (URL or text)</label>
+            <textarea id="qrData" rows="2" placeholder="https://example.com" style="resize:vertical;width:100%"></textarea>
+            <div class="row">
+              <div>
+                <label for="qrEcc">Error correction</label>
+                <select id="qrEcc">
+                  <option value="L">L — Low (~7%)</option>
+                  <option value="M">M — Medium (~15%)</option>
+                  <option value="Q">Q — Quartile (~25%)</option>
+                  <option value="H">H — High (~30%)</option>
+                </select>
+              </div>
+              <div>
+                <label for="qrMargin">Quiet zone</label>
+                <input id="qrMargin" type="number" min="0" max="20" step="1" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label for="qrFg">Module color</label>
+                <input id="qrFg" type="color" />
+              </div>
+              <div>
+                <label for="qrBg">Background</label>
+                <input id="qrBg" type="color" />
+              </div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:6px;cursor:pointer;font-size:.82rem">
+              <input type="checkbox" id="qrBgTransparent" style="accent-color:var(--accent)" />
+              Transparent background
+            </label>
+            <p class="hint" id="qrContrastHint" style="font-size:.72rem;margin:6px 0 0">Scanners need strong contrast — keep modules dark on a light background.</p>
+          </div>
+
           <div id="shapeLayerControls" style="display:none">
             <label for="shapeFillType">Fill</label>
             <select id="shapeFillType">
@@ -2840,7 +2879,7 @@
           </div>
           <button type="button" id="nostrRefreshBtn">Refresh</button>
           <button type="button" id="nostrBackBtn" style="display:none">← Back</button>
-          <button type="button" id="nostrClose">Close</button>
+          <button type="button" id="nostrClose" class="welcomeCloseBtn" aria-label="Close">×</button>
           <div id="nostrPreviewOverflow" data-visible="false"></div>
         </div>
       </div>
@@ -3345,6 +3384,13 @@
       if (state.templateMode === 'customart') return [
         { key: 'canvas', label: 'Canvas' }
       ];
+      // Cover mode. In combined-wrap mode the artwork is one open canvas, so
+      // back/spine/front sub-regions aren't meaningful — collapse to a single
+      // "Cover trim area" panel that still lists any pre-existing back/spine/
+      // front layers (matchKeys) so they don't get orphaned from the UI.
+      if (state.artworkMode === 'combined') {
+        return [{ key: 'cover-trim', label: 'Cover trim area', matchKeys: ['cover-trim', 'back', 'spine', 'front'] }];
+      }
       return TEMPLATE_LAYER_TARGETS;
     }
 
@@ -5756,6 +5802,108 @@
       });
     }
 
+    // ---- QR code layers ----
+
+    const QR_DEFAULT_DATA = 'https://example.com/replace-me';
+    const QR_ECC_LEVELS = ['L', 'M', 'Q', 'H'];
+
+    function buildQrLayerData(qrCfg) {
+      const data = String(qrCfg?.data || '');
+      if (!data.trim()) return null;
+      if (typeof qrcode !== 'function') return null;
+      const ecc = QR_ECC_LEVELS.includes(qrCfg.ecc) ? qrCfg.ecc : 'M';
+      const margin = Math.max(0, Math.min(20, Number(qrCfg.margin ?? 4)));
+      let qr = null;
+      // Type 0 lets qrcode-generator pick the smallest version that fits.
+      for (let typeNumber = 0; typeNumber <= 40; typeNumber++) {
+        try {
+          const candidate = qrcode(typeNumber, ecc);
+          candidate.addData(data);
+          candidate.make();
+          qr = candidate;
+          break;
+        } catch { /* keep trying */ }
+      }
+      if (!qr) return null;
+      const count = qr.getModuleCount();
+      const total = count + 2 * margin;
+      const fg = qrCfg.fg || '#000000';
+      const bg = qrCfg.bg && qrCfg.bg !== 'none' ? qrCfg.bg : null;
+      const cells = [];
+      for (let r = 0; r < count; r++) {
+        for (let c = 0; c < count; c++) {
+          if (qr.isDark(r, c)) cells.push({ x: c + margin, y: r + margin });
+        }
+      }
+      return { total, fg, bg, cells, count, margin };
+    }
+
+    // Build the inner SVG content for a QR layer. Returns { body, total } or
+    // a placeholder when data is empty / unrenderable.
+    function buildQrSvgInner(qrCfg) {
+      const built = buildQrLayerData(qrCfg);
+      if (!built) {
+        // Empty / unparseable — draw a friendly placeholder so the layer
+        // doesn't render as transparent (would be invisible to the user).
+        const bg = qrCfg?.bg && qrCfg.bg !== 'none' ? qrCfg.bg : '#f3f4f6';
+        return { body: `<rect x="0" y="0" width="100" height="100" fill="${bg}"/><text x="50" y="55" text-anchor="middle" font-size="6" fill="#9ca3af" font-family="sans-serif">(empty QR)</text>`, total: 100 };
+      }
+      let body = '';
+      if (built.bg) body += `<rect x="0" y="0" width="${built.total}" height="${built.total}" fill="${built.bg}"/>`;
+      // Combine all dark modules into a single path for DOM efficiency.
+      let path = '';
+      for (const c of built.cells) path += `M${c.x} ${c.y}h1v1h-1z`;
+      if (path) body += `<path d="${path}" fill="${built.fg}"/>`;
+      return { body, total: built.total };
+    }
+
+    function renderQrIntoElement(el, layer) {
+      const built = buildQrSvgInner(layer?.qr);
+      el.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${built.total} ${built.total}" preserveAspectRatio="xMidYMid meet" shape-rendering="crispEdges" style="width:100%;height:100%;display:block;pointer-events:none">${built.body}</svg>`;
+    }
+
+    function drawQrToCanvas(ctx, layer, w, h) {
+      const built = buildQrLayerData(layer?.qr);
+      if (!built) {
+        // Placeholder fill for empty-data QR — keep export visually consistent.
+        const placeholderBg = layer?.qr?.bg && layer.qr.bg !== 'none' ? layer.qr.bg : '#f3f4f6';
+        ctx.save();
+        ctx.fillStyle = placeholderBg;
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+        ctx.restore();
+        return;
+      }
+      ctx.save();
+      ctx.translate(-w / 2, -h / 2);
+      ctx.scale(w / built.total, h / built.total);
+      if (built.bg) {
+        ctx.fillStyle = built.bg;
+        ctx.fillRect(0, 0, built.total, built.total);
+      }
+      ctx.fillStyle = built.fg;
+      for (const c of built.cells) ctx.fillRect(c.x, c.y, 1, 1);
+      ctx.restore();
+    }
+
+    function addQrLayer(targetOverride = '') {
+      const target = targetOverride || $('layerTarget')?.value || primaryTargetForMode(state.templateMode || 'cover');
+      const bounds = targetBounds(target);
+      applyTargetMode(target);
+      const size = Math.min(bounds.w, bounds.h) * 0.3;
+      pushHistory('add QR layer');
+      addLayer({
+        id: makeLayerId(),
+        type: 'qr',
+        name: 'QR code',
+        target,
+        x: bounds.x + (bounds.w - size) / 2,
+        y: bounds.y + (bounds.h - size) / 2,
+        w: size, h: size,
+        rotate: 0, opacity: 1, z: nextLayerZ(),
+        qr: { data: QR_DEFAULT_DATA, ecc: 'M', margin: 4, fg: '#000000', bg: '#ffffff' }
+      });
+    }
+
     function addColorLayer(targetOverride = '') {
       const target = targetOverride || $('layerTarget')?.value || 'page';
       const bounds = targetBounds(target);
@@ -6886,6 +7034,8 @@
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
         } else if (layer.type === 'shape') {
           renderShapeIntoElement(el, layer);
+        } else if (layer.type === 'qr') {
+          renderQrIntoElement(el, layer);
         } else {
           const text = document.createElement('div');
           text.className = 'textLayer';
@@ -6980,7 +7130,11 @@
         addColorBtn.type = 'button';
         addColorBtn.textContent = 'Add color block';
         addColorBtn.addEventListener('click', () => addColorLayer('designer-disc'));
-        buttonRow.append(addImageBtn, addTextBtn, addColorBtn, buildAddShapeMenu('designer-disc'));
+        const addQrBtn = document.createElement('button');
+        addQrBtn.type = 'button';
+        addQrBtn.textContent = 'Add QR';
+        addQrBtn.addEventListener('click', () => addQrLayer('designer-disc'));
+        buttonRow.append(addImageBtn, addTextBtn, addColorBtn, buildAddShapeMenu('designer-disc'), addQrBtn);
 
         actions.append(urlRow, buttonRow);
         panel.appendChild(actions);
@@ -7018,12 +7172,14 @@
 
       const targetLayers = state.layers.filter((layer) => layer.target !== 'designer-disc' && !layer._generatedDiscLayer);
       for (const targetDef of templateLayerTargetsForMode()) {
+        const matchKeys = targetDef.matchKeys || [targetDef.key];
+        const layerMatchesPanel = (layer) => matchKeys.includes(layer.target);
         const panel = document.createElement('section');
         panel.className = 'templateLayerPanel';
 
         const head = document.createElement('div');
         head.className = 'templateLayerPanelHead';
-        const count = targetLayers.filter((layer) => layer.target === targetDef.key).length;
+        const count = targetLayers.filter(layerMatchesPanel).length;
         head.innerHTML = `<span>${escapeHtml(targetDef.label)}</span><span>${count} layer${count === 1 ? '' : 's'}</span>`;
         panel.appendChild(head);
 
@@ -7067,7 +7223,11 @@
         addColorBtn.type = 'button';
         addColorBtn.textContent = 'Add color block';
         addColorBtn.addEventListener('click', () => addColorLayer(targetDef.key));
-        buttonRow.append(addImageBtn, addTextBtn, addColorBtn, buildAddShapeMenu(targetDef.key));
+        const addQrBtn = document.createElement('button');
+        addQrBtn.type = 'button';
+        addQrBtn.textContent = 'Add QR';
+        addQrBtn.addEventListener('click', () => addQrLayer(targetDef.key));
+        buttonRow.append(addImageBtn, addTextBtn, addColorBtn, buildAddShapeMenu(targetDef.key), addQrBtn);
 
         actions.append(urlRow, buttonRow);
         panel.appendChild(actions);
@@ -7075,7 +7235,7 @@
         const listWrap = document.createElement('div');
         listWrap.className = 'templateLayerPanelList';
         const ordered = targetLayers
-          .filter((layer) => layer.target === targetDef.key)
+          .filter(layerMatchesPanel)
           .sort((a, b) => (b.z || 0) - (a.z || 0));
         if (!ordered.length) {
           const empty = document.createElement('p');
@@ -8191,6 +8351,35 @@
       render();
     }
 
+    function syncQrLayerInputs(layer) {
+      const qr = layer?.qr || {};
+      const dataEl = $('qrData');
+      if (dataEl && document.activeElement !== dataEl) dataEl.value = qr.data || '';
+      const eccEl = $('qrEcc'); if (eccEl) eccEl.value = QR_ECC_LEVELS.includes(qr.ecc) ? qr.ecc : 'M';
+      const marginEl = $('qrMargin'); if (marginEl) marginEl.value = String(Number(qr.margin ?? 4));
+      const fgEl = $('qrFg'); if (fgEl) fgEl.value = qr.fg || '#000000';
+      const bgTransparent = qr.bg === 'none';
+      const bgEl = $('qrBg');
+      if (bgEl) {
+        bgEl.value = bgTransparent ? '#ffffff' : (qr.bg || '#ffffff');
+        bgEl.disabled = bgTransparent;
+      }
+      const bgChk = $('qrBgTransparent'); if (bgChk) bgChk.checked = bgTransparent;
+    }
+
+    function updateQrField(field, value) {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'qr') return;
+      const debounceFields = { data: 600, margin: 400, fg: 400, bg: 400 };
+      if (debounceFields[field]) {
+        pushHistoryDebounced(`qr:${field}`, `change QR ${field}`, debounceFields[field]);
+      } else {
+        pushHistory(`change QR ${field}`);
+      }
+      layer.qr = { ...(layer.qr || {}), [field]: value };
+      render();
+    }
+
     function updateShapeFillType(newType) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return;
@@ -8474,6 +8663,9 @@
       const shapePanel = $('shapeLayerControls');
       if (shapePanel) shapePanel.style.display = layer && layer.type === 'shape' ? 'block' : 'none';
       if (layer && layer.type === 'shape') syncShapeLayerInputs(layer);
+      const qrPanel = $('qrLayerControls');
+      if (qrPanel) qrPanel.style.display = layer && layer.type === 'qr' ? 'block' : 'none';
+      if (layer && layer.type === 'qr') syncQrLayerInputs(layer);
       if (layer) syncLayerClipInputs(layer);
       const layerNameRow = $('layerName');
       const layerNameLabel = layerNameRow?.previousElementSibling;
@@ -8986,6 +9178,8 @@
         } else {
           drawShapeLayerToCanvas(ctx, layer, w, h);
         }
+      } else if (layer.type === 'qr') {
+        drawQrToCanvas(ctx, layer, w, h);
       } else if (layer.type === 'image' && layer.src) {
         try {
           const img = await loadExportImage(layer.src);
@@ -10476,7 +10670,12 @@
       if (opts.popState !== false) {
         const onProfileUrl = location.pathname.startsWith('/u/') || /^#\/?u\//.test(location.hash);
         if (onProfileUrl) {
-          try { history.back(); } catch {}
+          // Use replaceState, NOT history.back(): if the profile page was
+          // cold-loaded from a shared /u/<npub> link, the /u/ entry is the
+          // first in this tab's history and history.back() would navigate
+          // the browser right out of the app. replaceState just rewrites
+          // the URL to "/" in place without navigating or firing popstate.
+          try { history.replaceState({}, '', '/'); } catch {}
         }
       }
     }
@@ -12319,6 +12518,22 @@
       return el;
     }
 
+    function forkRowIntoEditor(row) {
+      if (!row?.payload) return;
+      if (row.mode === 'disc-design') {
+        const slotTarget = state._discImportTargetSlot;
+        if (slotTarget) {
+          importDiscDesignFromPayload(row.payload, slotTarget, { openDesigner: false });
+        } else {
+          importDiscDesignFromPayload(row.payload, 'a', { openDesigner: true });
+        }
+      } else {
+        loadProjectFromText(JSON.stringify(row.payload));
+      }
+      closeNostrPreview();
+      $('nostrModal').classList.remove('open');
+    }
+
     function openDesignPreview(row) {
       const profileModalEl = $('profileModal');
       const fromProfile = profileModalEl && profileModalEl.getAttribute('aria-hidden') === 'false';
@@ -12439,6 +12654,16 @@
         setTimeout(() => { shareBtn.textContent = original; }, 1800);
       });
       actionsDiv.insertBefore(shareBtn, saveJsonBtn);
+
+      const forkBtn = document.createElement('button');
+      forkBtn.type = 'button';
+      forkBtn.textContent = 'Fork off!';
+      forkBtn.title = 'Fork this design — opens it in the editor so you can save your own version';
+      forkBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        forkRowIntoEditor(row);
+      });
+      actionsDiv.insertBefore(forkBtn, saveJsonBtn);
 
       if (isDiscDesign) {
         const import1Btn = document.createElement('button');
@@ -12673,6 +12898,8 @@
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
         } else if (layer.type === 'shape') {
           renderShapeIntoElement(el, layer);
+        } else if (layer.type === 'qr') {
+          renderQrIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -12880,6 +13107,8 @@
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
         } else if (layer.type === 'shape') {
           renderShapeIntoElement(el, layer);
+        } else if (layer.type === 'qr') {
+          renderQrIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -12959,6 +13188,8 @@
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
         } else if (layer.type === 'shape') {
           renderShapeIntoElement(el, layer);
+        } else if (layer.type === 'qr') {
+          renderQrIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -13194,6 +13425,8 @@
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
         } else if (layer.type === 'shape') {
           renderShapeIntoElement(el, layer);
+        } else if (layer.type === 'qr') {
+          renderQrIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -13311,6 +13544,8 @@
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
         } else if (layer.type === 'shape') {
           renderShapeIntoElement(el, layer);
+        } else if (layer.type === 'qr') {
+          renderQrIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -14438,6 +14673,22 @@
       $('textAlign').addEventListener('change', (event) => updateSelectedLayer('align', event.target.value));
       const colorFillEl = $('colorLayerFill');
       if (colorFillEl) colorFillEl.addEventListener('input', (event) => updateSelectedLayer('color', event.target.value));
+      on('qrData', 'input', (event) => updateQrField('data', event.target.value));
+      on('qrEcc', 'change', (event) => updateQrField('ecc', event.target.value));
+      on('qrMargin', 'input', (event) => updateQrField('margin', Math.max(0, Math.min(20, Math.round(Number(event.target.value)) || 0))));
+      on('qrFg', 'input', (event) => updateQrField('fg', event.target.value));
+      on('qrBg', 'input', (event) => updateQrField('bg', event.target.value));
+      on('qrBgTransparent', 'change', (event) => {
+        const layer = selectedLayer();
+        if (!layer || layer.type !== 'qr') return;
+        if (event.target.checked) {
+          updateQrField('bg', 'none');
+        } else {
+          // Restore to the color picker's current value.
+          updateQrField('bg', $('qrBg')?.value || '#ffffff');
+        }
+        syncQrLayerInputs(layer);
+      });
       on('shapeFillColor', 'input', (event) => updateShapeFill(event.target.value));
       on('shapeFillType', 'change', (event) => updateShapeFillType(event.target.value));
       on('shapeFillStop0', 'input', (event) => updateShapeGradientStop(0, event.target.value));
