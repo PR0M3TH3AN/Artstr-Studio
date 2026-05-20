@@ -1,19 +1,34 @@
-# CaseWrap Studio
+# Artstr Studio
 
-CaseWrap Studio is a static, browser-only design tool for printable physical media packaging — and increasingly, a general-purpose Nostr-native graphics editor. It started as a DVD/Blu-ray case wrap maker and now also covers Avery 8960/8944 disc labels, Avery 8693/8943 CD jewel-case inserts, single-disc designs, and free-form custom art canvases. Designs publish to and load from Nostr, are forkable and editable in place, and can be tipped via Lightning.
+Artstr Studio is a static, browser-only design tool for printable physical media packaging — and increasingly, a general-purpose Nostr-native graphics editor. It started as a DVD/Blu-ray case wrap maker and now also covers Avery 8960/8944 disc labels, Avery 8693/8943 CD jewel-case inserts, single-disc designs, and free-form custom art canvases. Designs publish to and load from Nostr, are forkable and editable in place, and can be tipped via Lightning.
 
-## Modes
+## Tabs and layouts
 
-The editor has two tools at the top level:
+The editor has two tabs at the top level, each with its own Layout panel:
 
 - **Template** — designs that map to a real printed surface.
   - **Case cover** — DVD / Blu-ray wraps with separate front / spine / back artwork or a single combined wrap image.
   - **Disc labels** — Avery 8960 / 8944 sheets with two disc positions.
-  - **CD jewel inserts** — Avery 8693 / 8943 sheets with a front insert + tray insert.
-  - **Custom art** — free-form canvas with size presets (1920×1080, square sizes, etc.) or custom dimensions. Treats the project as generic art rather than packaging.
-- **Disc Designer** — make a reusable single-disc design, publish it on Nostr, and import it later into either disc position of a disc-label sheet.
+  - **CD jewel inserts** — Avery 8693 / 8943 sheets with a front insert + tray insert (chosen via the Template preset).
+- **Designer** — free-form and reusable designs.
+  - **Custom art** (the Designer tab's default) — a free-form canvas with size presets (1920×1080, square sizes, etc.) or custom dimensions. Treats the project as generic art rather than packaging.
+  - **Disc design** — a reusable single-disc design you can publish on Nostr and import later into either disc position of a disc-label sheet.
 
-Each mode keeps its own metadata (title / identifiers / category / language) so loading a template in the Disc Designer doesn't overwrite the Designer's work in progress, and vice versa.
+Each layout keeps its own metadata (title / identifiers / category / language) so switching layouts — or loading a project — doesn't overwrite a design already in progress.
+
+## Tools
+
+A left-edge tool palette drives canvas interaction; a matching right-edge panel
+holds the active tool's options. Both are docked flush with the canvas.
+
+- **Select** (`V`) — select, move, resize, and rotate layers.
+- **Hand** (`H`) — drag to pan the canvas.
+- **Pen** (`P`) — click to place Bézier anchors, click-drag to pull curve handles; closing a path fills it. Selecting an existing pen path — or a primitive / single-path SVG via **Make editable path** — exposes draggable anchors and handles.
+- **Pencil** (`B`) — freehand strokes, committed as vector paths at a constant on-screen thickness.
+- **Shape** (`S`) — drag out a rectangle / rounded-rect / circle / ellipse / triangle / polygon / star / line.
+- **Text** (`T`) — click to drop a text box, then type.
+
+The Pen / Shape / Text panels also edit the selected shape's fill and stroke.
 
 ## Layers
 
@@ -26,7 +41,7 @@ Layers compose on top of the per-mode artwork:
 - **Custom path / SVG upload** — upload an `.svg` file. Single-path SVGs land as editable shapes; multi-element SVGs preserve their internal fills and stacking, with a per-element editor that lets you change each `<rect>` / `<path>` / `<circle>` etc. fill and stroke individually.
 - **QR code** — encode any URL or text as a scannable QR layer. Adjustable error-correction level (L/M/Q/H), quiet zone, module / background colors, and an optional transparent background for placing over artwork.
 
-Every layer supports drag / resize / rotate / opacity / z-order, an aspect-ratio lock toggle on the W/H inputs (default on), and a lock toggle that prevents accidental drags.
+Every layer supports drag / resize / rotate / opacity / z-order, an aspect-ratio lock toggle on the W/H inputs (default on), a lock toggle that prevents accidental drags, and a visibility (eye) toggle in the layer list.
 
 ### Layer clipping / masking
 
@@ -43,9 +58,16 @@ Cross-target and cross-tool copy/paste — Copy / Cut on a selected layer, Copy 
 
 ## Editor canvas
 
+The canvas is a unified, Illustrator-style workspace: the tool palette, the
+scrolling canvas, the contextual options panel, and the zoom bar are docked
+flush around the artboard. Sidebar panels are collapsible (click the heading);
+they start collapsed except the Layout panel, and selecting a layer opens the
+Layers panel automatically.
+
 - **Undo / redo** — Ctrl+Z / Ctrl+Shift+Z (and Ctrl+Y), or the topbar buttons. A 50-deep in-memory history covering layer edits, mode switches, artwork loads, metadata, and more. Defers to the browser's native text-input undo while an input is focused.
-- **Fit-to-view by default** — the canvas auto-scales so the whole artboard fits the preview area; it re-fits on window resize. A sticky zoom toolbar at the bottom of the canvas has zoom in/out, a 20–200% slider, Fit, and 1:1.
+- **Fit-to-view by default** — the canvas auto-scales so the whole artboard fits the preview area; it re-fits on window resize. The bottom zoom bar has zoom in/out, a 20–200% slider, Fit, and 1:1.
 - **Off-canvas veil** — layer content that extends past the artboard edge renders under a translucent veil, so the printable area is always visually clear. The veil is dropped from PDF / JPEG export.
+- **Keyboard** — `Delete` / `Backspace` removes the selected layer; arrow keys nudge it (`Shift` for a larger step); `[` / `]` send it back / forward; `Ctrl+D` duplicates; `Ctrl+C` / `X` / `V` copy / cut / paste a layer.
 
 ## Nostr integration
 
@@ -74,7 +96,7 @@ Two flavors of Lightning are wired in:
 ## Save, share, restore
 
 - **Save project** writes the design (with metadata) to a JSON file.
-- **Load from file** detects whether the JSON is a template or a disc design and switches the active tool automatically.
+- **Load from file** detects which layout the JSON belongs to (cover / disc / jewel / custom art / disc design) and switches to it automatically.
 - **Publish to Nostr** opens a preview/metadata confirmation modal before signing.
 - **Copy share link** copies an `naddr1…` (replaceable-event address) or `nevent1…` (specific event id) URL.
 - **Copy event ID** is available once a project has been published.
@@ -95,7 +117,7 @@ Two flavors of Lightning are wired in:
 
 - `src/index.html` — the complete single-file app. Open it directly in a browser, or serve it from any static host. Vercel rewrites in `vercel.json` map `/share/:id` and `/u/:npub` to the SPA entry.
 - `src/vendor/qrcode.min.js` — vendored QR encoder (used for Lightning tip invoices).
-- `docs/` — feature specs for unbuilt work (badges, collections, NWC zaps, zap-gated templates).
+- `docs/` — feature specs. `PEN_TOOL_FEATURE.md` covers the now-shipped pen / pencil / vector tooling; badges, collections, NWC zaps, and zap-gated templates are still unbuilt.
 - `TODO.md` — running list of deferred work and cleanup items.
 
 ## Schema

@@ -380,9 +380,11 @@ toggling the eye shows it again.
    bit jaggy — matches the project's early-web aesthetic. No smoothing
    slider, no Bézier fitting on freehand strokes.
 2. **Pencil node-editability** — DECIDED: no. Only pen paths are
-   node-editable. Pencil `shape.pen.nodes` is still stored (for a possible
-   future re-pass) but the editor never shows draggable anchors for a
-   `tool: 'pencil'` path.
+   node-editable. A pencil stroke commits as a plain `kind: 'path'` layer
+   (no `shape.pen`); "Make editable path" still works on it by parsing the
+   `d` string. The pencil path is stored in a **pixel-space viewBox**
+   (1 unit = 1px) rather than a 0–100 one, so its `stroke-width` is a true
+   on-screen thickness — constant regardless of stroke length or direction.
 3. **Closed pen path default fill** — DECIDED: yes, fill it on close with a
    solid accent color, so a finished closed path is immediately visible.
    The user can switch to none / gradient via the existing fill controls.

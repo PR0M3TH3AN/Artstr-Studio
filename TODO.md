@@ -1,4 +1,4 @@
-# CaseWrap Studio — TODO
+# Artstr Studio — TODO
 
 Running list of deferred work. Detailed specs for the larger items live in
 `docs/`. Each entry notes scope and where the spec is (if any).

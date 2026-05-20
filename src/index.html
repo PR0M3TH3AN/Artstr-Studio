@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CaseWrap Studio</title>
+  <title>Artstr Studio</title>
   <link rel="icon" href="favicon.ico" sizes="any">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -135,12 +135,12 @@
     }
 
     h1 {
-      font-size: 2.2rem !important;
+      font-size: 1.15rem !important;
       line-height: 1;
       margin: 0;
       font-family: 'Press Start 2P' !important;
       font-weight: normal !important;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.06em;
       white-space: nowrap;
       color: #00d9ff;
     }
@@ -417,11 +417,22 @@
     }
 
     #layoutFieldset { order: 10; }
+    #designerLayoutFieldset { order: 10; }
     #coverSizeFieldset { order: 20; }
     #coverArtworkFieldset,
     #discArtworkFieldset,
     #jewelArtworkFieldset { order: 30; }
     #designerFieldset { order: 15; }
+
+    /* The Designer-tab Layout panel spans both app modes (Custom Art runs as
+       a template mode, Disc Design as the designer mode), so it isn't keyed
+       off .template-only / .designer-only — show it for either. */
+    #designerLayoutFieldset { display: none; }
+    body.app-designer #designerLayoutFieldset,
+    body.template-customart #designerLayoutFieldset { display: block; }
+    /* Custom Art now lives on the Designer tab, so the Template-tab Layout
+       panel hides while Custom Art is active. */
+    body.template-customart #layoutFieldset { display: none !important; }
     #layersFieldset { order: 40; }
     #designerMetadataFieldset { order: 45; }
     #exportFieldset { order: 50; }
@@ -570,6 +581,11 @@
       align-items: center;
       color: var(--muted);
       font-size: .86rem;
+    }
+
+    body.app-designer .status {
+      flex-basis: 100%;
+      justify-content: flex-start;
     }
 
     .pill {
@@ -1678,6 +1694,7 @@
     .toolPaletteBtn { width:36px; height:36px; display:flex; align-items:center; justify-content:center; border:1px solid transparent; border-radius:0; background:transparent; color:var(--ink); cursor:pointer; font-size:1.15rem; line-height:1; }
     .toolPaletteBtn:hover { background:rgba(127,127,127,.14); }
     .toolPaletteBtn.active { background:var(--accent); color:#fff; }
+    .toolPaletteDivider { height:1px; background:var(--line); margin:3px 2px; }
     .toolOptions {
       grid-area: options;
       display: flex;
@@ -1701,6 +1718,9 @@
     .penOverlay { position:absolute; inset:0; z-index:998; pointer-events:none; }
     body.tool-drawing .penOverlay { pointer-events:auto; cursor:crosshair; }
     body.tool-drawing .freeLayer { pointer-events:none !important; }
+    body.tool-hand .penOverlay { cursor:grab; }
+    body.tool-panning .penOverlay { cursor:grabbing; }
+    body.tool-text .penOverlay { cursor:text; }
     @media print { .toolPalette, .toolOptions, .penOverlay { display:none !important; } }
     body.exporting .toolPalette, body.exporting .toolOptions, body.exporting .penOverlay, body.exporting .canvasToolbar { display:none !important; }
 
@@ -2048,8 +2068,8 @@
       <div class="appTitle">
         <div class="appHeader">
           <div class="appLogoRow">
-            <img src="logo.gif" alt="CaseWrap" class="appLogo" style="height: 48px;" />
-            <h1>CaseWrap</h1>
+            <img src="logo.gif" alt="Artstr" class="appLogo" style="height: 48px;" />
+            <h1>Artstr Studio</h1>
           </div>
         </div>
         <p class="subhead">Design printable case wraps and disc labels, then save, print, or share them on Nostr.</p>
@@ -2057,7 +2077,7 @@
 
       <div class="appModeTabs">
         <button type="button" class="appModeTab active" id="modeTabTemplate"><img src="paper_icon_32px.png" alt="Template" style="height: 40px; width: auto;" />Template</button>
-        <button type="button" class="appModeTab" id="modeTabDesigner"><img src="disk_icon_32px.png" alt="Disc Designer" style="height: 40px; width: auto;" />Disc Designer</button>
+        <button type="button" class="appModeTab" id="modeTabDesigner"><img src="disk_icon_32px.png" alt="Designer" style="height: 40px; width: auto;" />Designer</button>
       </div>
 
 
@@ -2079,7 +2099,6 @@
         <div class="layoutTabs" role="tablist" aria-label="Template layout">
           <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover</button>
           <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels</button>
-          <button type="button" class="layoutTab" id="mode-customart" data-template-mode="customart" role="tab">Custom art</button>
         </div>
       </fieldset>
 
@@ -2354,6 +2373,14 @@
           </div>
           <p class="hint">Text appears on the two narrow tray-insert spines that wrap the jewel case. Leave blank to skip.</p>
         </details>
+      </fieldset>
+
+      <fieldset class="workflowStep" id="designerLayoutFieldset">
+        <legend data-step="1">Layout</legend>
+        <div class="layoutTabs" role="tablist" aria-label="Designer layout">
+          <button type="button" class="layoutTab" id="mode-customart" data-layout="customart" role="tab">Custom art</button>
+          <button type="button" class="layoutTab" id="mode-discdesign" data-layout="discdesign" role="tab">Disc design</button>
+        </div>
       </fieldset>
 
       <fieldset class="workflowStep designer-only" id="designerFieldset">
@@ -2878,8 +2905,12 @@
 
         <div class="toolPalette" id="toolPalette">
           <button type="button" class="toolPaletteBtn active" id="tool-select" data-tool="select" title="Select tool (V)" aria-label="Select tool">▸</button>
+          <button type="button" class="toolPaletteBtn" id="tool-hand" data-tool="hand" title="Hand / pan tool (H)" aria-label="Hand tool">✋</button>
+          <div class="toolPaletteDivider" aria-hidden="true"></div>
           <button type="button" class="toolPaletteBtn" id="tool-pen" data-tool="pen" title="Pen tool (P)" aria-label="Pen tool">✒</button>
           <button type="button" class="toolPaletteBtn" id="tool-pencil" data-tool="pencil" title="Pencil tool (B)" aria-label="Pencil tool">✎</button>
+          <button type="button" class="toolPaletteBtn" id="tool-shape" data-tool="shape" title="Shape tool (S)" aria-label="Shape tool">▢</button>
+          <button type="button" class="toolPaletteBtn" id="tool-text" data-tool="text" title="Text tool (T)" aria-label="Text tool">T</button>
         </div>
 
         <div class="toolOptions" id="toolOptions" style="display:none">
@@ -2910,6 +2941,36 @@
             <input type="number" id="pencilStrokeWidth" min="0.5" max="50" step="0.5" value="3" />
             <p class="toolOptHint">Click and drag to draw freehand. Each stroke becomes its own layer.</p>
           </div>
+          <div id="shapeToolOptions" style="display:none">
+            <h4>Shape tool</h4>
+            <label for="shapeToolKind">Shape</label>
+            <select id="shapeToolKind">
+              <option value="rect">Rectangle</option>
+              <option value="rounded-rect">Rounded rectangle</option>
+              <option value="circle">Circle</option>
+              <option value="ellipse">Ellipse</option>
+              <option value="triangle">Triangle</option>
+              <option value="polygon">Polygon</option>
+              <option value="star">Star</option>
+              <option value="line">Line</option>
+            </select>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="shapeFillEnabled" checked style="accent-color:var(--accent)" /> Fill</label>
+            <div class="toolOptRow">
+              <div><label for="shapeFillColor">Fill</label><input type="color" id="shapeFillColor" value="#3b82f6" /></div>
+              <div><label for="shapeStrokeColor">Stroke</label><input type="color" id="shapeStrokeColor" value="#111827" /></div>
+            </div>
+            <label for="shapeStrokeWidth">Stroke width</label>
+            <input type="number" id="shapeStrokeWidth" min="0" max="50" step="0.5" value="0" />
+            <p class="toolOptHint">Drag on the canvas to draw. Tweak points / sides / radius in the layer controls.</p>
+          </div>
+          <div id="textToolOptions" style="display:none">
+            <h4>Text tool</h4>
+            <div class="toolOptRow">
+              <div><label for="textToolColor">Color</label><input type="color" id="textToolColor" value="#111827" /></div>
+              <div><label for="textToolSize">Size</label><input type="number" id="textToolSize" min="6" max="200" step="1" value="24" /></div>
+            </div>
+            <p class="toolOptHint">Click on the canvas to place a text box, then type.</p>
+          </div>
         </div>
 
       <div class="canvasToolbar" id="canvasToolbar">
@@ -2929,7 +2990,7 @@
   <div class="modal" id="welcomeModal" aria-hidden="true">
     <div class="modalCard welcomeCard" style="position:relative">
       <button type="button" id="welcomeCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
-      <h2 style="margin:0 0 4px">Welcome to CaseWrap Studio</h2>
+      <h2 style="margin:0 0 4px">Welcome to Artstr Studio</h2>
       <p class="subhead" style="margin:0 0 14px">Browse community templates or start your own.</p>
       <div class="welcomeSearchRow">
         <div><label for="welcomeQuery" style="font-size:.78rem">Title or IMDb ID</label><input id="welcomeQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
@@ -4458,12 +4519,14 @@
       state.preset = name;
       if (name === 'jewel8693') {
         state.templateMode = 'jewel';
+        state._lastTemplateLayout = 'jewel';
         $('customSizeFields').style.display = 'none';
         syncInputs();
         render();
         return;
       }
       state.templateMode = 'cover';
+      state._lastTemplateLayout = 'cover';
       if (presets[name]) {
         Object.assign(state, presets[name]);
       }
@@ -4473,12 +4536,18 @@
     }
 
     function syncInputs() {
-      for (const mode of ['cover', 'disc', 'customart']) {
-        const button = $(`mode-${mode}`);
+      const isDesignerApp = state.appMode === 'designer';
+      const layoutActive = {
+        cover: !isDesignerApp && state.templateMode === 'cover',
+        disc: !isDesignerApp && state.templateMode === 'disc',
+        customart: !isDesignerApp && state.templateMode === 'customart',
+        discdesign: isDesignerApp
+      };
+      for (const m of ['cover', 'disc', 'customart', 'discdesign']) {
+        const button = $(`mode-${m}`);
         if (!button) continue;
-        const active = state.templateMode === mode;
-        button.classList.toggle('active', active);
-        button.setAttribute('aria-selected', active ? 'true' : 'false');
+        button.classList.toggle('active', !!layoutActive[m]);
+        button.setAttribute('aria-selected', layoutActive[m] ? 'true' : 'false');
       }
       $('preset').value = state.templateMode === 'jewel' ? 'jewel8693' : state.preset;
       const csf = $('customSizeFields'); if (csf) csf.style.display = state.preset === 'custom' && state.templateMode !== 'jewel' ? '' : 'none';
@@ -4565,8 +4634,8 @@
       cover:     ['layoutFieldset', 'coverSizeFieldset', 'coverArtworkFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
       disc:      ['layoutFieldset', 'discArtworkFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
       jewel:     ['layoutFieldset', 'coverSizeFieldset', 'jewelArtworkFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
-      customart: ['layoutFieldset', 'customArtFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
-      designer:  ['designerFieldset', 'layersFieldset', 'designerMetadataFieldset', 'designerPrintSaveFieldset']
+      customart: ['designerLayoutFieldset', 'customArtFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
+      designer:  ['designerLayoutFieldset', 'designerFieldset', 'layersFieldset', 'designerMetadataFieldset', 'designerPrintSaveFieldset']
     };
 
     function renumberWorkflowSteps() {
@@ -4606,7 +4675,7 @@
       if (state.appMode === 'designer') {
         const design = state.discDesign;
         const showName = (design?.name?.trim()) || 'New Design';
-        $('projectTitle').textContent = `Disc Designer`;
+        $('projectTitle').textContent = `Disc Design`;
         document.querySelector('.printHelp').textContent = showName;
         $('trimReadout').textContent = `${fmt(discTemplate.discD)} in disc`;
         $('sheetReadout').textContent = `Hole: ${fmt(discTemplate.holeD)} in`;
@@ -4972,11 +5041,17 @@
     // viewBox (same convention as every other shape), so fill / stroke /
     // gradient / clip / transform / export all apply for free.
 
-    let _editorTool = 'select';        // 'select' | 'pen' | 'pencil'
+    // 'select' | 'hand' | 'pen' | 'pencil' | 'shape' | 'text'
+    let _editorTool = 'select';
     let _penOverlay = null;            // active SVG overlay element
     let _penDraft = null;              // in-progress drawing state
     const PEN_MIN_DIST = 0.012;        // min inch gap between pencil points
     const PEN_CLOSE_HIT = 0.09;        // inch radius to "click the first anchor"
+    const EDITOR_TOOLS = ['select', 'hand', 'pen', 'pencil', 'shape', 'text'];
+    // Tools with a contextual right-side options panel.
+    const EDITOR_TOOLS_WITH_PANEL = ['pen', 'pencil', 'shape', 'text'];
+    // Shape kinds the Shape tool can draw (excludes uploaded 'path'/'svg').
+    const SHAPE_TOOL_KINDS = ['rect', 'rounded-rect', 'circle', 'ellipse', 'triangle', 'polygon', 'star', 'line'];
 
     // Session-persistent tool options (NOT design state).
     const _penToolOpts = {
@@ -4987,6 +5062,14 @@
       pencilStrokeColor: '#111827',
       pencilStrokeWidth: 3
     };
+    const _shapeToolOpts = {
+      kind: 'rect',
+      fill: true,
+      fillColor: '#3b82f6',
+      strokeColor: '#111827',
+      strokeWidth: 0
+    };
+    const _textToolOpts = { color: '#111827', size: 24 };
 
     function currentCanvasHost() {
       return state.appMode === 'designer' ? $('designerDiscWrap') : $('sheet');
@@ -5001,7 +5084,7 @@
     }
 
     function setEditorTool(tool) {
-      if (!['select', 'pen', 'pencil'].includes(tool)) tool = 'select';
+      if (!EDITOR_TOOLS.includes(tool)) tool = 'select';
       if (_editorTool === tool) return;
       cancelPenDraft();
       _editorTool = tool;
@@ -5010,19 +5093,23 @@
     }
 
     function syncToolUI() {
-      for (const t of ['select', 'pen', 'pencil']) {
+      for (const t of EDITOR_TOOLS) {
         const btn = $(`tool-${t}`);
         if (btn) btn.classList.toggle('active', t === _editorTool);
       }
       const drawing = _editorTool !== 'select';
       document.body.classList.toggle('tool-drawing', drawing);
+      document.body.classList.toggle('tool-hand', _editorTool === 'hand');
+      document.body.classList.toggle('tool-text', _editorTool === 'text');
+      if (_editorTool !== 'hand') document.body.classList.remove('tool-panning');
+      const hasPanel = EDITOR_TOOLS_WITH_PANEL.includes(_editorTool);
       const opts = $('toolOptions');
-      if (opts) opts.style.display = drawing ? '' : 'none';
-      const penOpts = $('penToolOptions');
-      const pencilOpts = $('pencilToolOptions');
-      if (penOpts) penOpts.style.display = _editorTool === 'pen' ? '' : 'none';
-      if (pencilOpts) pencilOpts.style.display = _editorTool === 'pencil' ? '' : 'none';
-      if (drawing) syncToolOptionInputs();
+      if (opts) opts.style.display = hasPanel ? '' : 'none';
+      for (const [id, tool] of [['penToolOptions','pen'],['pencilToolOptions','pencil'],['shapeToolOptions','shape'],['textToolOptions','text']]) {
+        const el = $(id);
+        if (el) el.style.display = _editorTool === tool ? '' : 'none';
+      }
+      if (hasPanel) syncToolOptionInputs();
     }
 
     // The selected layer, if it's any vector shape layer.
@@ -5076,6 +5163,15 @@
       } else if (_editorTool === 'pencil') {
         set('pencilStrokeColor', (stroke && stroke.color) || _penToolOpts.pencilStrokeColor);
         set('pencilStrokeWidth', (stroke && stroke.width != null) ? stroke.width : _penToolOpts.pencilStrokeWidth);
+      } else if (_editorTool === 'shape') {
+        set('shapeToolKind', _shapeToolOpts.kind);
+        setChk('shapeFillEnabled', _shapeToolOpts.fill);
+        set('shapeFillColor', _shapeToolOpts.fillColor);
+        set('shapeStrokeColor', _shapeToolOpts.strokeColor);
+        set('shapeStrokeWidth', _shapeToolOpts.strokeWidth);
+      } else if (_editorTool === 'text') {
+        set('textToolColor', _textToolOpts.color);
+        set('textToolSize', _textToolOpts.size);
       }
     }
 
@@ -5192,13 +5288,13 @@
       clearPenDraftRender();
       if (pts.length < 2) return;
       const bbox = pointsBbox(pts);
-      // Remap to a 0–100 viewBox so stroke width / clip behave like all
-      // other shapes. Open path: M then L segments, no Z.
-      const norm = pts.map(p => ({
-        x: ((p.x - bbox.x) / bbox.w * 100),
-        y: ((p.y - bbox.y) / bbox.h * 100)
-      }));
-      const d = 'M ' + norm.map((p, i) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' L ');
+      // Store the path in a pixel-space viewBox (1 unit = 1px @ 96dpi).
+      // Because the viewBox keeps the layer's exact aspect ratio, the
+      // viewBox→layer mapping is a uniform scale — so `stroke-width` is a
+      // true on-screen thickness, identical no matter how long the stroke
+      // is or which direction it runs. (Normalizing to 0–100 made the
+      // width scale with the bounding box, which is the reported bug.)
+      const d = 'M ' + pts.map(p => `${((p.x - bbox.x) * 96).toFixed(2)} ${((p.y - bbox.y) * 96).toFixed(2)}`).join(' L ');
       pushHistory('draw pencil stroke');
       addLayer({
         id: makeLayerId(),
@@ -5208,8 +5304,8 @@
         x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h,
         rotate: 0, opacity: 1, z: nextLayerZ(),
         shape: {
-          kind: 'path', d, viewBox: { x: 0, y: 0, w: 100, h: 100 },
-          pen: { closed: false, tool: 'pencil', nodes: norm.map(p => ({ x: p.x, y: p.y, hIn: null, hOut: null })) }
+          kind: 'path', d,
+          viewBox: { x: 0, y: 0, w: bbox.w * 96, h: bbox.h * 96 }
         },
         fill: { type: 'none' },
         stroke: { type: 'solid', color: _penToolOpts.pencilStrokeColor, width: _penToolOpts.pencilStrokeWidth, dash: 'solid' }
@@ -5262,6 +5358,9 @@
     function onPenPointerDown(evt) {
       evt.preventDefault();
       if (_editorTool === 'pencil') { startPencilStroke(evt); return; }
+      if (_editorTool === 'hand') { startHandPan(evt); return; }
+      if (_editorTool === 'shape') { startShapeDrag(evt); return; }
+      if (_editorTool === 'text') { placeTextWithTool(evt); return; }
       if (_editorTool !== 'pen') return;
       // If a draft is in progress, continue the create flow.
       if (_penDraft && _penDraft.tool === 'pen') { penPointerDown(evt); return; }
@@ -5273,6 +5372,138 @@
         if (hit) { startPenEditDrag(editLayer, hit, evt); return; }
       }
       penPointerDown(evt);
+    }
+
+    // ---- Hand tool: drag the canvas to pan ----
+    function startHandPan(evt) {
+      const shell = $('previewShell');
+      if (!shell) return;
+      document.body.classList.add('tool-panning');
+      const startX = evt.clientX, startY = evt.clientY;
+      const startL = shell.scrollLeft, startT = shell.scrollTop;
+      try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
+      const move = (e) => {
+        shell.scrollLeft = startL - (e.clientX - startX);
+        shell.scrollTop = startT - (e.clientY - startY);
+      };
+      const up = () => {
+        _penOverlay.removeEventListener('pointermove', move);
+        _penOverlay.removeEventListener('pointerup', up);
+        _penOverlay.removeEventListener('pointercancel', up);
+        document.body.classList.remove('tool-panning');
+      };
+      _penOverlay.addEventListener('pointermove', move);
+      _penOverlay.addEventListener('pointerup', up);
+      _penOverlay.addEventListener('pointercancel', up);
+    }
+
+    // ---- Text tool: click to drop a text layer, then type ----
+    function placeTextWithTool(evt) {
+      const p = overlayPointToInches(evt);
+      if (!p) return;
+      const target = currentDrawTarget();
+      const bounds = targetBounds(target);
+      applyTargetMode(target);
+      const w = Math.min(2.5, bounds.w * 0.5);
+      const h = Math.min(0.6, bounds.h * 0.2);
+      const id = makeLayerId();
+      pushHistory('add text layer');
+      addLayer({
+        id, type: 'text', name: 'Text layer', target,
+        html: 'Text',
+        x: p.x - w / 2, y: p.y - h / 2, w, h,
+        rotate: 0, opacity: 1, z: nextLayerZ(),
+        fontFamily: 'inherit', fontSize: _textToolOpts.size, color: _textToolOpts.color,
+        align: 'center', bold: false, italic: false
+      });
+      // Hand off to Select so the new text box is editable and movable, and
+      // focus it so the user can type right away (selecting the placeholder).
+      setEditorTool('select');
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`.freeLayer[data-layer-id="${id}"] .textLayer`);
+        if (!el) return;
+        el.focus();
+        try {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } catch {}
+      });
+    }
+
+    // ---- Shape tool: drag a bounding box to draw a primitive ----
+    function startShapeDrag(evt) {
+      const start = overlayPointToInches(evt);
+      if (!start) return;
+      try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
+      let cur = start;
+      const move = (e) => {
+        cur = overlayPointToInches(e) || cur;
+        renderShapeDragPreview(start, cur);
+      };
+      const up = (e) => {
+        _penOverlay.removeEventListener('pointermove', move);
+        _penOverlay.removeEventListener('pointerup', up);
+        _penOverlay.removeEventListener('pointercancel', up);
+        clearPenDraftRender();
+        commitShapeFromDrag(start, overlayPointToInches(e) || cur);
+      };
+      _penOverlay.addEventListener('pointermove', move);
+      _penOverlay.addEventListener('pointerup', up);
+      _penOverlay.addEventListener('pointercancel', up);
+    }
+
+    function renderShapeDragPreview(a, b) {
+      if (!_penOverlay) return;
+      clearPenDraftRender();
+      const ns = 'http://www.w3.org/2000/svg';
+      const dims = currentCanvasDims();
+      const lw = Math.max(dims.w, dims.h) * 0.004;
+      const rect = document.createElementNS(ns, 'rect');
+      rect.setAttribute('x', Math.min(a.x, b.x));
+      rect.setAttribute('y', Math.min(a.y, b.y));
+      rect.setAttribute('width', Math.abs(b.x - a.x));
+      rect.setAttribute('height', Math.abs(b.y - a.y));
+      rect.setAttribute('fill', 'rgba(59,130,246,0.12)');
+      rect.setAttribute('stroke', '#3b82f6');
+      rect.setAttribute('stroke-width', String(lw));
+      rect.setAttribute('stroke-dasharray', `${lw * 3} ${lw * 2}`);
+      _penOverlay.appendChild(rect);
+    }
+
+    function commitShapeFromDrag(a, b) {
+      let x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+      let w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+      // A click (no real drag) drops a default-sized shape at the cursor.
+      if (w < 0.08 || h < 0.08) {
+        const dims = currentCanvasDims();
+        const s = Math.min(dims.w, dims.h) * 0.25;
+        w = s; h = s; x = a.x - s / 2; y = a.y - s / 2;
+      }
+      const kind = SHAPE_TOOL_KINDS.includes(_shapeToolOpts.kind) ? _shapeToolOpts.kind : 'rect';
+      const shape = defaultShapeData(kind);
+      if (kind === 'line') {
+        // The line follows the drag direction within its 0–100 viewBox.
+        shape.x1 = (b.x >= a.x) ? 0 : 100;
+        shape.y1 = (b.y >= a.y) ? 0 : 100;
+        shape.x2 = (b.x >= a.x) ? 100 : 0;
+        shape.y2 = (b.y >= a.y) ? 100 : 0;
+      }
+      pushHistory('add ' + (SHAPE_LABELS[kind] || kind));
+      addLayer({
+        id: makeLayerId(), type: 'shape', name: SHAPE_LABELS[kind] || 'Shape',
+        target: currentDrawTarget(),
+        x, y, w, h, rotate: 0, opacity: 1, z: nextLayerZ(),
+        shape,
+        fill: _shapeToolOpts.fill
+          ? { type: 'solid', color: _shapeToolOpts.fillColor }
+          : { type: 'none' },
+        stroke: _shapeToolOpts.strokeWidth > 0
+          ? { type: 'solid', color: _shapeToolOpts.strokeColor, width: _shapeToolOpts.strokeWidth, dash: 'solid' }
+          : { type: 'none', color: _shapeToolOpts.strokeColor, width: 2, dash: 'solid' }
+      });
     }
 
     // ---- Phase D: editing an existing pen path's anchors / handles ----
@@ -5758,7 +5989,9 @@
         path.setAttribute('d', d);
         path.setAttribute('fill', 'none');
         path.setAttribute('stroke', _penToolOpts.pencilStrokeColor);
-        path.setAttribute('stroke-width', String(lineW * 2));
+        // Overlay is in canvas-inch space; the committed stroke width is in
+        // px — divide by 96 so the live preview matches the final thickness.
+        path.setAttribute('stroke-width', String(_penToolOpts.pencilStrokeWidth / 96));
         path.setAttribute('stroke-linecap', 'round');
         path.setAttribute('stroke-linejoin', 'round');
         _penOverlay.appendChild(path);
@@ -8113,10 +8346,6 @@
             toastError(error.message || 'Invalid image URL.');
           }
         });
-        const addTextBtn = document.createElement('button');
-        addTextBtn.type = 'button';
-        addTextBtn.textContent = 'Add text layer';
-        addTextBtn.addEventListener('click', () => addTextLayer('designer-disc'));
         const addColorBtn = document.createElement('button');
         addColorBtn.type = 'button';
         addColorBtn.textContent = 'Add color block';
@@ -8125,7 +8354,8 @@
         addQrBtn.type = 'button';
         addQrBtn.textContent = 'Add QR';
         addQrBtn.addEventListener('click', () => addQrLayer('designer-disc'));
-        buttonRow.append(addImageBtn, addTextBtn, addColorBtn, buildAddShapeMenu('designer-disc'), addQrBtn);
+        // Text + shape adds live in the left tool palette now.
+        buttonRow.append(addImageBtn, addColorBtn, addQrBtn);
 
         actions.append(urlRow, buttonRow);
         panel.appendChild(actions);
@@ -8193,10 +8423,6 @@
             toastError(error.message || 'Invalid image URL.');
           }
         });
-        const addTextBtn = document.createElement('button');
-        addTextBtn.type = 'button';
-        addTextBtn.textContent = 'Add text layer';
-        addTextBtn.addEventListener('click', () => addTextLayer(targetDef.key));
         const addColorBtn = document.createElement('button');
         addColorBtn.type = 'button';
         addColorBtn.textContent = 'Add color block';
@@ -8205,7 +8431,8 @@
         addQrBtn.type = 'button';
         addQrBtn.textContent = 'Add QR';
         addQrBtn.addEventListener('click', () => addQrLayer(targetDef.key));
-        buttonRow.append(addImageBtn, addTextBtn, addColorBtn, buildAddShapeMenu(targetDef.key), addQrBtn);
+        // Text + shape adds live in the left tool palette now.
+        buttonRow.append(addImageBtn, addColorBtn, addQrBtn);
 
         actions.append(urlRow, buttonRow);
         panel.appendChild(actions);
@@ -14695,9 +14922,11 @@
     }
 
     function syncModeTabsUI() {
-      const isDesigner = state.appMode === 'designer';
-      $('modeTabTemplate').classList.toggle('active', !isDesigner);
-      $('modeTabDesigner').classList.toggle('active', isDesigner);
+      // The Designer tab hosts both Custom Art (a template mode) and Disc
+      // Design (the designer appMode).
+      const designerTab = state.appMode === 'designer' || state.templateMode === 'customart';
+      $('modeTabTemplate').classList.toggle('active', !designerTab);
+      $('modeTabDesigner').classList.toggle('active', designerTab);
     }
 
     function updateLayerTargetOptions() {
@@ -14768,6 +14997,43 @@
       }
       updateLayerTargetOptions();
       syncModeTabsUI();
+      syncInputs();
+      render();
+    }
+
+    // Switch the active layout. 'cover'/'disc'/'jewel'/'customart' run as the
+    // template appMode; 'discdesign' runs as the designer appMode. Custom Art
+    // and Disc Design are the Designer tab's two layouts; Cover/Disc are the
+    // Template tab's. applyLayout() handles any appMode crossing.
+    function applyLayout(layout) {
+      if (layout === 'discdesign') {
+        if (state.appMode !== 'designer') switchAppMode('designer');
+        state._lastDesignerLayout = 'discdesign';
+        return;
+      }
+      const crossing = state.appMode === 'designer';
+      if (crossing) {
+        // switchAppMode('template') restores _prevTemplateMode — point it at
+        // our target layout so we land there directly.
+        state._prevTemplateMode = layout;
+        switchAppMode('template');
+      } else {
+        if (state.templateMode === layout) return;
+        pushHistory(`switch to ${layout}`);
+        state.templateMode = layout;
+      }
+      if (layout === 'jewel') {
+        state.preset = 'jewel8693';
+      } else if (layout === 'cover' && state.preset === 'jewel8693') {
+        state.preset = 'dvd';
+        Object.assign(state, presets.dvd);
+      }
+      // First time into Custom Art, default the category so save/publish work.
+      if (layout === 'customart' && !state.meta.category) {
+        state.meta.category = 'custom-art';
+      }
+      if (layout === 'customart') state._lastDesignerLayout = 'customart';
+      else state._lastTemplateLayout = layout;
       syncInputs();
       render();
     }
@@ -14876,28 +15142,11 @@
     }
 
     function attachEvents() {
-      for (const mode of ['cover', 'disc', 'customart']) {
-        const btn = $(`mode-${mode}`);
-        if (!btn) continue;
-        btn.addEventListener('click', () => {
-          if (state.templateMode === mode) return;
-          pushHistory(`switch to ${mode}`);
-          state.templateMode = mode;
-          if (mode === 'jewel') {
-            state.preset = 'jewel8693';
-          } else if (mode === 'cover' && state.preset === 'jewel8693') {
-            state.preset = 'dvd';
-            Object.assign(state, presets.dvd);
-          }
-          // Auto-pick the "Custom art" category the first time the user
-          // enters customart mode without one set — saves them a step and
-          // matches what most users would have picked anyway.
-          if (mode === 'customart' && !state.meta.category) {
-            state.meta.category = 'custom-art';
-          }
-          syncInputs();
-          render();
-        });
+      // Layout tabs: cover/disc live on the Template tab; customart/discdesign
+      // on the Designer tab. applyLayout() sorts out the appMode crossing.
+      for (const layout of ['cover', 'disc', 'customart', 'discdesign']) {
+        const btn = $(`mode-${layout}`);
+        if (btn) btn.addEventListener('click', () => applyLayout(layout));
       }
 
       $('preset').addEventListener('change', (event) => applyPreset(event.target.value));
@@ -15290,8 +15539,8 @@
         reader.readAsText(file);
       });
       // App mode tabs
-      $('modeTabTemplate').addEventListener('click', () => switchAppMode('template'));
-      $('modeTabDesigner').addEventListener('click', () => switchAppMode('designer'));
+      $('modeTabTemplate').addEventListener('click', () => applyLayout(state._lastTemplateLayout || 'cover'));
+      $('modeTabDesigner').addEventListener('click', () => applyLayout(state._lastDesignerLayout || 'customart'));
 
       // Disc designer: image/position controls
       $('designerLoadBtn').addEventListener('click', () => {
@@ -15770,9 +16019,9 @@
         aside.querySelectorAll('fieldset.workflowStep').forEach((fs) => {
           fs.classList.add('collapsed');
         });
-        // Layout stays open by default — it's the starting point on the
-        // Templates tab.
+        // Layout panels stay open by default — the starting point on each tab.
         $('layoutFieldset')?.classList.remove('collapsed');
+        $('designerLayoutFieldset')?.classList.remove('collapsed');
         aside.addEventListener('click', (e) => {
           const legend = e.target.closest && e.target.closest('legend');
           if (!legend) return;
@@ -15893,8 +16142,8 @@
       on('undoBtn', 'click', undo);
       on('redoBtn', 'click', redo);
 
-      // Tool palette + pen/pencil option wiring.
-      for (const t of ['select', 'pen', 'pencil']) {
+      // Tool palette + tool option wiring.
+      for (const t of EDITOR_TOOLS) {
         on(`tool-${t}`, 'click', () => setEditorTool(t));
       }
       on('penFinishBtn', 'click', () => { finishPenPath(false); setEditorTool('select'); });
@@ -15912,6 +16161,13 @@
       on('penStrokeWidth', 'input', (e) => { _penToolOpts.penStrokeWidth = Math.max(0, Math.min(50, Number(e.target.value) || 0)); applyPenStrokeToSelection(); });
       on('pencilStrokeColor', 'input', (e) => { _penToolOpts.pencilStrokeColor = e.target.value; applyPencilStrokeToSelection(); });
       on('pencilStrokeWidth', 'input', (e) => { _penToolOpts.pencilStrokeWidth = Math.max(0.5, Math.min(50, Number(e.target.value) || 1)); applyPencilStrokeToSelection(); });
+      on('shapeToolKind', 'change', (e) => { _shapeToolOpts.kind = e.target.value; });
+      on('shapeFillEnabled', 'change', (e) => { _shapeToolOpts.fill = e.target.checked; });
+      on('shapeFillColor', 'input', (e) => { _shapeToolOpts.fillColor = e.target.value; });
+      on('shapeStrokeColor', 'input', (e) => { _shapeToolOpts.strokeColor = e.target.value; });
+      on('shapeStrokeWidth', 'input', (e) => { _shapeToolOpts.strokeWidth = Math.max(0, Math.min(50, Number(e.target.value) || 0)); });
+      on('textToolColor', 'input', (e) => { _textToolOpts.color = e.target.value; });
+      on('textToolSize', 'input', (e) => { _textToolOpts.size = Math.max(6, Math.min(200, Number(e.target.value) || 24)); });
       syncToolUI();
 
       // Global undo/redo keyboard shortcuts. Bypass when an editable
@@ -15939,8 +16195,11 @@
         // Tool shortcuts + layer keys — only when not typing and no modifier held.
         if (!mod && !isEditableFocus()) {
           if (k === 'v') { setEditorTool('select'); return; }
+          if (k === 'h') { setEditorTool('hand'); return; }
           if (k === 'p') { setEditorTool('pen'); return; }
           if (k === 'b') { setEditorTool('pencil'); return; }
+          if (k === 's') { setEditorTool('shape'); return; }
+          if (k === 't') { setEditorTool('text'); return; }
           if (k === 'enter' && _penDraft && _penDraft.tool === 'pen') { e.preventDefault(); finishPenPath(false); return; }
           if (!_penDraft) {
             if (k === 'delete' || k === 'backspace') {
@@ -16113,7 +16372,7 @@
         const rows = buildRowsFromEvents([target, ...deletionEvents], 'any', '', true);
         const row = rows.find(r => r.e.id === target.id);
         if (!row) {
-          if (previewPanel) previewPanel.innerHTML = '<p class="hint">Found the event, but it appears deleted or is not a CaseWrap design.</p>';
+          if (previewPanel) previewPanel.innerHTML = '<p class="hint">Found the event, but it appears deleted or is not an Artstr design.</p>';
           return;
         }
         openDesignPreview(row);

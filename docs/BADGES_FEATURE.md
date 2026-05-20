@@ -79,7 +79,7 @@ to show on a profile:
 | `early-adopter` | Early Adopter | Joined before a cutoff date | Manual |
 | `verified-designer` | Verified Designer | Manually awarded by app admins | Manual |
 
-App issues badges from a dedicated CaseWrap app keypair (not tied to any user's NIP-07 key).
+App issues badges from a dedicated Artstr app keypair (not tied to any user's NIP-07 key).
 The app keypair's pubkey and private key are stored in the app's admin config.
 
 ---
@@ -99,7 +99,7 @@ async function fetchProfileBadges(pubkey) {
 
 async function resolveDisplayBadges(pubkey) {
   const profileBadges = await fetchProfileBadges(pubkey);
-  // Filter to only CaseWrap-issued badges (by app issuer pubkey)
+  // Filter to only Artstr-issued badges (by app issuer pubkey)
   // Return array of { id, name, thumbUrl } for known badges
 }
 ```
@@ -193,7 +193,7 @@ Clicking yes publishes/updates their kind 30008 event via NIP-07.
 
 ## Future Enhancements
 - User-to-user badge awards ("Community Pick" badge that any user can nominate for)
-- Badge showcase page listing all CaseWrap badges and current recipients
+- Badge showcase page listing all Artstr badges and current recipients
 - Integration with zap receipts to auto-award "Zap Magnet" by scanning kind 9735 events
 
 ---
