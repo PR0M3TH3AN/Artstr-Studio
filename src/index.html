@@ -388,53 +388,27 @@
       font-weight: 850;
     }
 
-    .secondaryPanel summary[data-step]::before {
-      content: attr(data-step);
-      display: inline-grid;
-      place-items: center;
-      width: 22px;
-      height: 22px;
-      margin-right: 7px;
-      border-radius: 0px;
-      background: #eef2ff;
-      color: var(--accent);
-      font-size: .74rem;
-      font-weight: 850;
+    /* Collapsible sidebar panels — click the legend to toggle. */
+    .workflowStep > legend {
+      cursor: pointer;
+      user-select: none;
     }
-
-    .secondaryPanel {
-      background: #fbfcfe;
+    .workflowStep > legend::after {
+      content: '▾';
+      display: inline-block;
+      margin-left: 8px;
+      font-size: .78em;
+      opacity: .55;
+      transition: transform .15s ease;
     }
-
-    .compactDetails {
-      margin: 0;
-      border: 0;
-      padding: 0;
-      background: transparent;
+    .workflowStep.collapsed > legend::after {
+      transform: rotate(-90deg);
     }
-
-    .compactDetails > summary {
-      list-style: none;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      color: var(--ink);
+    .workflowStep.collapsed > :not(legend) {
+      display: none !important;
     }
-
-    .compactDetails > summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .compactDetails > summary::after {
-      content: "Open";
-      color: var(--muted);
-      font-size: .72rem;
-      font-weight: 700;
-    }
-
-    .compactDetails[open] > summary::after {
-      content: "Close";
+    .workflowStep.collapsed {
+      padding-bottom: 6px;
     }
 
     #layoutFieldset { order: 10; }
@@ -623,6 +597,16 @@
       to { transform: rotate(360deg); }
     }
 
+    /* Non-scrolling wrapper: the previewShell scrolls inside it, but the
+       flanking pen toolbars anchor here so they stay locked on screen. */
+    .canvasArea {
+      flex: 1;
+      min-height: 0;
+      min-width: 0;
+      position: relative;
+      display: flex;
+    }
+
     .previewShell {
       background: #e5e7eb;
       border: 1px solid #cbd5e1;
@@ -631,6 +615,11 @@
       overflow: auto;
       flex: 1;
       min-height: 0;
+      min-width: 0;
+      position: relative;
+      /* Own stacking context: traps the high z-index pen overlay inside so
+         the flanking toolbars (siblings in .canvasArea) stay clickable. */
+      z-index: 0;
       box-shadow: inset 0 1px 0 rgba(255,255,255,.7);
     }
 
@@ -1249,6 +1238,11 @@
       min-width: 0;
       overflow: hidden;
     }
+    .layerItemRow { display:flex; align-items:stretch; gap:3px; }
+    .layerItemRow .layerItem { flex:1; min-width:0; }
+    .layerEyeToggle { flex:0 0 auto; width:30px; border:1px solid var(--line); border-radius:0; background:var(--panel); color:var(--ink); cursor:pointer; font-size:.8rem; line-height:1; }
+    .layerEyeToggle:hover { background:rgba(127,127,127,.12); }
+    .layerItemRow.layerHiddenRow .layerItem { opacity:.5; }
 
     .layerItem > span:first-child {
       min-width: 0;
@@ -1658,6 +1652,29 @@
     body.export-print .canvasVeil { display:none !important; }
     body.exporting .canvasVeil { display:none !important; }
 
+    /* Pen/pencil tool — left tool palette + right contextual options.
+       Float over the preview area, matching the bottom zoom toolbar's look. */
+    .toolPalette { position:absolute; left:12px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:4px; background:rgba(255,255,255,.95); border:1px solid var(--line); border-radius:8px; padding:5px; z-index:20; box-shadow:0 4px 12px rgba(0,0,0,.12); }
+    body.dark .toolPalette { background:rgba(15,22,34,.95); }
+    .toolPaletteBtn { width:38px; height:38px; display:flex; align-items:center; justify-content:center; border:1px solid transparent; border-radius:6px; background:transparent; color:var(--ink); cursor:pointer; font-size:1.15rem; line-height:1; }
+    .toolPaletteBtn:hover { background:rgba(127,127,127,.14); }
+    .toolPaletteBtn.active { background:var(--accent); color:#fff; }
+    .toolOptions { position:absolute; right:12px; top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:8px; background:rgba(255,255,255,.97); border:1px solid var(--line); border-radius:8px; padding:12px; z-index:20; box-shadow:0 4px 12px rgba(0,0,0,.12); width:194px; }
+    body.dark .toolOptions { background:rgba(15,22,34,.97); }
+    .toolOptions h4 { margin:0 0 2px; font-size:.82rem; font-family:inherit; }
+    .toolOptions label { font-size:.74rem; display:block; margin-top:4px; }
+    .toolOptions .toolOptRow { display:flex; gap:8px; }
+    .toolOptions .toolOptRow > div { flex:1; min-width:0; }
+    .toolOptions input[type="color"] { width:100%; height:28px; padding:0; border:1px solid var(--line); border-radius:4px; }
+    .toolOptions input[type="number"], .toolOptions input[type="range"] { width:100%; }
+    .toolOptions .buttonRow { margin:6px 0 0; }
+    .toolOptHint { font-size:.7rem; color:var(--muted); margin:4px 0 0; line-height:1.35; }
+    .penOverlay { position:absolute; inset:0; z-index:998; pointer-events:none; }
+    body.tool-drawing .penOverlay { pointer-events:auto; cursor:crosshair; }
+    body.tool-drawing .freeLayer { pointer-events:none !important; }
+    @media print { .toolPalette, .toolOptions, .penOverlay { display:none !important; } }
+    body.exporting .toolPalette, body.exporting .toolOptions, body.exporting .penOverlay { display:none !important; }
+
     .canvasToolbar { display:flex; align-items:center; gap:6px; padding:6px 10px; background:rgba(255,255,255,.95); border:1px solid var(--line); border-radius:8px; z-index:6; box-shadow:0 4px 12px rgba(0,0,0,.08); margin:0 auto; width:fit-content; max-width:100%; flex-shrink:0; }
     body.dark .canvasToolbar { background:rgba(15,22,34,.92); }
     body.app-designer .canvasToolbar { display:none; }
@@ -1806,7 +1823,7 @@
         display: none !important;
       }
 
-      .app, main, .previewShell {
+      .app, main, .canvasArea, .previewShell {
         display: block !important;
         padding: 0 !important;
         margin: 0 !important;
@@ -1832,6 +1849,7 @@
 
       body.template-cover .app,
       body.template-cover main,
+      body.template-cover .canvasArea,
       body.template-cover .previewShell {
         width: 11in !important;
         height: 8.5in !important;
@@ -2070,9 +2088,8 @@
         <div class="miniReadout" id="sizeReadout"></div>
       </fieldset>
 
-      <fieldset class="secondaryPanel template-only" id="metadataFieldset">
-        <details class="compactDetails">
-          <summary data-step="5">Project metadata</summary>
+      <fieldset class="workflowStep template-only" id="metadataFieldset">
+        <legend data-step="5">Project metadata</legend>
         <label for="titleField">Title *</label><input id="titleField" type="text" placeholder="Movie title" required />
         <details id="mediaIdentifiersWrap" class="addIdentifiersDetails" style="margin:10px 0">
           <summary class="addIdentifiersBtn"><span id="identifierBtnLabel">+ Add Media Identifiers</span></summary>
@@ -2108,7 +2125,6 @@
           <button type="button" id="imdbImportBtn">Import IMDb data</button>
         </div>
         <p id="imdbImportHint" class="hint">IMDb import uses OMDb-compatible endpoint + API key. Title and category are required to save or export.</p>
-        </details>
       </fieldset>
 
 
@@ -2643,9 +2659,8 @@
         <p class="hint">Click a layer on the preview to select it. Drag selected image or text layers directly on the page. Text layers are editable in place.</p>
       </fieldset>
 
-      <fieldset class="secondaryPanel designer-only" id="designerMetadataFieldset">
-        <details class="compactDetails">
-          <summary data-step="3">Project metadata</summary>
+      <fieldset class="workflowStep designer-only" id="designerMetadataFieldset">
+        <legend data-step="3">Project metadata</legend>
           <label for="designerTitleField">Title *</label>
           <input id="designerTitleField" type="text" placeholder="Movie, album, or game title" />
           <details class="addIdentifiersDetails" style="margin:10px 0">
@@ -2686,7 +2701,6 @@
             <option value="other">Other</option>
           </select>
           <p class="hint">Title and category are required to save or publish.</p>
-        </details>
       </fieldset>
 
       <fieldset class="workflowStep designer-only" id="designerPrintSaveFieldset">
@@ -2738,6 +2752,7 @@
         </div>
       </div>
 
+      <div class="canvasArea" id="canvasArea">
       <div class="previewShell" id="previewShell">
         <div class="sheetWrap" id="sheetWrap">
           <section class="sheet" id="sheet" aria-label="Printable case cover layout">
@@ -2821,6 +2836,43 @@
             <div class="designerDiscHole"></div>
           </div>
           <div class="designerDiscLabel" id="designerDiscLabel">Design A</div>
+        </div>
+      </div>
+
+        <div class="toolPalette" id="toolPalette">
+          <button type="button" class="toolPaletteBtn active" id="tool-select" data-tool="select" title="Select tool (V)" aria-label="Select tool">▸</button>
+          <button type="button" class="toolPaletteBtn" id="tool-pen" data-tool="pen" title="Pen tool (P)" aria-label="Pen tool">✒</button>
+          <button type="button" class="toolPaletteBtn" id="tool-pencil" data-tool="pencil" title="Pencil tool (B)" aria-label="Pencil tool">✎</button>
+        </div>
+
+        <div class="toolOptions" id="toolOptions" style="display:none">
+          <div id="penToolOptions" style="display:none">
+            <h4>Pen tool</h4>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="penFillEnabled" checked style="accent-color:var(--accent)" /> Fill closed path</label>
+            <div class="toolOptRow">
+              <div><label for="penFillColor">Fill</label><input type="color" id="penFillColor" value="#3b82f6" /></div>
+              <div><label for="penStrokeColor">Stroke</label><input type="color" id="penStrokeColor" value="#111827" /></div>
+            </div>
+            <label for="penStrokeWidth">Stroke width</label>
+            <input type="number" id="penStrokeWidth" min="0" max="50" step="0.5" value="2" />
+            <p class="toolOptHint" id="penDrawHint">Click for corner points, click-drag for curves. Click the first point or press Enter to finish, Esc to cancel.</p>
+            <p class="toolOptHint" id="penEditHint" style="display:none"></p>
+            <div id="penEditRow" style="display:none">
+              <button type="button" id="penMakeEditableBtn">Make editable path</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="penFinishBtn">Finish</button>
+              <button type="button" id="penCancelBtn">Cancel</button>
+            </div>
+          </div>
+          <div id="pencilToolOptions" style="display:none">
+            <h4>Pencil tool</h4>
+            <label for="pencilStrokeColor">Stroke color</label>
+            <input type="color" id="pencilStrokeColor" value="#111827" />
+            <label for="pencilStrokeWidth">Stroke width</label>
+            <input type="number" id="pencilStrokeWidth" min="0.5" max="50" step="0.5" value="3" />
+            <p class="toolOptHint">Click and drag to draw freehand. Each stroke becomes its own layer.</p>
+          </div>
         </div>
       </div>
 
@@ -4876,6 +4928,861 @@
       return false;
     }
 
+    // ---- Pen / pencil drawing tools (docs/PEN_TOOL_FEATURE.md) ----
+    //
+    // editorTool is UI state — NOT design state, not in undo, not saved.
+    // Both tools commit shape.kind:'path' layers normalized to a 0–100
+    // viewBox (same convention as every other shape), so fill / stroke /
+    // gradient / clip / transform / export all apply for free.
+
+    let _editorTool = 'select';        // 'select' | 'pen' | 'pencil'
+    let _penOverlay = null;            // active SVG overlay element
+    let _penDraft = null;              // in-progress drawing state
+    const PEN_MIN_DIST = 0.012;        // min inch gap between pencil points
+    const PEN_CLOSE_HIT = 0.09;        // inch radius to "click the first anchor"
+
+    // Session-persistent tool options (NOT design state).
+    const _penToolOpts = {
+      penFill: true,
+      penFillColor: '#3b82f6',
+      penStrokeColor: '#111827',
+      penStrokeWidth: 2,
+      pencilStrokeColor: '#111827',
+      pencilStrokeWidth: 3
+    };
+
+    function currentCanvasHost() {
+      return state.appMode === 'designer' ? $('designerDiscWrap') : $('sheet');
+    }
+    function currentCanvasDims() {
+      if (state.appMode === 'designer') return { w: discTemplate.discD, h: discTemplate.discD };
+      return { w: sheetW(), h: sheetH() };
+    }
+    function currentDrawTarget() {
+      if (state.appMode === 'designer') return 'designer-disc';
+      return primaryTargetForMode(state.templateMode || 'cover');
+    }
+
+    function setEditorTool(tool) {
+      if (!['select', 'pen', 'pencil'].includes(tool)) tool = 'select';
+      if (_editorTool === tool) return;
+      cancelPenDraft();
+      _editorTool = tool;
+      syncToolUI();
+      syncPenOverlay();
+    }
+
+    function syncToolUI() {
+      for (const t of ['select', 'pen', 'pencil']) {
+        const btn = $(`tool-${t}`);
+        if (btn) btn.classList.toggle('active', t === _editorTool);
+      }
+      const drawing = _editorTool !== 'select';
+      document.body.classList.toggle('tool-drawing', drawing);
+      const opts = $('toolOptions');
+      if (opts) opts.style.display = drawing ? '' : 'none';
+      const penOpts = $('penToolOptions');
+      const pencilOpts = $('pencilToolOptions');
+      if (penOpts) penOpts.style.display = _editorTool === 'pen' ? '' : 'none';
+      if (pencilOpts) pencilOpts.style.display = _editorTool === 'pencil' ? '' : 'none';
+      if (drawing) syncToolOptionInputs();
+    }
+
+    // The selected layer, if it's any vector shape layer.
+    function selectedShapeLayer() {
+      const layer = selectedLayer();
+      return (layer && layer.type === 'shape' && layer.shape) ? layer : null;
+    }
+
+    // Drive the pen panel's draw-hint / edit-hint / convert-button visibility.
+    function showPenEditUI(mode, msg) {
+      const drawHint = $('penDrawHint'), editHint = $('penEditHint'), editRow = $('penEditRow');
+      if (drawHint) drawHint.style.display = mode === 'draw' ? '' : 'none';
+      if (editHint) {
+        editHint.style.display = mode === 'draw' ? 'none' : '';
+        editHint.textContent = msg || '';
+      }
+      if (editRow) editRow.style.display = mode === 'convert' ? '' : 'none';
+    }
+
+    // Push tool options into the panel inputs. When a shape is selected the
+    // panel mirrors that layer; otherwise it shows the session defaults. The
+    // actively-focused field is left alone so live editing doesn't fight the
+    // user. Also updates the pen panel's edit / convert affordances.
+    function syncToolOptionInputs() {
+      const set = (id, val) => {
+        const el = $(id);
+        if (el && el !== document.activeElement && val != null) el.value = val;
+      };
+      const setChk = (id, val) => {
+        const el = $(id);
+        if (el && el !== document.activeElement) el.checked = !!val;
+      };
+      const layer = selectedShapeLayer();
+      const fill = layer && layer.fill, stroke = layer && layer.stroke;
+      if (_editorTool === 'pen') {
+        setChk('penFillEnabled', layer ? (fill && fill.type !== 'none') : _penToolOpts.penFill);
+        set('penFillColor', (fill && fill.color) || _penToolOpts.penFillColor);
+        set('penStrokeColor', (stroke && stroke.color) || _penToolOpts.penStrokeColor);
+        set('penStrokeWidth', (stroke && stroke.width != null) ? stroke.width : _penToolOpts.penStrokeWidth);
+        if (!layer) {
+          showPenEditUI('draw');
+        } else if (getEditablePenLayer()) {
+          showPenEditUI('info', 'Drag anchors and handles to reshape this path.');
+        } else if (layer.shape.kind === 'path' && layer.shape.pen && (Number(layer.rotate) || 0)) {
+          showPenEditUI('info', 'Set rotation to 0° to edit this path’s anchors.');
+        } else if (layer.shape.kind === 'svg') {
+          showPenEditUI('info', 'Multi-element SVG — can’t be edited as a single path.');
+        } else {
+          showPenEditUI('convert', 'Convert this shape to an editable path to drag its anchors.');
+        }
+      } else if (_editorTool === 'pencil') {
+        set('pencilStrokeColor', (stroke && stroke.color) || _penToolOpts.pencilStrokeColor);
+        set('pencilStrokeWidth', (stroke && stroke.width != null) ? stroke.width : _penToolOpts.pencilStrokeWidth);
+      }
+    }
+
+    // Live-apply a panel change to the selected shape layer (if any).
+    function applyPenFillToSelection() {
+      const layer = selectedShapeLayer();
+      if (!layer) return;
+      pushHistoryDebounced('penShapeEdit', 'edit shape fill');
+      layer.fill = _penToolOpts.penFill
+        ? { type: 'solid', color: _penToolOpts.penFillColor }
+        : { type: 'none' };
+      render();
+    }
+    function applyPenStrokeToSelection() {
+      const layer = selectedShapeLayer();
+      if (!layer) return;
+      pushHistoryDebounced('penShapeEdit', 'edit shape stroke');
+      layer.stroke = { type: 'solid', color: _penToolOpts.penStrokeColor,
+        width: _penToolOpts.penStrokeWidth, dash: (layer.stroke && layer.stroke.dash) || 'solid' };
+      render();
+    }
+    function applyPencilStrokeToSelection() {
+      const layer = selectedShapeLayer();
+      if (!layer) return;
+      pushHistoryDebounced('penShapeEdit', 'edit shape stroke');
+      layer.stroke = { type: 'solid', color: _penToolOpts.pencilStrokeColor,
+        width: _penToolOpts.pencilStrokeWidth, dash: (layer.stroke && layer.stroke.dash) || 'solid' };
+      render();
+    }
+
+    function syncPenOverlay() {
+      if (_penOverlay && _penOverlay.parentNode) _penOverlay.parentNode.removeChild(_penOverlay);
+      _penOverlay = null;
+      if (_editorTool === 'select') { document.body.classList.remove('tool-drawing'); return; }
+      const host = currentCanvasHost();
+      if (!host) return;
+      const dims = currentCanvasDims();
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'penOverlay');
+      svg.setAttribute('viewBox', `0 0 ${dims.w} ${dims.h}`);
+      svg.setAttribute('preserveAspectRatio', 'none');
+      host.appendChild(svg);
+      _penOverlay = svg;
+      svg.addEventListener('pointerdown', onPenPointerDown);
+      svg.addEventListener('pointermove', onPenPointerHover);
+      svg.addEventListener('dblclick', (e) => { e.preventDefault(); finishPenPath(false); });
+    }
+
+    // Keep the overlay glued to the right host + viewBox after a render
+    // (mode switches, preset changes, custom-art resizes change dimensions).
+    function refreshPenOverlayGeometry() {
+      if (!_penOverlay) return;
+      const host = currentCanvasHost();
+      if (!host) return;
+      if (_penOverlay.parentNode !== host) host.appendChild(_penOverlay);
+      const dims = currentCanvasDims();
+      _penOverlay.setAttribute('viewBox', `0 0 ${dims.w} ${dims.h}`);
+    }
+
+    function overlayPointToInches(evt) {
+      if (!_penOverlay) return null;
+      const ctm = _penOverlay.getScreenCTM();
+      if (!ctm) return null;
+      const pt = _penOverlay.createSVGPoint();
+      pt.x = evt.clientX; pt.y = evt.clientY;
+      const local = pt.matrixTransform(ctm.inverse());
+      return { x: local.x, y: local.y };
+    }
+
+    function pointsBbox(pts) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of pts) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      }
+      const w = Math.max(0.05, maxX - minX);
+      const h = Math.max(0.05, maxY - minY);
+      return { x: minX, y: minY, w, h };
+    }
+
+    // ---- Pencil (freehand, raw polyline, no smoothing) ----
+
+    function startPencilStroke(evt) {
+      const p = overlayPointToInches(evt);
+      if (!p) return;
+      _penDraft = { tool: 'pencil', points: [p] };
+      try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
+      const move = (e) => {
+        const pt = overlayPointToInches(e);
+        if (!pt) return;
+        const last = _penDraft.points[_penDraft.points.length - 1];
+        const dx = pt.x - last.x, dy = pt.y - last.y;
+        if (dx * dx + dy * dy < PEN_MIN_DIST * PEN_MIN_DIST) return;
+        _penDraft.points.push(pt);
+        renderPenDraft();
+      };
+      const up = () => {
+        _penOverlay.removeEventListener('pointermove', move);
+        _penOverlay.removeEventListener('pointerup', up);
+        _penOverlay.removeEventListener('pointercancel', up);
+        commitPencilStroke();
+      };
+      _penOverlay.addEventListener('pointermove', move);
+      _penOverlay.addEventListener('pointerup', up);
+      _penOverlay.addEventListener('pointercancel', up);
+      renderPenDraft();
+    }
+
+    function commitPencilStroke() {
+      const pts = (_penDraft && _penDraft.points) || [];
+      _penDraft = null;
+      clearPenDraftRender();
+      if (pts.length < 2) return;
+      const bbox = pointsBbox(pts);
+      // Remap to a 0–100 viewBox so stroke width / clip behave like all
+      // other shapes. Open path: M then L segments, no Z.
+      const norm = pts.map(p => ({
+        x: ((p.x - bbox.x) / bbox.w * 100),
+        y: ((p.y - bbox.y) / bbox.h * 100)
+      }));
+      const d = 'M ' + norm.map((p, i) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' L ');
+      pushHistory('draw pencil stroke');
+      addLayer({
+        id: makeLayerId(),
+        type: 'shape',
+        name: 'Pencil stroke',
+        target: currentDrawTarget(),
+        x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h,
+        rotate: 0, opacity: 1, z: nextLayerZ(),
+        shape: {
+          kind: 'path', d, viewBox: { x: 0, y: 0, w: 100, h: 100 },
+          pen: { closed: false, tool: 'pencil', nodes: norm.map(p => ({ x: p.x, y: p.y, hIn: null, hOut: null })) }
+        },
+        fill: { type: 'none' },
+        stroke: { type: 'solid', color: _penToolOpts.pencilStrokeColor, width: _penToolOpts.pencilStrokeWidth, dash: 'solid' }
+      });
+    }
+
+    // ---- Pen (Bézier path authoring) ----
+
+    function penPointerDown(evt) {
+      const p = overlayPointToInches(evt);
+      if (!p) return;
+      if (!_penDraft || _penDraft.tool !== 'pen') {
+        _penDraft = { tool: 'pen', nodes: [], cursor: p };
+      }
+      // Clicking near the first node closes the path.
+      if (_penDraft.nodes.length >= 2) {
+        const first = _penDraft.nodes[0];
+        const dx = p.x - first.x, dy = p.y - first.y;
+        if (dx * dx + dy * dy < PEN_CLOSE_HIT * PEN_CLOSE_HIT) {
+          finishPenPath(true);
+          return;
+        }
+      }
+      const node = { x: p.x, y: p.y, hIn: null, hOut: null };
+      _penDraft.nodes.push(node);
+      _penDraft.cursor = p;
+      renderPenDraft();
+      // Drag from this anchor pulls out symmetric Bézier handles.
+      try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
+      let dragged = false;
+      const move = (e) => {
+        const pt = overlayPointToInches(e);
+        if (!pt) return;
+        dragged = true;
+        node.hOut = { x: pt.x, y: pt.y };
+        node.hIn = { x: node.x - (pt.x - node.x), y: node.y - (pt.y - node.y) };
+        renderPenDraft();
+      };
+      const up = () => {
+        _penOverlay.removeEventListener('pointermove', move);
+        _penOverlay.removeEventListener('pointerup', up);
+        _penOverlay.removeEventListener('pointercancel', up);
+        renderPenDraft();
+      };
+      _penOverlay.addEventListener('pointermove', move);
+      _penOverlay.addEventListener('pointerup', up);
+      _penOverlay.addEventListener('pointercancel', up);
+    }
+
+    function onPenPointerDown(evt) {
+      evt.preventDefault();
+      if (_editorTool === 'pencil') { startPencilStroke(evt); return; }
+      if (_editorTool !== 'pen') return;
+      // If a draft is in progress, continue the create flow.
+      if (_penDraft && _penDraft.tool === 'pen') { penPointerDown(evt); return; }
+      // No draft: if an editable pen layer is selected and the click hits one
+      // of its anchors/handles, start an edit drag; otherwise begin a new path.
+      const editLayer = getEditablePenLayer();
+      if (editLayer) {
+        const hit = hitTestPenEdit(editLayer, evt);
+        if (hit) { startPenEditDrag(editLayer, hit, evt); return; }
+      }
+      penPointerDown(evt);
+    }
+
+    // ---- Phase D: editing an existing pen path's anchors / handles ----
+
+    function getEditablePenLayer() {
+      if (_editorTool !== 'pen') return null;
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'shape') return null;
+      const sh = layer.shape;
+      if (!sh || sh.kind !== 'path' || !sh.pen || !Array.isArray(sh.pen.nodes)) return null;
+      if (sh.pen.tool !== 'pen') return null;          // pencil paths aren't node-editable
+      if (Number(layer.rotate) || 0) return null;      // skip rotated paths in v1
+      return layer;
+    }
+
+    // Pen nodes live in the path's 0–100 viewBox; map to/from canvas inches.
+    function penNodeToInch(layer, p) {
+      return { x: layer.x + (p.x / 100) * layer.w, y: layer.y + (p.y / 100) * layer.h };
+    }
+    function inchToPenNode(layer, pt) {
+      return { x: (pt.x - layer.x) / layer.w * 100, y: (pt.y - layer.y) / layer.h * 100 };
+    }
+
+    function hitTestPenEdit(layer, evt) {
+      const pt = overlayPointToInches(evt);
+      if (!pt) return null;
+      const dims = currentCanvasDims();
+      const hitR = Math.max(dims.w, dims.h) * 0.018;
+      const hitR2 = hitR * hitR;
+      const nodes = layer.shape.pen.nodes;
+      for (let i = 0; i < nodes.length; i++) {
+        const n = nodes[i];
+        for (const part of ['hOut', 'hIn']) {
+          if (!n[part]) continue;
+          const hp = penNodeToInch(layer, n[part]);
+          const dx = hp.x - pt.x, dy = hp.y - pt.y;
+          if (dx * dx + dy * dy < hitR2) return { nodeIndex: i, part };
+        }
+        const ap = penNodeToInch(layer, n);
+        const dx = ap.x - pt.x, dy = ap.y - pt.y;
+        if (dx * dx + dy * dy < hitR2) return { nodeIndex: i, part: 'anchor' };
+      }
+      return null;
+    }
+
+    function regenPenLayerD(layer) {
+      layer.shape = {
+        ...layer.shape,
+        d: penNodesToPathD(layer.shape.pen.nodes, layer.shape.pen.closed)
+      };
+    }
+
+    function startPenEditDrag(layer, hit, evt) {
+      pushHistory('edit pen path');
+      try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
+      const node = layer.shape.pen.nodes[hit.nodeIndex];
+      const move = (e) => {
+        const pt = overlayPointToInches(e);
+        if (!pt) return;
+        const local = inchToPenNode(layer, pt);
+        if (hit.part === 'anchor') {
+          // Move the anchor; carry its handles along by the same delta.
+          const dx = local.x - node.x, dy = local.y - node.y;
+          node.x = local.x; node.y = local.y;
+          if (node.hIn) { node.hIn.x += dx; node.hIn.y += dy; }
+          if (node.hOut) { node.hOut.x += dx; node.hOut.y += dy; }
+        } else {
+          node[hit.part] = { x: local.x, y: local.y };
+        }
+        regenPenLayerD(layer);
+        renderLayers();
+        renderPenEditHandles(layer);
+      };
+      const up = () => {
+        _penOverlay.removeEventListener('pointermove', move);
+        _penOverlay.removeEventListener('pointerup', up);
+        _penOverlay.removeEventListener('pointercancel', up);
+        render();
+      };
+      _penOverlay.addEventListener('pointermove', move);
+      _penOverlay.addEventListener('pointerup', up);
+      _penOverlay.addEventListener('pointercancel', up);
+    }
+
+    function renderPenEditHandles(layer) {
+      if (!_penOverlay) return;
+      const ns = 'http://www.w3.org/2000/svg';
+      clearPenDraftRender();
+      const dims = currentCanvasDims();
+      const unit = Math.max(dims.w, dims.h);
+      const lineW = unit * 0.003;
+      const dotR = unit * 0.013;
+      const nodes = layer.shape.pen.nodes;
+      nodes.forEach((n, i) => {
+        const a = penNodeToInch(layer, n);
+        for (const part of ['hIn', 'hOut']) {
+          if (!n[part]) continue;
+          const h = penNodeToInch(layer, n[part]);
+          const hl = document.createElementNS(ns, 'line');
+          hl.setAttribute('x1', a.x); hl.setAttribute('y1', a.y);
+          hl.setAttribute('x2', h.x); hl.setAttribute('y2', h.y);
+          hl.setAttribute('stroke', '#3b82f6');
+          hl.setAttribute('stroke-width', String(lineW));
+          _penOverlay.appendChild(hl);
+          const hd = document.createElementNS(ns, 'circle');
+          hd.setAttribute('cx', h.x); hd.setAttribute('cy', h.y);
+          hd.setAttribute('r', String(dotR * 0.62));
+          hd.setAttribute('fill', '#3b82f6');
+          _penOverlay.appendChild(hd);
+        }
+        const dot = document.createElementNS(ns, 'circle');
+        dot.setAttribute('cx', a.x); dot.setAttribute('cy', a.y);
+        dot.setAttribute('r', String(dotR));
+        dot.setAttribute('fill', '#ffffff');
+        dot.setAttribute('stroke', '#3b82f6');
+        dot.setAttribute('stroke-width', String(lineW * 1.6));
+        _penOverlay.appendChild(dot);
+      });
+    }
+
+    // Decide what the overlay shows: an in-progress draft, edit handles for a
+    // selected pen path, or nothing.
+    function refreshPenOverlayContent() {
+      if (!_penOverlay) return;
+      if (_penDraft) { renderPenDraft(); return; }
+      const editLayer = getEditablePenLayer();
+      if (editLayer) { renderPenEditHandles(editLayer); return; }
+      clearPenDraftRender();
+    }
+
+    // ---- Convert any vector shape into an editable pen path ----
+
+    const BEZIER_K = 0.5522847498307936; // quadrant handle ratio for circles
+
+    // Editable pen nodes (0–100 viewBox space) for a primitive shape kind.
+    // Returns { nodes, closed } or null if `sh.kind` isn't a primitive.
+    function primitiveToPenNodes(sh) {
+      const A = (x, y, hIn, hOut) => ({ x, y, hIn: hIn || null, hOut: hOut || null });
+      switch (sh.kind) {
+        case 'rect':
+          return { nodes: [A(0,0),A(100,0),A(100,100),A(0,100)], closed: true };
+        case 'triangle':
+          return { nodes: [A(50,0),A(100,100),A(0,100)], closed: true };
+        case 'polygon': {
+          const sides = Math.max(3, Math.min(20, Number(sh.sides) || 6));
+          const nodes = [];
+          for (let i = 0; i < sides; i++) {
+            const a = (i / sides) * Math.PI * 2 - Math.PI / 2;
+            nodes.push(A(50 + 50 * Math.cos(a), 50 + 50 * Math.sin(a)));
+          }
+          return { nodes, closed: true };
+        }
+        case 'star': {
+          const points = Math.max(3, Math.min(20, Number(sh.points) || 5));
+          const inner = Math.max(0.05, Math.min(0.95, Number(sh.innerRadiusRatio) || 0.45)) * 50;
+          const nodes = [];
+          for (let i = 0; i < points * 2; i++) {
+            const a = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+            const r = i % 2 === 0 ? 50 : inner;
+            nodes.push(A(50 + r * Math.cos(a), 50 + r * Math.sin(a)));
+          }
+          return { nodes, closed: true };
+        }
+        case 'line': {
+          const x1 = clamp01(Number(sh.x1) ?? 0, 0, 100), y1 = clamp01(Number(sh.y1) ?? 50, 0, 100);
+          const x2 = clamp01(Number(sh.x2) ?? 100, 0, 100), y2 = clamp01(Number(sh.y2) ?? 50, 0, 100);
+          return { nodes: [A(x1,y1),A(x2,y2)], closed: false };
+        }
+        case 'circle':
+        case 'ellipse': {
+          const k = 50 * BEZIER_K;
+          return { closed: true, nodes: [
+            A(50,0,   {x:50-k,y:0},   {x:50+k,y:0}),
+            A(100,50, {x:100,y:50-k}, {x:100,y:50+k}),
+            A(50,100, {x:50+k,y:100}, {x:50-k,y:100}),
+            A(0,50,   {x:0,y:50+k},   {x:0,y:50-k}),
+          ]};
+        }
+        case 'rounded-rect': {
+          const r = Math.max(0, Math.min(50, Number(sh.cornerRadius) || 0));
+          if (r <= 0) return { nodes: [A(0,0),A(100,0),A(100,100),A(0,100)], closed: true };
+          const k = r * BEZIER_K;
+          return { closed: true, nodes: [
+            A(r,0,        {x:r-k,y:0},       null),
+            A(100-r,0,    null,              {x:100-r+k,y:0}),
+            A(100,r,      {x:100,y:r-k},     null),
+            A(100,100-r,  null,              {x:100,y:100-r+k}),
+            A(100-r,100,  {x:100-r+k,y:100}, null),
+            A(r,100,      null,              {x:r-k,y:100}),
+            A(0,100-r,    {x:0,y:100-r+k},   null),
+            A(0,r,        null,              {x:0,y:r-k}),
+          ]};
+        }
+        default:
+          return null;
+      }
+    }
+
+    // SVG elliptical arc → array of cubic-Bézier segments {c1,c2,end} (point pairs).
+    function arcToCubic(x1, y1, rx, ry, phiDeg, fa, fs, x2, y2) {
+      const out = [];
+      if (x1 === x2 && y1 === y2) return out;
+      rx = Math.abs(rx); ry = Math.abs(ry);
+      if (rx === 0 || ry === 0) { out.push({ c1:[x1,y1], c2:[x2,y2], end:[x2,y2] }); return out; }
+      fa = fa ? 1 : 0; fs = fs ? 1 : 0;
+      const phi = phiDeg * Math.PI / 180, cosP = Math.cos(phi), sinP = Math.sin(phi);
+      const dx = (x1 - x2) / 2, dy = (y1 - y2) / 2;
+      const x1p = cosP * dx + sinP * dy, y1p = -sinP * dx + cosP * dy;
+      const lam = (x1p*x1p)/(rx*rx) + (y1p*y1p)/(ry*ry);
+      if (lam > 1) { const s = Math.sqrt(lam); rx *= s; ry *= s; }
+      const sign = fa === fs ? -1 : 1;
+      const num = rx*rx*ry*ry - rx*rx*y1p*y1p - ry*ry*x1p*x1p;
+      const den = rx*rx*y1p*y1p + ry*ry*x1p*x1p;
+      const co = sign * Math.sqrt(Math.max(0, num) / (den || 1));
+      const cxp = co * rx * y1p / ry, cyp = -co * ry * x1p / rx;
+      const cx = cosP*cxp - sinP*cyp + (x1+x2)/2;
+      const cy = sinP*cxp + cosP*cyp + (y1+y2)/2;
+      const vang = (ux,uy,vx,vy) => {
+        const dot = ux*vx + uy*vy;
+        const len = Math.sqrt((ux*ux+uy*uy)*(vx*vx+vy*vy)) || 1;
+        let a = Math.acos(Math.max(-1, Math.min(1, dot/len)));
+        if (ux*vy - uy*vx < 0) a = -a;
+        return a;
+      };
+      const t1 = vang(1, 0, (x1p-cxp)/rx, (y1p-cyp)/ry);
+      let dt = vang((x1p-cxp)/rx, (y1p-cyp)/ry, (-x1p-cxp)/rx, (-y1p-cyp)/ry);
+      if (!fs && dt > 0) dt -= 2 * Math.PI;
+      if (fs && dt < 0) dt += 2 * Math.PI;
+      const nseg = Math.max(1, Math.ceil(Math.abs(dt) / (Math.PI / 2)));
+      const delta = dt / nseg, tt = 4 / 3 * Math.tan(delta / 4);
+      const ptAt = (a) => {
+        const c = Math.cos(a), s = Math.sin(a);
+        return [cosP*rx*c - sinP*ry*s + cx, sinP*rx*c + cosP*ry*s + cy];
+      };
+      const dAt = (a) => {
+        const c = Math.cos(a), s = Math.sin(a);
+        return [-cosP*rx*s - sinP*ry*c, -sinP*rx*s + cosP*ry*c];
+      };
+      let ang = t1;
+      for (let k = 0; k < nseg; k++) {
+        const a2 = ang + delta;
+        const p1 = ptAt(ang), p2 = ptAt(a2), d1 = dAt(ang), d2 = dAt(a2);
+        out.push({
+          c1: [p1[0] + tt*d1[0], p1[1] + tt*d1[1]],
+          c2: [p2[0] - tt*d2[0], p2[1] - tt*d2[1]],
+          end: [p2[0], p2[1]]
+        });
+        ang = a2;
+      }
+      return out;
+    }
+
+    // Parse an SVG path `d` (first subpath only) into absolute cubic-Bézier
+    // nodes, in the path's own coordinate space. Returns { nodes, closed } or
+    // null (unparseable, or a compound multi-subpath).
+    function parsePathDToNodes(d) {
+      const toks = String(d).match(/[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?/g);
+      if (!toks) return null;
+      let i = 0, cx = 0, cy = 0, cmd = '', closed = false;
+      let prevCubic = null, prevQuad = null;
+      const nodes = [];
+      const n = () => parseFloat(toks[i++]);
+      const isLetter = (s) => /^[MmLlHhVvCcSsQqTtAaZz]$/.test(s);
+      const last = () => nodes[nodes.length - 1];
+      const lineTo = (x, y) => nodes.push({ x, y, hIn: null, hOut: null });
+      const cubicTo = (c1x, c1y, c2x, c2y, ex, ey) => {
+        if (last()) last().hOut = { x: c1x, y: c1y };
+        nodes.push({ x: ex, y: ey, hIn: { x: c2x, y: c2y }, hOut: null });
+      };
+      while (i < toks.length) {
+        if (isLetter(toks[i])) { cmd = toks[i]; i++; }
+        if (!cmd) return null;
+        const rel = cmd === cmd.toLowerCase();
+        const C = cmd.toUpperCase();
+        if (C === 'Z') { closed = true; cmd = ''; continue; }
+        if (i >= toks.length || isLetter(toks[i])) return null;
+        if (C === 'M') {
+          let x = n(), y = n();
+          if (rel) { x += cx; y += cy; }
+          if (nodes.length) return null;     // second subpath — refuse compound paths
+          cx = x; cy = y;
+          nodes.push({ x, y, hIn: null, hOut: null });
+          cmd = rel ? 'l' : 'L';
+          prevCubic = prevQuad = null;
+        } else if (C === 'L') {
+          let x = n(), y = n(); if (rel) { x += cx; y += cy; }
+          lineTo(x, y); cx = x; cy = y; prevCubic = prevQuad = null;
+        } else if (C === 'H') {
+          let x = n(); if (rel) x += cx; lineTo(x, cy); cx = x; prevCubic = prevQuad = null;
+        } else if (C === 'V') {
+          let y = n(); if (rel) y += cy; lineTo(cx, y); cy = y; prevCubic = prevQuad = null;
+        } else if (C === 'C') {
+          let c1x = n(), c1y = n(), c2x = n(), c2y = n(), x = n(), y = n();
+          if (rel) { c1x+=cx;c1y+=cy;c2x+=cx;c2y+=cy;x+=cx;y+=cy; }
+          cubicTo(c1x, c1y, c2x, c2y, x, y);
+          cx = x; cy = y; prevCubic = { x: c2x, y: c2y }; prevQuad = null;
+        } else if (C === 'S') {
+          let c2x = n(), c2y = n(), x = n(), y = n();
+          if (rel) { c2x+=cx;c2y+=cy;x+=cx;y+=cy; }
+          const c1 = prevCubic ? { x: 2*cx-prevCubic.x, y: 2*cy-prevCubic.y } : { x: cx, y: cy };
+          cubicTo(c1.x, c1.y, c2x, c2y, x, y);
+          cx = x; cy = y; prevCubic = { x: c2x, y: c2y }; prevQuad = null;
+        } else if (C === 'Q') {
+          let qx = n(), qy = n(), x = n(), y = n();
+          if (rel) { qx+=cx;qy+=cy;x+=cx;y+=cy; }
+          cubicTo(cx + 2/3*(qx-cx), cy + 2/3*(qy-cy), x + 2/3*(qx-x), y + 2/3*(qy-y), x, y);
+          cx = x; cy = y; prevQuad = { x: qx, y: qy }; prevCubic = null;
+        } else if (C === 'T') {
+          let x = n(), y = n(); if (rel) { x += cx; y += cy; }
+          const q = prevQuad ? { x: 2*cx-prevQuad.x, y: 2*cy-prevQuad.y } : { x: cx, y: cy };
+          cubicTo(cx + 2/3*(q.x-cx), cy + 2/3*(q.y-cy), x + 2/3*(q.x-x), y + 2/3*(q.y-y), x, y);
+          cx = x; cy = y; prevQuad = { x: q.x, y: q.y }; prevCubic = null;
+        } else if (C === 'A') {
+          let rx = n(), ry = n(), rot = n(), laf = n(), sf = n(), x = n(), y = n();
+          if (rel) { x += cx; y += cy; }
+          for (const s of arcToCubic(cx, cy, rx, ry, rot, laf, sf, x, y)) {
+            cubicTo(s.c1[0], s.c1[1], s.c2[0], s.c2[1], s.end[0], s.end[1]);
+          }
+          cx = x; cy = y; prevCubic = prevQuad = null;
+        } else {
+          return null;
+        }
+      }
+      if (nodes.length < 2) return null;
+      // A trailing anchor coincident with the start (explicit close) is redundant.
+      if (closed) {
+        const f = nodes[0], l = nodes[nodes.length - 1];
+        if (Math.abs(f.x - l.x) < 1e-4 && Math.abs(f.y - l.y) < 1e-4 && nodes.length > 2) {
+          if (l.hIn) f.hIn = l.hIn;
+          nodes.pop();
+        }
+      }
+      return { nodes, closed };
+    }
+
+    // Convert the selected shape into a tool:'pen' editable path in place.
+    // Returns { ok, reason }.
+    function convertShapeToEditablePath(layer) {
+      const sh = layer && layer.shape;
+      if (!sh) return { ok: false, reason: 'No shape selected.' };
+      // Already a pen-authored path — just flag it pen-editable (e.g. pencil).
+      if (sh.kind === 'path' && sh.pen && Array.isArray(sh.pen.nodes)) {
+        if (sh.pen.tool !== 'pen') {
+          pushHistory('make path editable');
+          layer.shape = { ...sh, pen: { ...sh.pen, tool: 'pen' } };
+          render();
+        }
+        return { ok: true };
+      }
+      if (sh.kind === 'svg') {
+        return { ok: false, reason: 'Multi-element SVGs can’t be edited as a single path.' };
+      }
+      let result = primitiveToPenNodes(sh);
+      if (!result && sh.kind === 'path' && sh.d) {
+        const parsed = parsePathDToNodes(sh.d);
+        if (!parsed) return { ok: false, reason: 'Couldn’t parse this path (compound or unsupported).' };
+        // Map nodes from the path's viewBox into the standard 0–100 space so
+        // the rendered result is identical to before the conversion.
+        const vb = sh.viewBox || { x: 0, y: 0, w: 100, h: 100 };
+        const sx = vb.w > 0 ? 100 / vb.w : 1, sy = vb.h > 0 ? 100 / vb.h : 1;
+        const mapPt = (p) => p ? { x: (p.x - vb.x) * sx, y: (p.y - vb.y) * sy } : null;
+        parsed.nodes.forEach((nd) => {
+          const a = mapPt(nd); nd.x = a.x; nd.y = a.y;
+          nd.hIn = mapPt(nd.hIn); nd.hOut = mapPt(nd.hOut);
+        });
+        result = parsed;
+      }
+      if (!result) return { ok: false, reason: 'This shape can’t be converted.' };
+      pushHistory('make path editable');
+      // A line carries its colour in `fill`; move it to `stroke` so the path
+      // (which paints `stroke`) keeps the same look.
+      if (sh.kind === 'line') {
+        const col = (layer.fill && layer.fill.color) || '#111827';
+        layer.stroke = { type: 'solid', color: col,
+          width: Math.max(0.5, Number(sh.strokeWidth) || 6), dash: 'solid' };
+        layer.fill = { type: 'none' };
+      }
+      layer.shape = {
+        kind: 'path',
+        viewBox: { x: 0, y: 0, w: 100, h: 100 },
+        pen: { closed: result.closed, tool: 'pen', nodes: result.nodes },
+        d: penNodesToPathD(result.nodes, result.closed)
+      };
+      render();
+      return { ok: true };
+    }
+
+    function onPenPointerHover(evt) {
+      if (_editorTool !== 'pen' || !_penDraft || _penDraft.tool !== 'pen') return;
+      const p = overlayPointToInches(evt);
+      if (!p) return;
+      _penDraft.cursor = p;
+      renderPenDraft();
+    }
+
+    // Build an SVG path d-string from pen nodes. `coords` are taken as-is;
+    // segments use C when either endpoint has a handle, else L.
+    function penNodesToPathD(nodes, closed) {
+      if (!nodes.length) return '';
+      const fmt = n => Number(n).toFixed(3);
+      let d = `M ${fmt(nodes[0].x)} ${fmt(nodes[0].y)}`;
+      const seg = (a, b) => {
+        if (a.hOut || b.hIn) {
+          const c1 = a.hOut || { x: a.x, y: a.y };
+          const c2 = b.hIn || { x: b.x, y: b.y };
+          return ` C ${fmt(c1.x)} ${fmt(c1.y)} ${fmt(c2.x)} ${fmt(c2.y)} ${fmt(b.x)} ${fmt(b.y)}`;
+        }
+        return ` L ${fmt(b.x)} ${fmt(b.y)}`;
+      };
+      for (let i = 1; i < nodes.length; i++) d += seg(nodes[i - 1], nodes[i]);
+      if (closed && nodes.length >= 3) { d += seg(nodes[nodes.length - 1], nodes[0]); d += ' Z'; }
+      return d;
+    }
+
+    function finishPenPath(closed) {
+      if (!_penDraft || _penDraft.tool !== 'pen') { cancelPenDraft(); return; }
+      const nodes = _penDraft.nodes;
+      _penDraft = null;
+      clearPenDraftRender();
+      if (nodes.length < 2) return;
+      // bbox includes anchor + handle points so curves that bow outward fit.
+      const allPts = [];
+      for (const n of nodes) {
+        allPts.push({ x: n.x, y: n.y });
+        if (n.hIn) allPts.push(n.hIn);
+        if (n.hOut) allPts.push(n.hOut);
+      }
+      const bbox = pointsBbox(allPts);
+      const remap = (pt) => ({ x: (pt.x - bbox.x) / bbox.w * 100, y: (pt.y - bbox.y) / bbox.h * 100 });
+      const normNodes = nodes.map(n => ({
+        x: remap(n).x, y: remap(n).y,
+        hIn: n.hIn ? remap(n.hIn) : null,
+        hOut: n.hOut ? remap(n.hOut) : null
+      }));
+      const d = penNodesToPathD(normNodes, closed);
+      pushHistory('draw pen path');
+      const fill = (closed && _penToolOpts.penFill)
+        ? { type: 'solid', color: _penToolOpts.penFillColor }
+        : { type: 'none' };
+      addLayer({
+        id: makeLayerId(),
+        type: 'shape',
+        name: closed ? 'Pen shape' : 'Pen path',
+        target: currentDrawTarget(),
+        x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h,
+        rotate: 0, opacity: 1, z: nextLayerZ(),
+        shape: {
+          kind: 'path', d, viewBox: { x: 0, y: 0, w: 100, h: 100 },
+          pen: { closed: !!closed, tool: 'pen', nodes: normNodes }
+        },
+        fill,
+        stroke: { type: 'solid', color: _penToolOpts.penStrokeColor, width: _penToolOpts.penStrokeWidth, dash: 'solid' }
+      });
+    }
+
+    function cancelPenDraft() {
+      _penDraft = null;
+      clearPenDraftRender();
+    }
+
+    function clearPenDraftRender() {
+      if (_penOverlay) {
+        // Keep the <svg> element; just drop its drawn children.
+        while (_penOverlay.firstChild) _penOverlay.removeChild(_penOverlay.firstChild);
+      }
+    }
+
+    // Live preview of the in-progress draft inside the overlay SVG.
+    function renderPenDraft() {
+      if (!_penOverlay || !_penDraft) { clearPenDraftRender(); return; }
+      const ns = 'http://www.w3.org/2000/svg';
+      clearPenDraftRender();
+      const dims = currentCanvasDims();
+      const unit = Math.max(dims.w, dims.h);
+      const lineW = unit * 0.004;
+      const dotR = unit * 0.012;
+
+      if (_penDraft.tool === 'pencil') {
+        const pts = _penDraft.points;
+        if (pts.length < 2) return;
+        const d = 'M ' + pts.map(p => `${p.x.toFixed(3)} ${p.y.toFixed(3)}`).join(' L ');
+        const path = document.createElementNS(ns, 'path');
+        path.setAttribute('d', d);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', _penToolOpts.pencilStrokeColor);
+        path.setAttribute('stroke-width', String(lineW * 2));
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+        _penOverlay.appendChild(path);
+        return;
+      }
+
+      // Pen draft: committed segments + rubber-band to cursor + anchors.
+      const nodes = _penDraft.nodes;
+      if (nodes.length) {
+        const previewNodes = nodes.slice();
+        const d = penNodesToPathD(previewNodes, false);
+        if (d) {
+          const path = document.createElementNS(ns, 'path');
+          path.setAttribute('d', d);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', _penToolOpts.penStrokeColor);
+          path.setAttribute('stroke-width', String(lineW * 2));
+          _penOverlay.appendChild(path);
+        }
+        // Rubber-band from last node to cursor.
+        if (_penDraft.cursor) {
+          const last = nodes[nodes.length - 1];
+          const rb = document.createElementNS(ns, 'line');
+          rb.setAttribute('x1', last.x); rb.setAttribute('y1', last.y);
+          rb.setAttribute('x2', _penDraft.cursor.x); rb.setAttribute('y2', _penDraft.cursor.y);
+          rb.setAttribute('stroke', '#3b82f6');
+          rb.setAttribute('stroke-width', String(lineW));
+          rb.setAttribute('stroke-dasharray', `${lineW * 2} ${lineW * 2}`);
+          _penOverlay.appendChild(rb);
+        }
+        // Anchor dots + handle lines.
+        nodes.forEach((n, i) => {
+          for (const h of [n.hIn, n.hOut]) {
+            if (!h) continue;
+            const hl = document.createElementNS(ns, 'line');
+            hl.setAttribute('x1', n.x); hl.setAttribute('y1', n.y);
+            hl.setAttribute('x2', h.x); hl.setAttribute('y2', h.y);
+            hl.setAttribute('stroke', '#3b82f6');
+            hl.setAttribute('stroke-width', String(lineW * 0.6));
+            _penOverlay.appendChild(hl);
+            const hd = document.createElementNS(ns, 'circle');
+            hd.setAttribute('cx', h.x); hd.setAttribute('cy', h.y);
+            hd.setAttribute('r', String(dotR * 0.6));
+            hd.setAttribute('fill', '#3b82f6');
+            _penOverlay.appendChild(hd);
+          }
+          const dot = document.createElementNS(ns, 'circle');
+          dot.setAttribute('cx', n.x); dot.setAttribute('cy', n.y);
+          dot.setAttribute('r', String(dotR));
+          dot.setAttribute('fill', i === 0 ? '#3b82f6' : '#ffffff');
+          dot.setAttribute('stroke', '#3b82f6');
+          dot.setAttribute('stroke-width', String(lineW));
+          _penOverlay.appendChild(dot);
+        });
+      }
+    }
+
+    // Tracks the selection between renders so picking a layer can auto-open
+    // the Layers panel exactly once per selection change (not every render).
+    let _panelLastSelection = null;
+
     function render() {
       // Rebuild global clip-path <defs> before any renderer so layer
       // wrappers can reference them via clip-path: url(#…).
@@ -4890,6 +5797,17 @@
       syncLayerInputs();
       syncDesignerInputs();
       updateBodyClasses();
+      refreshPenOverlayGeometry();
+      refreshPenOverlayContent();
+      if (_editorTool !== 'select') syncToolOptionInputs();
+      // Picking a layer auto-opens the Layers panel + its controls (once per
+      // selection change, so a manually-collapsed panel stays put otherwise).
+      if (state.selectedLayerId && state.selectedLayerId !== _panelLastSelection) {
+        $('layersFieldset')?.classList.remove('collapsed');
+        const layerControls = $('layerControls');
+        if (layerControls) layerControls.open = true;
+      }
+      _panelLastSelection = state.selectedLayerId;
       localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify({ ...state, layers: nonGeneratedLayers() }));
     }
 
@@ -6470,7 +7388,10 @@
 
     function renderShapeIntoElement(el, layer) {
       const inner = buildShapeSvgInner(layer?.shape, layer?.fill, layer?.stroke);
-      el.innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%;display:block;pointer-events:none">${inner}</svg>`;
+      // overflow:visible — a stroke is centered on the path edge, so half its
+      // width sits outside the 0–100 geometry. Without this the SVG viewport
+      // clips that outer half when the stroke is wide.
+      el.innerHTML = `<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%;display:block;overflow:visible;pointer-events:none">${inner}</svg>`;
     }
 
     // ---- Clip / mask plumbing (Phase E) ----
@@ -6997,6 +7918,7 @@
         // Only render layers whose target belongs to the current template mode
         // (prevents leftover cover/disc/jewel layers from leaking into custom-art
         // canvases and vice versa). Page-level layers render everywhere.
+        if (layer.hidden) continue;
         if (state.appMode !== 'designer' && !isLayerForCurrentMode(layer)) continue;
 
         const el = document.createElement('div');
@@ -7070,6 +7992,38 @@
         (isDesignerLayer ? designerOverlay : overlay).appendChild(el);
       }
       renderLayerList();
+    }
+
+    // A layer-list row: the selectable item button + a visibility eye toggle.
+    function makeLayerListRow(layer) {
+      const row = document.createElement('div');
+      row.className = `layerItemRow${layer.hidden ? ' layerHiddenRow' : ''}`;
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = `layerItem${layer.id === state.selectedLayerId ? ' active' : ''}`;
+      const rawName = layer.type === 'text'
+        ? (layerHtmlToPlainText(layer.html).split('\n')[0].trim() || layer.name || 'Text layer')
+        : (layer.name || layer.type);
+      const displayName = rawName.length > 32 ? rawName.slice(0, 29) + '...' : rawName;
+      const lockTag = layer.locked ? '<span class="layerLockTag" title="Locked">LOCK</span>' : '';
+      item.innerHTML = `<span title="${escapeHtml(rawName)}">${lockTag}${escapeHtml(displayName)}</span><span>${escapeHtml(layer.type)}</span>`;
+      item.addEventListener('click', () => {
+        state.selectedLayerId = layer.id;
+        render();
+      });
+      const eye = document.createElement('button');
+      eye.type = 'button';
+      eye.className = 'layerEyeToggle';
+      eye.textContent = layer.hidden ? '⊘' : '👁';
+      eye.title = layer.hidden ? 'Hidden — click to show' : 'Visible — click to hide';
+      eye.addEventListener('click', (e) => {
+        e.stopPropagation();
+        pushHistory(layer.hidden ? 'show layer' : 'hide layer');
+        layer.hidden = !layer.hidden;
+        render();
+      });
+      row.append(item, eye);
+      return row;
     }
 
     function renderLayerList() {
@@ -7149,20 +8103,7 @@
         } else {
           const ordered = [...listedLayers].sort((a, b) => (b.z || 0) - (a.z || 0));
           for (const layer of ordered) {
-            const item = document.createElement('button');
-            item.type = 'button';
-            item.className = `layerItem${layer.id === state.selectedLayerId ? ' active' : ''}`;
-            const rawName = layer.type === 'text'
-              ? (layerHtmlToPlainText(layer.html).split('\n')[0].trim() || layer.name || 'Text layer')
-              : (layer.name || layer.type);
-            const displayName = rawName.length > 32 ? rawName.slice(0, 29) + '...' : rawName;
-            const lockTag = layer.locked ? '<span class="layerLockTag" title="Locked">LOCK</span>' : '';
-            item.innerHTML = `<span title="${rawName}">${lockTag}${displayName}</span><span>${layer.type}</span>`;
-            item.addEventListener('click', () => {
-              state.selectedLayerId = layer.id;
-              render();
-            });
-            listWrap.appendChild(item);
+            listWrap.appendChild(makeLayerListRow(layer));
           }
         }
         panel.appendChild(listWrap);
@@ -7244,20 +8185,7 @@
           listWrap.appendChild(empty);
         } else {
           for (const layer of ordered) {
-            const item = document.createElement('button');
-            item.type = 'button';
-            item.className = `layerItem${layer.id === state.selectedLayerId ? ' active' : ''}`;
-            const rawName = layer.type === 'text'
-            ? (layerHtmlToPlainText(layer.html).split('\n')[0].trim() || layer.name || 'Text layer')
-            : (layer.name || layer.type);
-            const displayName = rawName.length > 32 ? rawName.slice(0, 29) + '...' : rawName;
-            const lockTag = layer.locked ? '<span class="layerLockTag" title="Locked">LOCK</span>' : '';
-          item.innerHTML = `<span title="${rawName}">${lockTag}${displayName}</span><span>${layer.type}</span>`;
-            item.addEventListener('click', () => {
-              state.selectedLayerId = layer.id;
-              render();
-            });
-            listWrap.appendChild(item);
+            listWrap.appendChild(makeLayerListRow(layer));
           }
         }
 
@@ -9135,6 +10063,7 @@
     }
 
     async function drawLayerToCanvas(ctx, layer, dpi, offsetX = 0, offsetY = 0) {
+      if (layer?.hidden) return;
       const x = offsetX + (Number(layer.x) || 0) * dpi;
       const y = offsetY + (Number(layer.y) || 0) * dpi;
       const w = (Number(layer.w) || 0) * dpi;
@@ -11830,7 +12759,7 @@
       }
       // Layers: strip the per-layer `id` and `_generatedDiscLayer` since
       // those vary across fork sessions but the visual content is the same.
-      const layers = (payload.layers || []).map(l => {
+      const layers = (payload.layers || []).filter(l => !l.hidden).map(l => {
         const { id: _id, _generatedDiscLayer: _g, ...rest } = l;
         return rest;
       });
@@ -12858,7 +13787,7 @@
       const disc = payload.discDesign || {};
       const allLayers = payload.layers || disc.layers || [];
       const layers = allLayers
-        .filter(l => !l.target || l.target === 'designer-disc' || l._generatedDiscLayer)
+        .filter(l => !l.hidden && (!l.target || l.target === 'designer-disc' || l._generatedDiscLayer))
         .slice()
         .sort((a, b) => (a.z || 0) - (b.z || 0));
 
@@ -13075,6 +14004,7 @@
 
       const coverLayers = (Array.isArray(payload.layers) ? payload.layers : [])
         .filter(l => {
+          if (l?.hidden) return false;
           const t = String(l?.target || '');
           return !t.startsWith('disc') && !t.startsWith('jewel') && !t.startsWith('designer-') && !l._generatedDiscLayer;
         })
@@ -13258,6 +14188,7 @@
         }
 
         layers
+          .filter(l => !l.hidden)
           .slice()
           .sort((a, b) => (a.z || 0) - (b.z || 0))
           .forEach((layer) => renderDiscLayer(wrap, disc, layer, discD));
@@ -13451,6 +14382,7 @@
         renderArt(wrap, insert);
         const slotTag = `jewel-${slotDef.key}`;
         const slotLayers = (Array.isArray(insert.layers) && insert.layers.length ? insert.layers : allLayers.filter(l => l.target === slotTag))
+          .filter(l => !l.hidden)
           .slice().sort((a, b) => (a.z || 0) - (b.z || 0));
         slotLayers.forEach(layer => renderLayer(wrap, layer, slotDef.w, slotDef.h));
 
@@ -13523,7 +14455,7 @@
       ].join(';');
 
       const layers = (Array.isArray(payload.layers) ? payload.layers : [])
-        .filter(l => l.target === 'canvas' || !l.target)
+        .filter(l => !l.hidden && (l.target === 'canvas' || !l.target))
         .slice()
         .sort((a, b) => (a.z || 0) - (b.z || 0));
 
@@ -14752,35 +15684,59 @@
       $('layerForward').addEventListener('click', () => moveLayerStep('forward'));
       $('layerBackward').addEventListener('click', () => moveLayerStep('backward'));
 
-      $('deleteLayer').addEventListener('click', () => {
-        if (!state.selectedLayerId) return;
-        pushHistory('delete layer');
-        state.layers = state.layers.filter((layer) => layer.id !== state.selectedLayerId);
-        state.selectedLayerId = '';
-        render();
-      });
+      $('deleteLayer').addEventListener('click', deleteSelectedLayer);
+
+      setupCollapsiblePanels();
 
       on('layerCopyAllBtn', 'click', copyAllLayersToClipboard);
       on('layerPasteBtn', 'click', pasteLayersFromClipboard);
       on('layerCopyBtn', 'click', copySelectedLayerToClipboard);
       on('layerCutBtn', 'click', cutSelectedLayerToClipboard);
 
-      const duplicateBtn = $('layerDuplicate');
-      if (duplicateBtn) duplicateBtn.addEventListener('click', () => {
+      function duplicateSelectedLayer() {
         const layer = selectedLayer();
         if (!layer) return;
         pushHistory('duplicate layer');
         const OFFSET = 0.1;
-        const copy = {
+        addLayer({
           ...layer,
           id: makeLayerId(),
           x: (Number(layer.x) || 0) + OFFSET,
           y: (Number(layer.y) || 0) + OFFSET,
           z: nextLayerZ(),
           name: layer.name ? `${layer.name} copy` : layer.name
-        };
-        addLayer(copy);
-      });
+        });
+      }
+      const duplicateBtn = $('layerDuplicate');
+      if (duplicateBtn) duplicateBtn.addEventListener('click', duplicateSelectedLayer);
+
+      function deleteSelectedLayer() {
+        if (!state.selectedLayerId) return;
+        pushHistory('delete layer');
+        state.layers = state.layers.filter((layer) => layer.id !== state.selectedLayerId);
+        state.selectedLayerId = '';
+        render();
+      }
+
+      // Sidebar panels start collapsed; click a panel's legend to toggle it.
+      // (Selecting a layer also auto-opens the Layers panel — see render().)
+      function setupCollapsiblePanels() {
+        const aside = document.querySelector('aside');
+        if (!aside) return;
+        aside.querySelectorAll('fieldset.workflowStep').forEach((fs) => {
+          fs.classList.add('collapsed');
+        });
+        // Layout stays open by default — it's the starting point on the
+        // Templates tab.
+        $('layoutFieldset')?.classList.remove('collapsed');
+        aside.addEventListener('click', (e) => {
+          const legend = e.target.closest && e.target.closest('legend');
+          if (!legend) return;
+          const fs = legend.parentElement;
+          if (!fs || !fs.classList.contains('workflowStep')) return;
+          fs.classList.toggle('collapsed');
+        });
+      }
 
       window.addEventListener('keydown', (event) => {
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
@@ -14893,6 +15849,27 @@
       on('undoBtn', 'click', undo);
       on('redoBtn', 'click', redo);
 
+      // Tool palette + pen/pencil option wiring.
+      for (const t of ['select', 'pen', 'pencil']) {
+        on(`tool-${t}`, 'click', () => setEditorTool(t));
+      }
+      on('penFinishBtn', 'click', () => { finishPenPath(false); setEditorTool('select'); });
+      on('penCancelBtn', 'click', () => setEditorTool('select'));
+      on('penMakeEditableBtn', 'click', () => {
+        const layer = selectedShapeLayer();
+        if (!layer) return;
+        const res = convertShapeToEditablePath(layer);
+        if (res.ok) syncToolUI();
+        else { const h = $('penEditHint'); if (h) h.textContent = res.reason || 'Could not convert.'; }
+      });
+      on('penFillEnabled', 'change', (e) => { _penToolOpts.penFill = e.target.checked; applyPenFillToSelection(); });
+      on('penFillColor', 'input', (e) => { _penToolOpts.penFillColor = e.target.value; applyPenFillToSelection(); });
+      on('penStrokeColor', 'input', (e) => { _penToolOpts.penStrokeColor = e.target.value; applyPenStrokeToSelection(); });
+      on('penStrokeWidth', 'input', (e) => { _penToolOpts.penStrokeWidth = Math.max(0, Math.min(50, Number(e.target.value) || 0)); applyPenStrokeToSelection(); });
+      on('pencilStrokeColor', 'input', (e) => { _penToolOpts.pencilStrokeColor = e.target.value; applyPencilStrokeToSelection(); });
+      on('pencilStrokeWidth', 'input', (e) => { _penToolOpts.pencilStrokeWidth = Math.max(0.5, Math.min(50, Number(e.target.value) || 1)); applyPencilStrokeToSelection(); });
+      syncToolUI();
+
       // Global undo/redo keyboard shortcuts. Bypass when an editable
       // element is focused so the browser's native text-input undo runs.
       document.addEventListener('keydown', (e) => {
@@ -14906,6 +15883,48 @@
         if (mod && k === 'y' && !isEditableFocus()) {
           e.preventDefault();
           redo();
+          return;
+        }
+        // Layer ops with a modifier — duplicate / clipboard.
+        if (mod && !isEditableFocus() && !_penDraft) {
+          if (k === 'd') { e.preventDefault(); duplicateSelectedLayer(); return; }
+          if (k === 'c' && selectedLayer()) { e.preventDefault(); copySelectedLayerToClipboard(); return; }
+          if (k === 'x' && selectedLayer()) { e.preventDefault(); cutSelectedLayerToClipboard(); return; }
+          if (k === 'v') { e.preventDefault(); pasteLayersFromClipboard(); return; }
+        }
+        // Tool shortcuts + layer keys — only when not typing and no modifier held.
+        if (!mod && !isEditableFocus()) {
+          if (k === 'v') { setEditorTool('select'); return; }
+          if (k === 'p') { setEditorTool('pen'); return; }
+          if (k === 'b') { setEditorTool('pencil'); return; }
+          if (k === 'enter' && _penDraft && _penDraft.tool === 'pen') { e.preventDefault(); finishPenPath(false); return; }
+          if (!_penDraft) {
+            if (k === 'delete' || k === 'backspace') {
+              if (state.selectedLayerId) { e.preventDefault(); deleteSelectedLayer(); }
+              return;
+            }
+            const layer = selectedLayer();
+            if (layer && k.startsWith('arrow')) {
+              e.preventDefault();
+              if (!layer.locked) {
+                pushHistoryDebounced('nudgeLayer', 'move layer');
+                const step = e.shiftKey ? 0.2 : 0.02;
+                if (k === 'arrowup') layer.y = (Number(layer.y) || 0) - step;
+                else if (k === 'arrowdown') layer.y = (Number(layer.y) || 0) + step;
+                else if (k === 'arrowleft') layer.x = (Number(layer.x) || 0) - step;
+                else if (k === 'arrowright') layer.x = (Number(layer.x) || 0) + step;
+                render();
+              }
+              return;
+            }
+            if (layer && k === ']') { e.preventDefault(); moveLayerStep('forward'); return; }
+            if (layer && k === '[') { e.preventDefault(); moveLayerStep('backward'); return; }
+          }
+        }
+        // Esc cancels an in-progress draft, then drops back to Select.
+        if (e.key === 'Escape' && _editorTool !== 'select') {
+          if (_penDraft) { cancelPenDraft(); }
+          else { setEditorTool('select'); }
           return;
         }
       });

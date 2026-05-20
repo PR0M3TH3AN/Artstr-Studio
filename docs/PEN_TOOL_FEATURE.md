@@ -17,6 +17,31 @@ tool-mode system with flanking toolbars to host it.
    contextual options toolbar, styled to match the existing bottom zoom
    toolbar.
 
+### Implementation status — 2026-05-19
+- **Phase A** — done. `_editorTool` UI state, left tool palette, right
+  contextual options toolbar, pen overlay element, V/P/B + Esc shortcuts.
+- **Phase B** — done. Pencil freehand capture, raw polyline, open-path
+  shape-layer commit.
+- **Phase C** — done. Pen click/drag anchors, rubber-band preview, close /
+  Enter / dbl-click / Esc, closed-fill-on-close, `shape.pen.nodes` stored.
+- **Phase D** — partial. Editable anchors + Bézier handles for selected
+  `tool:'pen'` paths; drag-to-move anchor (carries handles) and drag-to-move
+  handle, regenerates `d`, one undo per drag. *Deferred:* add/delete anchor,
+  corner↔smooth toggle, click-segment-to-insert, and bbox-refit when an
+  anchor is dragged past the original 0–100 viewBox (path clips at the box
+  edge until refit lands). Rotated paths are not node-editable in v1.
+- **Phase E** — done. `layer.hidden` flag, eye toggle in the layer list, all
+  six renderers + Canvas2D export skip hidden layers.
+- **Unified vector editing** — done. With the Pen tool active, the options
+  panel edits the *selected* shape's fill/stroke (any kind, not just pen
+  paths). A **"Make editable path"** button converts a selected primitive
+  (rect / rounded-rect / circle / ellipse / triangle / polygon / star /
+  line) or single-path uploaded SVG into a `tool:'pen'` editable path, after
+  which Phase D anchor editing applies. Primitives convert via exact node
+  generators; SVG `d` strings are parsed (M/L/H/V/C/S/Q/T/Z + elliptical
+  arcs, abs & rel). *Not convertible:* multi-element SVGs and compound
+  (multi-subpath) paths — the panel shows a hint instead.
+
 ### Non-goals (v1)
 - A raster paint layer (true pixel buffers). Explicitly out of scope — the
   app's design-as-JSON model and Nostr-friendliness depend on storing
