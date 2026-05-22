@@ -430,11 +430,13 @@
     #designerLayoutFieldset { display: none; }
     body.app-designer #designerLayoutFieldset,
     body.template-customart #designerLayoutFieldset,
-    body.template-slide #designerLayoutFieldset { display: block; }
-    /* Custom Art and Slide Designer live on the Designer tab, so the
-       Template-tab Layout panel hides while either is active. */
+    body.template-slide #designerLayoutFieldset,
+    body.template-pixelart #designerLayoutFieldset { display: block; }
+    /* Custom Art / Slide / Pixel Art live on the Designer tab, so the
+       Template-tab Layout panel hides while any is active. */
     body.template-customart #layoutFieldset,
-    body.template-slide #layoutFieldset { display: none !important; }
+    body.template-slide #layoutFieldset,
+    body.template-pixelart #layoutFieldset { display: none !important; }
     /* Editing a deck's slide opens the slide editor; suppress the layout
        panels so the only way out is the "Back to deck" control. */
     body.editing-deck-slide #designerLayoutFieldset,
@@ -713,16 +715,19 @@
 
     /* ---- Pixel Editor ---- */
     #pixelEditorView { display: none; }
-    body.pixel-editing #pixelEditorView {
+    body.pixel-editing #pixelEditorView,
+    body.template-pixelart #pixelEditorView {
       display: flex; flex-direction: column; width: 100%;
       min-height: calc(100vh - 160px);
     }
-    body.pixel-editing #sheetWrap,
-    body.pixel-editing #discDesignerView,
-    body.pixel-editing #deckSorterView,
-    body.pixel-editing #toolPalette,
-    body.pixel-editing #toolOptions,
-    body.pixel-editing #canvasToolbar { display: none !important; }
+    body.pixel-editing #sheetWrap, body.template-pixelart #sheetWrap,
+    body.pixel-editing #discDesignerView, body.template-pixelart #discDesignerView,
+    body.pixel-editing #deckSorterView, body.template-pixelart #deckSorterView,
+    body.pixel-editing #toolPalette, body.template-pixelart #toolPalette,
+    body.pixel-editing #toolOptions, body.template-pixelart #toolOptions,
+    body.pixel-editing #canvasToolbar, body.template-pixelart #canvasToolbar { display: none !important; }
+    /* A standalone pixel design — the editor IS the project, so no "Done". */
+    body.template-pixelart #pixelEditorDoneBtn { display: none; }
     .pixelEditorBar {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
       padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel);
@@ -1154,6 +1159,15 @@
     body.template-deck #exportFieldset,
     body.template-deck #layersFieldset,
     body.template-deck #printExportRow { display: none !important; }
+    /* Standalone Pixel Art: only Layout, Metadata and Print/Save apply. */
+    body.template-pixelart #coverSizeFieldset,
+    body.template-pixelart #coverArtworkFieldset,
+    body.template-pixelart #discArtworkFieldset,
+    body.template-pixelart #jewelArtworkFieldset,
+    body.template-pixelart #customArtFieldset,
+    body.template-pixelart #exportFieldset,
+    body.template-pixelart #layersFieldset,
+    body.template-pixelart #printExportRow { display: none !important; }
 
     .templateLayerPanels {
       display: grid;
@@ -1957,6 +1971,9 @@
     @keyframes toastIn { from { transform:translateY(8px); opacity:0; } to { transform:translateY(0); opacity:1; } }
 
     .publishConfirmPreview { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; margin:0 0 12px; display:flex; justify-content:center; align-items:center; height:280px; overflow:hidden; }
+    /* Stop flexbox from horizontally shrinking the fixed-width mini-preview
+       (it would squish the design); fitMiniPreview scales it uniformly. */
+    .publishConfirmPreview > * { flex: 0 0 auto; transform-origin: center center; }
     .publishConfirmMeta { margin:0 0 12px; font-size:.82rem; }
     .publishConfirmMetaRow { display:flex; gap:10px; padding:5px 0; border-bottom:1px solid var(--line); }
     .publishConfirmMetaRow:last-child { border-bottom:0; }
@@ -2714,6 +2731,7 @@
         <div class="layoutTabs" role="tablist" aria-label="Designer layout">
           <button type="button" class="layoutTab" id="mode-customart" data-layout="customart" role="tab">Custom art</button>
           <button type="button" class="layoutTab" id="mode-slide" data-layout="slide" role="tab">Slide</button>
+          <button type="button" class="layoutTab" id="mode-pixelart" data-layout="pixelart" role="tab">Pixel art</button>
           <button type="button" class="layoutTab" id="mode-discdesign" data-layout="discdesign" role="tab">Disc design</button>
         </div>
       </fieldset>
@@ -3400,7 +3418,7 @@
       <p class="subhead" style="margin:0 0 14px">Browse community templates or start your own.</p>
       <div class="welcomeSearchRow">
         <div><label for="welcomeQuery" style="font-size:.78rem">Title or IMDb ID</label><input id="welcomeQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
-        <div><label for="welcomeType" style="font-size:.78rem">Type</label><select id="welcomeType"><option value="any">Any type</option><option value="cover">Case cover</option><option value="disc">Disc labels</option><option value="jewel">CD jewel inserts</option><option value="disc-design">Disc designs</option><option value="customart">Custom art</option><option value="slide">Slide</option><option value="deck">Slide deck</option></select></div>
+        <div><label for="welcomeType" style="font-size:.78rem">Type</label><select id="welcomeType"><option value="any">Any type</option><option value="cover">Case cover</option><option value="disc">Disc labels</option><option value="jewel">CD jewel inserts</option><option value="disc-design">Disc designs</option><option value="customart">Custom art</option><option value="slide">Slide</option><option value="deck">Slide deck</option><option value="pixelart">Pixel art</option></select></div>
         <div><label for="welcomeCategory" style="font-size:.78rem">Category</label><select id="welcomeCategory" class="categorySelect"></select></div>
         <div class="buttonRow" style="margin:0"><button type="button" id="welcomeSearchBtn" class="primary">Search</button></div>
       </div>
@@ -3552,7 +3570,7 @@
       <div id="panelSearch" style="display:none">
         <div class="searchGrid">
           <div><label for="nostrQuery">Title or IMDb ID</label><input id="nostrQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
-          <div><label for="nostrType">Type</label><select id="nostrType"><option value="any">Any</option><option value="cover">Case cover</option><option value="disc">Disc sheet</option><option value="jewel">CD jewel inserts</option><option value="disc-design">Disc design</option><option value="customart">Custom art</option><option value="slide">Slide</option><option value="deck">Slide deck</option></select></div>
+          <div><label for="nostrType">Type</label><select id="nostrType"><option value="any">Any</option><option value="cover">Case cover</option><option value="disc">Disc sheet</option><option value="jewel">CD jewel inserts</option><option value="disc-design">Disc design</option><option value="customart">Custom art</option><option value="slide">Slide</option><option value="deck">Slide deck</option><option value="pixelart">Pixel art</option></select></div>
           <div><label for="nostrCategory">Category</label><select id="nostrCategory" class="categorySelect"></select></div>
           <div class="buttonRow" style="margin:0"><button type="button" id="nostrRunSearch" class="primary">Search</button></div>
         </div>
@@ -4090,7 +4108,8 @@
       { value: 'audio-cd', label: 'Audio CD' },
       { value: 'custom-art', label: 'Custom art' },
       { value: 'slide', label: 'Slide design' },
-      { value: 'slide-deck', label: 'Slide deck' }
+      { value: 'slide-deck', label: 'Slide deck' },
+      { value: 'pixel-art', label: 'Pixel art' }
     ];
 
     const DEFAULT_NOSTR_RELAYS = [
@@ -4165,6 +4184,8 @@
       // Slide deck: an ordered list of self-contained slides. `editingIndex` is
       // non-null while one of the deck's slides is open in the canvas editor.
       deck: { theme: { fontFamily: '', background: '' }, slides: [], editingIndex: null },
+      // Standalone Pixel Art design (templateMode 'pixelart') — one grid.
+      pixelArt: null,
       discSpineLabels: { top: '', bottom: '' },
       jewelSpineLabels: { left: '', right: '' },
       jewelInserts: {
@@ -4385,7 +4406,8 @@
       'audio-cd':    new Set(['upc', 'mb']),
       'custom-art':  new Set(),
       'slide':       new Set(),
-      'slide-deck':  new Set()
+      'slide-deck':  new Set(),
+      'pixel-art':   new Set()
     };
 
     function relevantIdentifiersForCategory(category) {
@@ -4404,7 +4426,7 @@
       // media-identifier panel and show a single optional "Custom tag" field
       // instead — IMDb / UPC / TheTVDB / MusicBrainz don't apply to generic
       // art / wallpaper / slide / deck work.
-      const isCustomArt = isCanvasMode(state.templateMode) || state.templateMode === 'deck';
+      const isCustomArt = isCanvasMode(state.templateMode) || state.templateMode === 'deck' || state.templateMode === 'pixelart';
       const idWrap = $('mediaIdentifiersWrap');
       const customWrap = $('customTagWrap');
       if (idWrap) idWrap.style.display = isCustomArt ? 'none' : '';
@@ -4526,9 +4548,11 @@
       if (raw === 'customart' || raw === 'custom-art') return 'customart';
       if (raw === 'slide') return 'slide';
       if (raw === 'deck') return 'deck';
+      if (raw === 'pixelart' || raw === 'pixel-art') return 'pixelart';
       if (raw === 'cover' || raw === 'disc' || raw === 'jewel') return raw;
       if (payload.deck) return 'deck';
       if (payload.slide) return 'slide';
+      if (payload.pixelArt) return 'pixelart';
       if (payload.customArt) return 'customart';
       if (payload.discTemplate || payload.discMeta) return 'disc';
       if (payload.discDesign && !payload.discTemplate) return 'disc-design';
@@ -4557,6 +4581,7 @@
       if (mode === 'disc') return 'disc-label-sheet';
       if (mode === 'slide') return 'slide';
       if (mode === 'deck') return 'deck';
+      if (mode === 'pixelart') return 'pixelart';
       if (mode === 'customart') return 'customart';
       const preset = state.preset === 'jewel8693' ? 'dvd' : (state.preset || 'custom');
       if (preset === 'dvd' || preset === 'bluray') return preset;
@@ -5024,9 +5049,10 @@
         deck: !isDesignerApp && state.templateMode === 'deck',
         customart: !isDesignerApp && state.templateMode === 'customart',
         slide: !isDesignerApp && state.templateMode === 'slide',
+        pixelart: !isDesignerApp && state.templateMode === 'pixelart',
         discdesign: isDesignerApp
       };
-      for (const m of ['cover', 'disc', 'deck', 'customart', 'slide', 'discdesign']) {
+      for (const m of ['cover', 'disc', 'deck', 'customart', 'slide', 'pixelart', 'discdesign']) {
         const button = $(`mode-${m}`);
         if (!button) continue;
         button.classList.toggle('active', !!layoutActive[m]);
@@ -5146,6 +5172,7 @@
       customart: ['designerLayoutFieldset', 'customArtFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
       slide:     ['designerLayoutFieldset', 'customArtFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
       deck:      ['layoutFieldset', 'deckFieldset', 'deckThemeFieldset', 'metadataFieldset', 'printSaveFieldset'],
+      pixelart:  ['designerLayoutFieldset', 'metadataFieldset', 'printSaveFieldset'],
       designer:  ['designerLayoutFieldset', 'designerFieldset', 'layersFieldset', 'designerMetadataFieldset', 'designerPrintSaveFieldset']
     };
 
@@ -5170,6 +5197,7 @@
       document.body.classList.toggle('template-disc', state.templateMode === 'disc');
       document.body.classList.toggle('template-jewel', state.templateMode === 'jewel');
       document.body.classList.toggle('template-customart', state.templateMode === 'customart');
+      document.body.classList.toggle('template-pixelart', state.templateMode === 'pixelart');
       document.body.classList.toggle('template-slide', state.templateMode === 'slide');
       document.body.classList.toggle('template-deck', state.templateMode === 'deck');
       document.body.classList.toggle('editing-deck-slide', !!state.deck && state.deck.editingIndex !== null);
@@ -5242,6 +5270,12 @@
           : 'Add slides to build your deck.';
         $('trimReadout').textContent = n === 1 ? '1 slide' : `${n} slides`;
         $('sheetReadout').textContent = '16:9 slides';
+      } else if (state.templateMode === 'pixelart') {
+        const pa = state.pixelArt || { width: 32, height: 32 };
+        $('projectTitle').textContent = 'Pixel art';
+        document.querySelector('.printHelp').textContent = 'Paint a pixel-art sprite — publishes as its own design.';
+        $('trimReadout').textContent = `${pa.width} × ${pa.height} px`;
+        $('sheetReadout').textContent = 'Indexed pixel grid';
       } else if (state.templateMode === 'jewel') {
         $('projectTitle').textContent = 'CD jewel insert preview';
         document.querySelector('.printHelp').textContent = 'Avery 8693 / 8943 layout: front and tray inserts on Letter paper.';
@@ -6602,6 +6636,7 @@
       syncDesignerInputs();
       updateBodyClasses();
       renderDeckSorter();
+      if (state.templateMode === 'pixelart') ensureStandalonePixelEditor();
       // After updateBodyClasses so the designer view is displayed/laid out —
       // the disc image's cover-pan math needs the wrapper's real size.
       renderDesignerDisc();
@@ -7792,14 +7827,18 @@
     function closePixelEditor(commit = true) {
       if (!_pixelEditActive) return;
       if (commit && _pixelEdit) {
-        const layer = getLayer(_pixelEdit.layerId);
-        if (layer) {
-          pushHistory('edit pixel art');
-          layer.pixelArt = {
-            width: _pixelEdit.w, height: _pixelEdit.h,
-            palette: _pixelEdit.palette.slice(),
-            frames: [{ id: 'f1', pixels: encodePixelRLE(_pixelEdit.indices) }]
-          };
+        if (_pixelEdit.standalone) {
+          pixelCommitIfStandalone();
+        } else {
+          const layer = getLayer(_pixelEdit.layerId);
+          if (layer) {
+            pushHistory('edit pixel art');
+            layer.pixelArt = {
+              width: _pixelEdit.w, height: _pixelEdit.h,
+              palette: _pixelEdit.palette.slice(),
+              frames: [{ id: 'f1', pixels: encodePixelRLE(_pixelEdit.indices) }]
+            };
+          }
         }
       }
       _pixelEditActive = false;
@@ -7875,6 +7914,7 @@
       if (!_pixelEdit || !_pixelEdit.undo.length) return;
       _pixelEdit.indices = _pixelEdit.undo.pop();
       renderPixelGrid();
+      pixelCommitIfStandalone();
     }
 
     function pixelPaintCell(x, y, idx) {
@@ -7965,6 +8005,72 @@
       };
       addLayer(layer);
       openPixelEditor(layer.id);
+    }
+
+    // Commit the standalone pixel editor's working grid into state.pixelArt.
+    function pixelCommitIfStandalone() {
+      if (!_pixelEdit || !_pixelEdit.standalone) return;
+      state.pixelArt = {
+        width: _pixelEdit.w, height: _pixelEdit.h,
+        palette: _pixelEdit.palette.slice(),
+        frames: [{ id: 'f1', pixels: encodePixelRLE(_pixelEdit.indices) }]
+      };
+    }
+
+    // Commit whatever pixel editor is open (layer or standalone) and close it.
+    function pixelEditTearDown() {
+      if (!_pixelEditActive || !_pixelEdit) return;
+      if (_pixelEdit.standalone) {
+        pixelCommitIfStandalone();
+      } else {
+        const layer = getLayer(_pixelEdit.layerId);
+        if (layer) {
+          layer.pixelArt = {
+            width: _pixelEdit.w, height: _pixelEdit.h,
+            palette: _pixelEdit.palette.slice(),
+            frames: [{ id: 'f1', pixels: encodePixelRLE(_pixelEdit.indices) }]
+          };
+        }
+      }
+      _pixelEditActive = false;
+      _pixelEdit = null;
+      document.body.classList.remove('pixel-editing');
+    }
+
+    // Standalone Pixel Art mode: the #pixelEditorView is the whole canvas
+    // area, bound directly to state.pixelArt. Set up by render() whenever
+    // templateMode === 'pixelart'.
+    function ensureStandalonePixelEditor() {
+      if (_pixelEditActive && _pixelEdit && _pixelEdit.standalone) return;
+      if (!state.pixelArt) state.pixelArt = defaultPixelArt(32, 32);
+      const pa = state.pixelArt;
+      const w = (pa.width | 0) || 32, h = (pa.height | 0) || 32;
+      const frame = (pa.frames && pa.frames[0]) || { pixels: [] };
+      const palette = (pa.palette && pa.palette.length) ? pa.palette.slice() : DEFAULT_PIXEL_PALETTE.slice();
+      _pixelEdit = {
+        standalone: true, layerId: null, w, h,
+        indices: decodePixelRLE(frame, w, h), palette,
+        current: Math.min(1, palette.length - 1),
+        tool: 'pencil', zoom: 12, gridOn: true, mirrorX: false, mirrorY: false,
+        undo: [], last: null
+      };
+      _pixelEditActive = true;
+      pixelSyncToolButtons();
+      const gt = $('pixelGridToggle'); if (gt) gt.checked = true;
+      const mx = $('pixelMirrorX'); if (mx) mx.checked = false;
+      const my = $('pixelMirrorY'); if (my) my.checked = false;
+      const dims = $('pixelEditorDims'); if (dims) dims.textContent = `${w} × ${h} px`;
+      renderPixelPalette();
+      renderPixelGrid();
+      requestAnimationFrame(() => {
+        if (!_pixelEdit || !_pixelEdit.standalone) return;
+        const wrap = $('pixelEditorCanvasWrap');
+        const aw = (wrap?.clientWidth || 640) - 60, ah = (wrap?.clientHeight || 420) - 60;
+        let z = PIXEL_ZOOMS[0];
+        for (const c of PIXEL_ZOOMS) { if (c * w <= aw && c * h <= ah) z = c; }
+        _pixelEdit.zoom = z;
+        renderPixelGrid();
+      });
     }
 
     // ---- Vector shape layers (Phase A: primitives + solid fill) ----
@@ -9752,6 +9858,7 @@
       if (mode === 'deck') return 'casewrap-deck';
       if (mode === 'slide') return 'casewrap-slide';
       if (mode === 'customart') return 'casewrap-customart';
+      if (mode === 'pixelart') return 'casewrap-pixelart';
       if (mode === 'disc-design') return 'casewrap-disc-design';
       return 'casewrap-cover';
     }
@@ -10007,6 +10114,13 @@
         typeTag = 'casewrap-deck';
         if (!(payload.deck?.slides || []).length) {
           throw new Error('Add at least one slide before publishing the deck.');
+        }
+      } else if (state.templateMode === 'pixelart') {
+        payload = pixelArtPayload();
+        typeTag = 'casewrap-pixelart';
+        const runs = payload.pixelArt?.frames?.[0]?.pixels || [];
+        if (!runs.some(r => (r[0] | 0) !== 0)) {
+          throw new Error('Draw something on the pixel canvas before publishing.');
         }
       } else if (isCanvasMode(state.templateMode)) {
         payload = customArtPayload();
@@ -11364,6 +11478,18 @@
       };
     }
 
+    // A standalone pixel-art design — one grid, published as casewrap-pixelart.
+    function pixelArtPayload() {
+      pixelCommitIfStandalone();
+      return {
+        version: SCHEMA_VERSION,
+        templateMode: 'pixelart',
+        templateType: 'pixelart',
+        meta: state.meta,
+        pixelArt: state.pixelArt || defaultPixelArt(32, 32)
+      };
+    }
+
     function exportPayload() {
       const templateType = templateTypeForMode();
       return {
@@ -11918,6 +12044,9 @@
       } else if (state.templateMode === 'deck') {
         const n = (state.deck?.slides || []).length;
         triggerDownload(deckPayload(), projectFilename('slide_deck', `${n}slides`));
+      } else if (state.templateMode === 'pixelart') {
+        const pa = state.pixelArt || defaultPixelArt(32, 32);
+        triggerDownload(pixelArtPayload(), projectFilename('pixel_art', `${pa.width}x${pa.height}`));
       } else if (isCanvasMode(state.templateMode)) {
         const ca = state.customArt || { width: 1920, height: 1080 };
         const stem = state.templateMode === 'slide' ? 'slide' : 'custom_art';
@@ -11979,6 +12108,10 @@
       state.jewelSpineLabels = { left: '', right: '' };
       state.customArt = { width: 1920, height: 1080, background: '#ffffff', preset: '1920x1080' };
       state.deck = { theme: { fontFamily: '', background: '' }, slides: [], editingIndex: null };
+      state.pixelArt = null;
+      _pixelEditActive = false;
+      _pixelEdit = null;
+      document.body.classList.remove('pixel-editing');
       state.visibility = 'public';
       state.privateDTag = '';
       state.meta = blankMeta();
@@ -12092,7 +12225,8 @@
       'disc-design': 'Disc design',
       customart: 'Custom art',
       slide: 'Slide',
-      deck: 'Slide deck'
+      deck: 'Slide deck',
+      pixelart: 'Pixel art'
     };
 
     let _publishConfirmTarget = null; // { onConfirm }
@@ -12133,6 +12267,7 @@
           else if (mode === 'jewel') renderJewelPreviewDOM(previewEl, payload, { compact: true });
           else if (mode === 'customart' || mode === 'slide') renderCustomArtPreviewDOM(previewEl, payload, { compact: true });
           else if (mode === 'deck') renderDeckPreviewDOM(previewEl, payload, { compact: true });
+          else if (mode === 'pixelart') renderPixelArtPreviewDOM(previewEl, payload, { compact: true });
           else renderTemplatePreviewDOM(previewEl, payload, { compact: true });
           fitMiniPreview(previewEl);
         } catch (err) {
@@ -12385,6 +12520,18 @@
         });
         normalizeJewelState();
         syncInputs(); syncAllJewelInputs(); render();
+        return;
+      }
+
+      if (mode === 'pixelart' || (parsed.pixelArt && parsed.templateMode === 'pixelart')) {
+        Object.assign(state, {
+          templateMode: 'pixelart',
+          meta: { ...state.meta, ...(parsed.meta || {}) },
+          pixelArt: parsed.pixelArt || defaultPixelArt(32, 32)
+        });
+        _pixelEditActive = false;
+        _pixelEdit = null;
+        syncInputs(); render();
         return;
       }
 
@@ -14425,6 +14572,8 @@
         // The whole embedded slide list is the deck's identity.
         fields.push(j(payload.deck?.slides || []));
         fields.push(j(payload.deck?.theme || {}));
+      } else if (mode === 'pixelart') {
+        fields.push(j(payload.pixelArt || {}));
       }
       // Layers: strip the per-layer `id` and `_generatedDiscLayer` since
       // those vary across fork sessions but the visual content is the same.
@@ -14482,6 +14631,7 @@
         else if (row.mode === 'jewel') renderJewelPreviewDOM(previewWrap, payload, { compact: true });
         else if (row.mode === 'customart' || row.mode === 'slide') renderCustomArtPreviewDOM(previewWrap, payload, { compact: true });
         else if (row.mode === 'deck') renderDeckPreviewDOM(previewWrap, payload, { compact: true });
+        else if (row.mode === 'pixelart') renderPixelArtPreviewDOM(previewWrap, payload, { compact: true });
         else renderTemplatePreviewDOM(previewWrap, payload, { compact: true });
       } catch {}
       thumb.appendChild(previewWrap);
@@ -14974,6 +15124,8 @@
           return '';
         }
 
+        if (mode === 'pixelart') return '';
+
         // Cover: front → combined wrap → back (in that priority)
         return (
           payload.coverTemplate?.slots?.front?.src ||
@@ -15027,7 +15179,7 @@
       return btn;
     }
 
-    const MODE_LABELS = { cover: 'Case cover', disc: 'Disc sheet', jewel: 'CD jewel inserts', 'disc-design': 'Disc design', customart: 'Custom art', slide: 'Slide', deck: 'Slide deck' };
+    const MODE_LABELS = { cover: 'Case cover', disc: 'Disc sheet', jewel: 'CD jewel inserts', 'disc-design': 'Disc design', customart: 'Custom art', slide: 'Slide', deck: 'Slide deck', pixelart: 'Pixel art' };
 
     function buildDiscSheetThumb(thumb, payload, compact = false) {
       const slots = payload?.discTemplate?.discs || payload?.discs || {};
@@ -15437,6 +15589,8 @@
         renderCustomArtPreviewDOM(content, p);
       } else if (mode === 'deck') {
         renderDeckPreviewDOM(content, p);
+      } else if (mode === 'pixelart') {
+        renderPixelArtPreviewDOM(content, p);
       } else {
         renderTemplatePreviewDOM(content, p);
       }
@@ -16216,6 +16370,30 @@
       container.appendChild(badge);
     }
 
+    // Preview a standalone pixel-art design — the grid rendered crisp.
+    function renderPixelArtPreviewDOM(container, payload, opts = {}) {
+      const compact = !!opts.compact;
+      const pa = (payload && payload.pixelArt) || {};
+      const w = (pa.width | 0) || 32, h = (pa.height | 0) || 32;
+      const naturalW = PREVIEW_BASE_PX;
+      const naturalH = PREVIEW_BASE_PX * h / w;
+      const box = document.createElement('div');
+      box.style.cssText = [
+        'position:relative',
+        compact ? `width:${naturalW}px` : `width:min(100%, ${PREVIEW_BASE_PX}px)`,
+        compact ? `height:${naturalH}px` : `aspect-ratio:${w} / ${h}`,
+        compact ? 'margin:0;transform-origin:center center' : 'margin:0 auto',
+        'overflow:hidden',
+        'background:repeating-conic-gradient(#e2e8f0 0% 25%, #f8fafc 0% 50%) 0 0 / 18px 18px'
+      ].join(';');
+      try {
+        const cv = renderPixelGridToCanvas(pa);
+        cv.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges';
+        box.appendChild(cv);
+      } catch (e) {}
+      container.appendChild(box);
+    }
+
     function renderCustomArtPreviewDOM(container, payload, opts = {}) {
       const compact = !!opts.compact;
       // Slides and Custom Art share this flat-canvas preview; a slide payload
@@ -16448,7 +16626,7 @@
     function syncModeTabsUI() {
       // The Designer tab hosts both Custom Art (a template mode) and Disc
       // Design (the designer appMode).
-      const designerTab = state.appMode === 'designer' || isCanvasMode(state.templateMode);
+      const designerTab = state.appMode === 'designer' || isCanvasMode(state.templateMode) || state.templateMode === 'pixelart';
       $('modeTabTemplate').classList.toggle('active', !designerTab);
       $('modeTabDesigner').classList.toggle('active', designerTab);
     }
@@ -16965,6 +17143,10 @@
       // If a deck slide is open in the editor, save it back before any
       // layout change carries us out of the slide editor.
       persistEditingDeckSlide();
+      // Any open pixel editor (layer or standalone) commits before a
+      // layout change; a standalone one is re-created by render() if we
+      // land back in pixelart mode.
+      pixelEditTearDown();
       if (layout === 'discdesign') {
         if (state.appMode !== 'designer') switchAppMode('designer');
         state._lastDesignerLayout = 'discdesign';
@@ -16993,7 +17175,9 @@
       // Art just gets a default the user can override.
       if (layout === 'slide') state.meta.category = 'slide';
       else if (layout === 'deck') state.meta.category = 'slide-deck';
+      else if (layout === 'pixelart') state.meta.category = 'pixel-art';
       else if (layout === 'customart' && !state.meta.category) state.meta.category = 'custom-art';
+      if (layout === 'pixelart' && !state.pixelArt) state.pixelArt = defaultPixelArt(32, 32);
       if (layout === 'slide') {
         const ca = state.customArt || {};
         if (Math.abs((ca.width || 0) / (ca.height || 1) - 16 / 9) > 0.01) {
@@ -17006,7 +17190,7 @@
         state.deck = state.deck || { theme: { fontFamily: '', background: '' }, slides: [], editingIndex: null };
         state.deck.editingIndex = null;
       }
-      if (isCanvasMode(layout)) state._lastDesignerLayout = layout;
+      if (isCanvasMode(layout) || layout === 'pixelart') state._lastDesignerLayout = layout;
       else state._lastTemplateLayout = layout;
       syncInputs();
       render();
@@ -17118,7 +17302,7 @@
     function attachEvents() {
       // Layout tabs: cover/disc live on the Template tab; customart/discdesign
       // on the Designer tab. applyLayout() sorts out the appMode crossing.
-      for (const layout of ['cover', 'disc', 'deck', 'customart', 'slide', 'discdesign']) {
+      for (const layout of ['cover', 'disc', 'deck', 'customart', 'slide', 'pixelart', 'discdesign']) {
         const btn = $(`mode-${layout}`);
         if (btn) btn.addEventListener('click', () => applyLayout(layout));
       }
@@ -17202,7 +17386,11 @@
           const cell = pixelCellFromEvent(e);
           if (cell) pixelApplyTool(cell, false);
         });
-        const _endPaint = () => { _painting = false; if (_pixelEdit) _pixelEdit.last = null; };
+        const _endPaint = () => {
+          _painting = false;
+          if (_pixelEdit) _pixelEdit.last = null;
+          pixelCommitIfStandalone();
+        };
         _pgc.addEventListener('pointerup', _endPaint);
         _pgc.addEventListener('pointercancel', _endPaint);
       }
@@ -17210,7 +17398,7 @@
         if (!_pixelEditActive) return;
         const k = (e.key || '').toLowerCase();
         if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.stopPropagation(); pixelUndo(); }
-        else if (k === 'escape') { e.preventDefault(); e.stopPropagation(); closePixelEditor(true); }
+        else if (k === 'escape' && _pixelEdit && !_pixelEdit.standalone) { e.preventDefault(); e.stopPropagation(); closePixelEditor(true); }
         else if (!e.ctrlKey && !e.metaKey && !isEditableFocus()) {
           const map = { p: 'pencil', e: 'eraser', f: 'fill', i: 'eyedropper' };
           if (map[k]) { e.preventDefault(); e.stopPropagation(); _pixelEdit.tool = map[k]; pixelSyncToolButtons(); }
@@ -17504,6 +17692,11 @@
             payload = deckPayload();
             mode = 'deck';
             if (!(payload.deck?.slides || []).length) throw new Error('Add at least one slide before publishing the deck.');
+          } else if (state.templateMode === 'pixelart') {
+            payload = pixelArtPayload();
+            mode = 'pixelart';
+            const runs = payload.pixelArt?.frames?.[0]?.pixels || [];
+            if (!runs.some(r => (r[0] | 0) !== 0)) throw new Error('Draw something on the pixel canvas before publishing.');
           } else if (isCanvasMode(state.templateMode)) {
             payload = customArtPayload();
             mode = state.templateMode;

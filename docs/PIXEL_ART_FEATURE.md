@@ -95,8 +95,13 @@ template, it is *any design*.
   Reachable via the **▦** tool-palette button ("Add Layer → Pixel Art")
   and an "Edit pixels" button / double-click on a selected pixel layer.
   Single static frame only.
-- **Phase A2 — standalone Pixel Art design** (`templateMode: 'pixelart'`,
-  publish/fork as `casewrap-pixelart`, `pixel-art` category): not started.
+- **Phase A2 — standalone Pixel Art design: built (pending in-browser
+  testing).** `templateMode: 'pixelart'` — a "Pixel Art" layout on the
+  Designer tab where the `#pixelEditorView` is the whole canvas area,
+  bound to `state.pixelArt`. Save / load / publish / fork as
+  `casewrap-pixelart`; appears in the community feed with a crisp
+  preview; the `pixel-art` category was added. Single static 32×32 grid
+  (grid resize is Phase B).
 - **Phases B / C / D:** not started. (Note: a `drawPixelArtToCanvas`
   export path is already wired, so pixel layers appear in PDF/JPEG
   export — Phase B's dedicated PNG export is still pending.)
