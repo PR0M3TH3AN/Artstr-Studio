@@ -84,6 +84,25 @@ template, it is *any design*.
 
 ---
 
+## Implementation status
+
+- **Phase A1 — embedded pixel layer: built (pending in-browser testing).**
+  The `pixelart` layer type + `pixelArt` data model (palette + RLE
+  frames), `renderPixelGridToCanvas` and crisp rendering across the
+  editor / preview-DOM renderers / export canvas. A `#pixelEditorView`
+  with pencil / eraser / fill / eyedropper, a palette panel (pick / add),
+  grid toggle, mirror X/Y, zoom, and a per-stroke in-editor undo.
+  Reachable via the **▦** tool-palette button ("Add Layer → Pixel Art")
+  and an "Edit pixels" button / double-click on a selected pixel layer.
+  Single static frame only.
+- **Phase A2 — standalone Pixel Art design** (`templateMode: 'pixelart'`,
+  publish/fork as `casewrap-pixelart`, `pixel-art` category): not started.
+- **Phases B / C / D:** not started. (Note: a `drawPixelArtToCanvas`
+  export path is already wired, so pixel layers appear in PDF/JPEG
+  export — Phase B's dedicated PNG export is still pending.)
+
+---
+
 ## Why this fits the repo
 
 ### What's reused

@@ -566,6 +566,7 @@
     body.template-deck:not(.editing-deck-slide) #tool-pencil,
     body.template-deck:not(.editing-deck-slide) #tool-shape,
     body.template-deck:not(.editing-deck-slide) #tool-text,
+    body.template-deck:not(.editing-deck-slide) #tool-pixel,
     body.template-deck:not(.editing-deck-slide) .toolPaletteDivider { display: none !important; }
     #deckPresentBtn { display: none; font-size: .9rem; }
     body.template-deck #deckPresentBtn,
@@ -709,6 +710,66 @@
     #presenterMode.audience.chromeHidden #presenterBar {
       transform: translateY(115%); opacity: 0; pointer-events: none;
     }
+
+    /* ---- Pixel Editor ---- */
+    #pixelEditorView { display: none; }
+    body.pixel-editing #pixelEditorView {
+      display: flex; flex-direction: column; width: 100%;
+      min-height: calc(100vh - 160px);
+    }
+    body.pixel-editing #sheetWrap,
+    body.pixel-editing #discDesignerView,
+    body.pixel-editing #deckSorterView,
+    body.pixel-editing #toolPalette,
+    body.pixel-editing #toolOptions,
+    body.pixel-editing #canvasToolbar { display: none !important; }
+    .pixelEditorBar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel);
+    }
+    .pixelToolGroup { display: flex; gap: 2px; }
+    .pixelToolBtn, .pixelBarBtn {
+      border: 1px solid var(--line); background: #fff; color: var(--ink);
+      border-radius: 6px; cursor: pointer; font-size: .95rem;
+      width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    }
+    .pixelBarBtn { width: auto; padding: 0 10px; font-size: .82rem; }
+    .pixelToolBtn:hover, .pixelBarBtn:hover { background: #f1f5f9; }
+    .pixelToolBtn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .pixelBarToggle { display: flex; align-items: center; gap: 4px; font-size: .78rem; cursor: pointer; }
+    .pixelBarDivider { width: 1px; height: 22px; background: var(--line); }
+    .pixelBarSpacer { flex: 1; }
+    .pixelBarInfo { font-size: .76rem; color: #64748b; }
+    .pixelEditorMain { flex: 1; display: flex; min-height: 0; }
+    .pixelEditorCanvasWrap {
+      flex: 1; overflow: auto; background: #2a2f3a;
+      display: flex; align-items: center; justify-content: center; padding: 24px;
+    }
+    #pixelGridCanvas {
+      image-rendering: pixelated; image-rendering: crisp-edges;
+      background: repeating-conic-gradient(#cbd5e1 0% 25%, #f1f5f9 0% 50%) 0 0 / 16px 16px;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.35);
+      cursor: crosshair; touch-action: none;
+    }
+    .pixelPalettePanel {
+      width: 188px; flex: 0 0 auto; border-left: 1px solid var(--line);
+      background: var(--panel); padding: 12px; box-sizing: border-box; overflow-y: auto;
+    }
+    .pixelPaletteLabel { font-weight: 600; font-size: .8rem; margin: 0 0 8px; }
+    .pixelPaletteSwatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
+    .pixelSwatch {
+      aspect-ratio: 1; border: 2px solid var(--line); border-radius: 4px;
+      cursor: pointer; padding: 0; background-color: transparent;
+    }
+    .pixelSwatch.pixelSwatchTransparent {
+      background-image: repeating-conic-gradient(#cbd5e1 0% 25%, #fff 0% 50%);
+      background-size: 8px 8px;
+    }
+    .pixelSwatch.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,184,230,.35); }
+    .pixelPaletteEdit { display: flex; gap: 6px; margin-top: 10px; }
+    .pixelPaletteEdit input[type=color] { flex: 0 0 auto; width: 38px; height: 32px; padding: 0; }
+    body.dark .pixelToolBtn, body.dark .pixelBarBtn { background: var(--panel); }
+    body.dark .pixelToolBtn:hover, body.dark .pixelBarBtn:hover { background: #1e293b; }
 
     .designerDiscWrap {
       position: relative;
@@ -2799,6 +2860,13 @@
             <input id="colorLayerFill" type="color" />
           </div>
 
+          <div id="pixelLayerControls" style="display:none">
+            <div class="buttonRow">
+              <button type="button" id="editPixelsBtn">Edit pixels</button>
+            </div>
+            <p class="hint" style="font-size:.72rem;margin:4px 0 0">Opens the pixel editor. Double-clicking the layer on the canvas works too.</p>
+          </div>
+
           <div id="qrLayerControls" style="display:none">
             <label for="qrData">QR data (URL or text)</label>
             <textarea id="qrData" rows="2" placeholder="https://example.com" style="resize:vertical;width:100%"></textarea>
@@ -3189,6 +3257,42 @@
           <button type="button" id="deckBackBtn">← Back to deck</button>
           <span id="deckEditLabel"></span>
         </div>
+
+        <div id="pixelEditorView">
+          <div class="pixelEditorBar">
+            <div class="pixelToolGroup">
+              <button type="button" class="pixelToolBtn active" data-ptool="pencil" title="Pencil">✏</button>
+              <button type="button" class="pixelToolBtn" data-ptool="eraser" title="Eraser">⌫</button>
+              <button type="button" class="pixelToolBtn" data-ptool="fill" title="Fill bucket">▣</button>
+              <button type="button" class="pixelToolBtn" data-ptool="eyedropper" title="Pick colour">⊙</button>
+            </div>
+            <button type="button" id="pixelUndoBtn" class="pixelBarBtn" title="Undo">↶</button>
+            <span class="pixelBarDivider"></span>
+            <label class="pixelBarToggle"><input type="checkbox" id="pixelGridToggle" checked /> Grid</label>
+            <label class="pixelBarToggle"><input type="checkbox" id="pixelMirrorX" /> Mirror X</label>
+            <label class="pixelBarToggle"><input type="checkbox" id="pixelMirrorY" /> Mirror Y</label>
+            <span class="pixelBarDivider"></span>
+            <button type="button" id="pixelZoomOut" class="pixelBarBtn" title="Zoom out">−</button>
+            <button type="button" id="pixelZoomIn" class="pixelBarBtn" title="Zoom in">+</button>
+            <span class="pixelBarSpacer"></span>
+            <span id="pixelEditorDims" class="pixelBarInfo"></span>
+            <button type="button" id="pixelEditorDoneBtn" class="primary">Done</button>
+          </div>
+          <div class="pixelEditorMain">
+            <div class="pixelEditorCanvasWrap" id="pixelEditorCanvasWrap">
+              <canvas id="pixelGridCanvas"></canvas>
+            </div>
+            <div class="pixelPalettePanel">
+              <div class="pixelPaletteLabel">Palette</div>
+              <div id="pixelPaletteSwatches" class="pixelPaletteSwatches"></div>
+              <div class="pixelPaletteEdit">
+                <input type="color" id="pixelColorPicker" value="#e43b44" />
+                <button type="button" id="pixelAddColorBtn" class="pixelBarBtn">+ Add</button>
+              </div>
+              <p class="hint" style="font-size:.72rem;margin:8px 0 0">Click a swatch to paint with it. Pick a colour and Add to extend the palette.</p>
+            </div>
+          </div>
+        </div>
       </div>
 
         <div class="toolPalette" id="toolPalette">
@@ -3199,6 +3303,7 @@
           <button type="button" class="toolPaletteBtn" id="tool-pencil" data-tool="pencil" title="Pencil tool (B)" aria-label="Pencil tool">✎</button>
           <button type="button" class="toolPaletteBtn" id="tool-shape" data-tool="shape" title="Shape tool (S)" aria-label="Shape tool">▢</button>
           <button type="button" class="toolPaletteBtn" id="tool-text" data-tool="text" title="Text tool (T)" aria-label="Text tool">T</button>
+          <button type="button" class="toolPaletteBtn" id="tool-pixel" title="Add a pixel-art layer" aria-label="Pixel art layer">▦</button>
           <button type="button" class="toolPaletteBtn" id="deckPresentBtn" title="Present this deck" aria-label="Present deck">▶</button>
         </div>
 
@@ -7551,6 +7656,317 @@
       });
     }
 
+    // ---- Pixel-art layers --------------------------------------------
+    // A `pixelart` layer stores an editable palette-indexed grid in JSON;
+    // it renders to a <canvas> drawn crisp (nearest-neighbour) at any size.
+    const DEFAULT_PIXEL_PALETTE = [
+      '#00000000', // index 0 — transparent, by convention
+      '#000000ff', '#ffffffff', '#9badb7ff', '#5a6988ff',
+      '#e43b44ff', '#f77622ff', '#feae34ff', '#fee761ff',
+      '#63c74dff', '#3e8948ff', '#0099dbff', '#124e89ff',
+      '#b55088ff', '#68386cff'
+    ];
+
+    function defaultPixelArt(w = 32, h = 32) {
+      return {
+        width: w, height: h,
+        palette: DEFAULT_PIXEL_PALETTE.slice(),
+        frames: [{ id: 'f1', pixels: [[0, w * h]] }]
+      };
+    }
+
+    function pixelHexTransparent(hex) {
+      return typeof hex === 'string' && hex.length === 9 && hex.slice(7).toLowerCase() === '00';
+    }
+
+    // RLE: pixels is an array of [paletteIndex, runLength], row-major.
+    function decodePixelRLE(frame, w, h) {
+      const total = w * h;
+      const out = new Uint8Array(total);
+      const runs = (frame && Array.isArray(frame.pixels)) ? frame.pixels : [];
+      let i = 0;
+      for (const run of runs) {
+        const idx = run[0] | 0;
+        let count = run[1] | 0;
+        while (count-- > 0 && i < total) out[i++] = idx;
+      }
+      return out;
+    }
+    function encodePixelRLE(indices) {
+      const runs = [];
+      for (let i = 0; i < indices.length; i++) {
+        const v = indices[i];
+        const last = runs[runs.length - 1];
+        if (last && last[0] === v) last[1]++;
+        else runs.push([v, 1]);
+      }
+      return runs;
+    }
+
+    // Decode a pixel grid to a native-size offscreen canvas.
+    function renderPixelGridToCanvas(pixelArt) {
+      const w = Math.max(1, (pixelArt && pixelArt.width | 0) || 1);
+      const h = Math.max(1, (pixelArt && pixelArt.height | 0) || 1);
+      const cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      const ctx = cv.getContext('2d');
+      const frame = (pixelArt && pixelArt.frames && pixelArt.frames[0]) || { pixels: [] };
+      const idx = decodePixelRLE(frame, w, h);
+      const pal = (pixelArt && pixelArt.palette) || [];
+      for (let i = 0; i < idx.length; i++) {
+        const hex = pal[idx[i]];
+        if (!hex || pixelHexTransparent(hex)) continue;
+        ctx.fillStyle = hex;
+        ctx.fillRect(i % w, (i / w) | 0, 1, 1);
+      }
+      return cv;
+    }
+
+    // Render a pixel-art layer into its freeLayer element (crisp scaling).
+    function renderPixelArtIntoElement(el, layer) {
+      el.innerHTML = '';
+      try {
+        const cv = renderPixelGridToCanvas(layer.pixelArt || {});
+        cv.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges;pointer-events:none';
+        el.appendChild(cv);
+      } catch (e) {}
+    }
+
+    // Draw a pixel-art layer onto an export canvas (ctx centred on the layer).
+    function drawPixelArtToCanvas(ctx, layer, w, h) {
+      try {
+        const grid = renderPixelGridToCanvas(layer.pixelArt || {});
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(grid, -w / 2, -h / 2, w, h);
+        ctx.restore();
+      } catch (e) {}
+    }
+
+    // ---- Pixel Editor — interactive grid editing ----------------------
+    const PIXEL_ZOOMS = [2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 24, 32, 40];
+    let _pixelEditActive = false;
+    let _pixelEdit = null;
+
+    function openPixelEditor(layerId) {
+      const layer = getLayer(layerId);
+      if (!layer || layer.type !== 'pixelart') return;
+      const pa = layer.pixelArt || defaultPixelArt();
+      const w = (pa.width | 0) || 32, h = (pa.height | 0) || 32;
+      const frame = (pa.frames && pa.frames[0]) || { pixels: [] };
+      const palette = (pa.palette && pa.palette.length) ? pa.palette.slice() : DEFAULT_PIXEL_PALETTE.slice();
+      _pixelEdit = {
+        layerId, w, h,
+        indices: decodePixelRLE(frame, w, h),
+        palette,
+        current: Math.min(1, palette.length - 1),
+        tool: 'pencil',
+        zoom: 12,
+        gridOn: true, mirrorX: false, mirrorY: false,
+        undo: [], last: null
+      };
+      _pixelEditActive = true;
+      document.body.classList.add('pixel-editing');
+      // Fit zoom: the largest step that fits the editor viewport.
+      requestAnimationFrame(() => {
+        if (!_pixelEdit) return;
+        const wrap = $('pixelEditorCanvasWrap');
+        const availW = (wrap?.clientWidth || 640) - 60;
+        const availH = (wrap?.clientHeight || 420) - 60;
+        let z = PIXEL_ZOOMS[0];
+        for (const cand of PIXEL_ZOOMS) {
+          if (cand * w <= availW && cand * h <= availH) z = cand;
+        }
+        _pixelEdit.zoom = z;
+        renderPixelGrid();
+      });
+      pixelSyncToolButtons();
+      const gt = $('pixelGridToggle'); if (gt) gt.checked = true;
+      const mx = $('pixelMirrorX'); if (mx) mx.checked = false;
+      const my = $('pixelMirrorY'); if (my) my.checked = false;
+      const dims = $('pixelEditorDims'); if (dims) dims.textContent = `${w} × ${h} px`;
+      renderPixelPalette();
+      renderPixelGrid();
+    }
+
+    function closePixelEditor(commit = true) {
+      if (!_pixelEditActive) return;
+      if (commit && _pixelEdit) {
+        const layer = getLayer(_pixelEdit.layerId);
+        if (layer) {
+          pushHistory('edit pixel art');
+          layer.pixelArt = {
+            width: _pixelEdit.w, height: _pixelEdit.h,
+            palette: _pixelEdit.palette.slice(),
+            frames: [{ id: 'f1', pixels: encodePixelRLE(_pixelEdit.indices) }]
+          };
+        }
+      }
+      _pixelEditActive = false;
+      _pixelEdit = null;
+      document.body.classList.remove('pixel-editing');
+      render();
+    }
+
+    function renderPixelGrid() {
+      if (!_pixelEdit) return;
+      const cv = $('pixelGridCanvas');
+      if (!cv) return;
+      const { w, h, zoom, indices, palette, gridOn } = _pixelEdit;
+      cv.width = w * zoom;
+      cv.height = h * zoom;
+      const ctx = cv.getContext('2d');
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      for (let i = 0; i < indices.length; i++) {
+        const hex = palette[indices[i]];
+        if (!hex || pixelHexTransparent(hex)) continue;
+        ctx.fillStyle = hex;
+        ctx.fillRect((i % w) * zoom, ((i / w) | 0) * zoom, zoom, zoom);
+      }
+      if (gridOn && zoom >= 5) {
+        ctx.strokeStyle = 'rgba(0,0,0,.16)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x = 0; x <= w; x++) { ctx.moveTo(x * zoom + 0.5, 0); ctx.lineTo(x * zoom + 0.5, h * zoom); }
+        for (let y = 0; y <= h; y++) { ctx.moveTo(0, y * zoom + 0.5); ctx.lineTo(w * zoom, y * zoom + 0.5); }
+        ctx.stroke();
+      }
+    }
+
+    function renderPixelPalette() {
+      if (!_pixelEdit) return;
+      const wrap = $('pixelPaletteSwatches');
+      if (!wrap) return;
+      wrap.innerHTML = '';
+      _pixelEdit.palette.forEach((hex, i) => {
+        const sw = document.createElement('button');
+        sw.type = 'button';
+        sw.className = 'pixelSwatch' + (i === _pixelEdit.current ? ' active' : '');
+        if (pixelHexTransparent(hex)) sw.classList.add('pixelSwatchTransparent');
+        else sw.style.backgroundColor = hex;
+        sw.title = i === 0 ? 'Transparent' : hex;
+        sw.addEventListener('click', () => { _pixelEdit.current = i; renderPixelPalette(); });
+        wrap.appendChild(sw);
+      });
+    }
+
+    function pixelSyncToolButtons() {
+      document.querySelectorAll('.pixelToolBtn').forEach((b) => {
+        b.classList.toggle('active', !!_pixelEdit && b.dataset.ptool === _pixelEdit.tool);
+      });
+    }
+
+    function pixelCellFromEvent(e) {
+      const cv = $('pixelGridCanvas');
+      if (!cv || !_pixelEdit) return null;
+      const r = cv.getBoundingClientRect();
+      const x = Math.floor((e.clientX - r.left) / r.width * _pixelEdit.w);
+      const y = Math.floor((e.clientY - r.top) / r.height * _pixelEdit.h);
+      if (x < 0 || y < 0 || x >= _pixelEdit.w || y >= _pixelEdit.h) return null;
+      return { x, y };
+    }
+
+    function pixelSnapshot() {
+      if (!_pixelEdit) return;
+      _pixelEdit.undo.push(_pixelEdit.indices.slice());
+      if (_pixelEdit.undo.length > 40) _pixelEdit.undo.shift();
+    }
+    function pixelUndo() {
+      if (!_pixelEdit || !_pixelEdit.undo.length) return;
+      _pixelEdit.indices = _pixelEdit.undo.pop();
+      renderPixelGrid();
+    }
+
+    function pixelPaintCell(x, y, idx) {
+      const { w, h, mirrorX, mirrorY, indices } = _pixelEdit;
+      const put = (cx, cy) => { if (cx >= 0 && cy >= 0 && cx < w && cy < h) indices[cy * w + cx] = idx; };
+      put(x, y);
+      if (mirrorX) put(w - 1 - x, y);
+      if (mirrorY) put(x, h - 1 - y);
+      if (mirrorX && mirrorY) put(w - 1 - x, h - 1 - y);
+    }
+    function pixelPaintLine(x0, y0, x1, y1, idx) {
+      let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+      let sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+      let err = dx - dy;
+      while (true) {
+        pixelPaintCell(x0, y0, idx);
+        if (x0 === x1 && y0 === y1) break;
+        const e2 = 2 * err;
+        if (e2 > -dy) { err -= dy; x0 += sx; }
+        if (e2 < dx) { err += dx; y0 += sy; }
+      }
+    }
+    function pixelFloodFill(x, y, idx) {
+      const { w, h, indices } = _pixelEdit;
+      const target = indices[y * w + x];
+      if (target === idx) return;
+      const stack = [[x, y]];
+      while (stack.length) {
+        const [cx, cy] = stack.pop();
+        if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
+        if (indices[cy * w + cx] !== target) continue;
+        indices[cy * w + cx] = idx;
+        stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
+      }
+    }
+
+    function pixelApplyTool(cell, isStart) {
+      if (!_pixelEdit) return;
+      const t = _pixelEdit.tool;
+      if (t === 'eyedropper') {
+        if (!isStart) return;
+        _pixelEdit.current = _pixelEdit.indices[cell.y * _pixelEdit.w + cell.x];
+        renderPixelPalette();
+        return;
+      }
+      if (t === 'fill') {
+        if (!isStart) return;
+        pixelSnapshot();
+        pixelFloodFill(cell.x, cell.y, _pixelEdit.current);
+        renderPixelGrid();
+        return;
+      }
+      // pencil / eraser — drag-paint with line interpolation.
+      const idx = t === 'eraser' ? 0 : _pixelEdit.current;
+      if (isStart) { pixelSnapshot(); _pixelEdit.last = null; }
+      if (_pixelEdit.last) pixelPaintLine(_pixelEdit.last.x, _pixelEdit.last.y, cell.x, cell.y, idx);
+      else pixelPaintCell(cell.x, cell.y, idx);
+      _pixelEdit.last = { x: cell.x, y: cell.y };
+      renderPixelGrid();
+    }
+
+    function pixelStepZoom(dir) {
+      if (!_pixelEdit) return;
+      let i = PIXEL_ZOOMS.indexOf(_pixelEdit.zoom);
+      if (i < 0) i = 5;
+      i = Math.max(0, Math.min(PIXEL_ZOOMS.length - 1, i + dir));
+      _pixelEdit.zoom = PIXEL_ZOOMS[i];
+      renderPixelGrid();
+    }
+
+    // Add a new pixel-art layer to the current design and open the editor.
+    function addPixelArtLayer(targetOverride = '') {
+      const target = targetOverride || $('layerTarget')?.value || primaryTargetForMode(state.templateMode || 'cover');
+      const bounds = targetBounds(target);
+      applyTargetMode(target);
+      const size = Math.min(bounds.w, bounds.h) * 0.45;
+      pushHistory('add pixel art layer');
+      const layer = {
+        id: makeLayerId(),
+        type: 'pixelart',
+        name: 'Pixel art',
+        target,
+        x: bounds.x + (bounds.w - size) / 2,
+        y: bounds.y + (bounds.h - size) / 2,
+        w: size, h: size,
+        rotate: 0, opacity: 1, z: nextLayerZ(),
+        pixelArt: defaultPixelArt(32, 32)
+      };
+      addLayer(layer);
+      openPixelEditor(layer.id);
+    }
+
     // ---- Vector shape layers (Phase A: primitives + solid fill) ----
 
     const SHAPE_KINDS = ['rect', 'rounded-rect', 'circle', 'ellipse', 'triangle', 'polygon', 'star', 'line', 'path'];
@@ -8710,6 +9126,8 @@
           renderShapeIntoElement(el, layer);
         } else if (layer.type === 'qr') {
           renderQrIntoElement(el, layer);
+        } else if (layer.type === 'pixelart') {
+          renderPixelArtIntoElement(el, layer);
         } else {
           const text = document.createElement('div');
           text.className = 'textLayer';
@@ -8731,6 +9149,12 @@
         }
 
         el.addEventListener('pointerdown', startLayerDrag);
+        if (layer.type === 'pixelart') {
+          el.addEventListener('dblclick', (event) => {
+            event.stopPropagation();
+            openPixelEditor(layer.id);
+          });
+        }
         el.addEventListener('click', (event) => {
           event.stopPropagation();
           state.selectedLayerId = layer.id;
@@ -10548,6 +10972,8 @@
       const qrPanel = $('qrLayerControls');
       if (qrPanel) qrPanel.style.display = layer && layer.type === 'qr' ? 'block' : 'none';
       if (layer && layer.type === 'qr') syncQrLayerInputs(layer);
+      const pixelPanel = $('pixelLayerControls');
+      if (pixelPanel) pixelPanel.style.display = layer && layer.type === 'pixelart' ? 'block' : 'none';
       if (layer) syncLayerClipInputs(layer);
       const layerNameRow = $('layerName');
       const layerNameLabel = layerNameRow?.previousElementSibling;
@@ -11212,6 +11638,8 @@
         }
       } else if (layer.type === 'qr') {
         drawQrToCanvas(ctx, layer, w, h);
+      } else if (layer.type === 'pixelart') {
+        drawPixelArtToCanvas(ctx, layer, w, h);
       } else if (layer.type === 'image' && layer.src) {
         try {
           const img = await loadExportImage(layer.src);
@@ -15167,6 +15595,8 @@
           renderShapeIntoElement(el, layer);
         } else if (layer.type === 'qr') {
           renderQrIntoElement(el, layer);
+        } else if (layer.type === 'pixelart') {
+          renderPixelArtIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -15377,6 +15807,8 @@
           renderShapeIntoElement(el, layer);
         } else if (layer.type === 'qr') {
           renderQrIntoElement(el, layer);
+        } else if (layer.type === 'pixelart') {
+          renderPixelArtIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -15458,6 +15890,8 @@
           renderShapeIntoElement(el, layer);
         } else if (layer.type === 'qr') {
           renderQrIntoElement(el, layer);
+        } else if (layer.type === 'pixelart') {
+          renderPixelArtIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -15696,6 +16130,8 @@
           renderShapeIntoElement(el, layer);
         } else if (layer.type === 'qr') {
           renderQrIntoElement(el, layer);
+        } else if (layer.type === 'pixelart') {
+          renderPixelArtIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -15834,6 +16270,8 @@
           renderShapeIntoElement(el, layer);
         } else if (layer.type === 'qr') {
           renderQrIntoElement(el, layer);
+        } else if (layer.type === 'pixelart') {
+          renderPixelArtIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -16717,6 +17155,68 @@
 
       // ---- Presenter Mode wiring ----
       $('deckPresentBtn')?.addEventListener('click', presentCurrentDeck);
+
+      // ---- Pixel Editor wiring ----
+      $('tool-pixel')?.addEventListener('click', () => addPixelArtLayer());
+      $('editPixelsBtn')?.addEventListener('click', () => {
+        const l = selectedLayer();
+        if (l && l.type === 'pixelart') openPixelEditor(l.id);
+      });
+      $('pixelEditorDoneBtn')?.addEventListener('click', () => closePixelEditor(true));
+      $('pixelUndoBtn')?.addEventListener('click', pixelUndo);
+      $('pixelZoomIn')?.addEventListener('click', () => pixelStepZoom(1));
+      $('pixelZoomOut')?.addEventListener('click', () => pixelStepZoom(-1));
+      $('pixelGridToggle')?.addEventListener('change', (e) => {
+        if (_pixelEdit) { _pixelEdit.gridOn = e.target.checked; renderPixelGrid(); }
+      });
+      $('pixelMirrorX')?.addEventListener('change', (e) => { if (_pixelEdit) _pixelEdit.mirrorX = e.target.checked; });
+      $('pixelMirrorY')?.addEventListener('change', (e) => { if (_pixelEdit) _pixelEdit.mirrorY = e.target.checked; });
+      $('pixelAddColorBtn')?.addEventListener('click', () => {
+        if (!_pixelEdit) return;
+        const hex = (($('pixelColorPicker')?.value) || '#000000').toLowerCase() + 'ff';
+        _pixelEdit.palette.push(hex);
+        _pixelEdit.current = _pixelEdit.palette.length - 1;
+        renderPixelPalette();
+      });
+      document.querySelectorAll('.pixelToolBtn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (!_pixelEdit) return;
+          _pixelEdit.tool = btn.dataset.ptool;
+          pixelSyncToolButtons();
+        });
+      });
+      const _pgc = $('pixelGridCanvas');
+      if (_pgc) {
+        let _painting = false;
+        _pgc.addEventListener('pointerdown', (e) => {
+          if (!_pixelEditActive) return;
+          const cell = pixelCellFromEvent(e);
+          if (!cell) return;
+          e.preventDefault();
+          _painting = true;
+          try { _pgc.setPointerCapture(e.pointerId); } catch (err) {}
+          pixelApplyTool(cell, true);
+        });
+        _pgc.addEventListener('pointermove', (e) => {
+          if (!_pixelEditActive || !_painting) return;
+          const cell = pixelCellFromEvent(e);
+          if (cell) pixelApplyTool(cell, false);
+        });
+        const _endPaint = () => { _painting = false; if (_pixelEdit) _pixelEdit.last = null; };
+        _pgc.addEventListener('pointerup', _endPaint);
+        _pgc.addEventListener('pointercancel', _endPaint);
+      }
+      document.addEventListener('keydown', (e) => {
+        if (!_pixelEditActive) return;
+        const k = (e.key || '').toLowerCase();
+        if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.stopPropagation(); pixelUndo(); }
+        else if (k === 'escape') { e.preventDefault(); e.stopPropagation(); closePixelEditor(true); }
+        else if (!e.ctrlKey && !e.metaKey && !isEditableFocus()) {
+          const map = { p: 'pencil', e: 'eraser', f: 'fill', i: 'eyedropper' };
+          if (map[k]) { e.preventDefault(); e.stopPropagation(); _pixelEdit.tool = map[k]; pixelSyncToolButtons(); }
+        }
+      }, true);
+
       $('presenterPrevBtn')?.addEventListener('click', () => presenterNav(-1));
       $('presenterNextBtn')?.addEventListener('click', () => presenterNav(1));
       $('presenterViewBtn')?.addEventListener('click', presenterToggleView);
