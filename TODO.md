@@ -21,22 +21,11 @@ surface + canvas export, JSON round-trip).
 
 Small editor-usability improvements — no spec doc; scoped here.
 
-- **On-canvas resize handles.** Add draggable nodes on a selected layer's
-  edges and corners (text / shape / image / all layer types) so the user
-  can resize by dragging instead of typing into the W/H inputs. Corner
-  handles resize both axes (respecting the existing aspect-ratio lock
-  toggle); edge handles resize one axis. The handles live on the
-  `.freeLayer.selected` element and write back to the layer's `w` / `h`
-  (and `x` / `y` for top/left drags).
-- **Text box resize must not rescale the text.** Resizing a `text`
-  layer's box changes only the area the text flows within — `fontSize`
-  (points) stays fixed. (Distinct from image/shape, where the content
-  scales with the box.)
-- **Expand the Text tool panel.** `#textToolOptions` already exists but
-  is minimal (color + size). Build it out like `#penToolOptions` —
-  point size, font family, paragraph alignment, bold/italic — so text
-  styling is editable from the tool-options panel, not just the layer
-  panel.
+All current items shipped (commit `1a517c9`): on-canvas drag-resize
+handles for every layer type, text-box resize that never rescales the
+point size, and the expanded Text tool panel (font / size / color /
+alignment / bold / italic). Add new editor-UX improvements below as
+they come up.
 
 ## Cleanup
 
