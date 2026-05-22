@@ -1828,6 +1828,7 @@
     .feedCard.feedCardBroken{opacity:.55}
     .feedCard.feedCardBroken .feedCardThumb{background:repeating-linear-gradient(45deg,#f1f5f9,#f1f5f9 10px,#e2e8f0 10px,#e2e8f0 20px)}
     .feedCardBrokenBadge{position:absolute;top:6px;right:6px;background:rgba(220,38,38,.92);color:#fff;font-size:.62rem;font-weight:700;border-radius:4px;padding:2px 6px;z-index:6;letter-spacing:.03em}
+    .feedCardPrivateBadge{position:absolute;top:6px;left:6px;background:rgba(15,23,42,.92);color:#fff;font-size:.62rem;font-weight:700;border-radius:4px;padding:2px 6px;z-index:6;letter-spacing:.03em}
     .feedCardSoftModOverlay{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;background:rgba(15,23,42,.55);color:#fff;padding:12px;text-align:center;font-size:.78rem;line-height:1.3}
     .feedCardSoftModOverlay .softModLabel{font-weight:600;max-width:90%}
     .feedCardSoftModOverlay button{font-size:.74rem;padding:5px 12px;border-radius:6px;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.12);color:#fff;cursor:pointer}
@@ -3593,6 +3594,18 @@
       <p class="hint" id="publishConfirmSubtitle" style="margin:0 0 12px">Double-check the details below before posting to Nostr. You can edit or delete later, but the original event will exist on relays.</p>
       <div id="publishConfirmPreview" class="publishConfirmPreview"></div>
       <dl id="publishConfirmMetaList" class="publishConfirmMeta"></dl>
+      <div id="publishConfirmVisibility" style="margin:0 0 12px">
+        <div style="font-weight:600;font-size:.82rem;margin:0 0 6px">Visibility</div>
+        <label class="toggle" style="display:flex;gap:8px;align-items:flex-start;margin:0 0 4px;cursor:pointer">
+          <input type="radio" name="pubVisibility" value="public" />
+          <span>Public — listed in the community feed; anyone can open it.</span>
+        </label>
+        <label class="toggle" id="publishConfirmPrivateLabel" style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
+          <input type="radio" name="pubVisibility" value="private" />
+          <span>Private — encrypted; only you can open it; not in the feed.</span>
+        </label>
+        <p id="publishConfirmPrivateNote" class="hint" style="display:none;margin:8px 0 0;padding:8px 10px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.1);color:#92400e;border-radius:6px;font-size:.78rem">Private designs are encrypted — relays and other people can't read the contents. The event still reveals that you published something, and when. Encryption can't undo a past public publish.</p>
+      </div>
       <p id="publishConfirmEditNote" class="hint" style="display:none;margin:0 0 12px;padding:8px 10px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.1);color:#92400e;border-radius:6px;font-size:.78rem"></p>
       <p id="publishConfirmError" class="hint" style="display:none;margin:0 0 12px;color:var(--warn);font-size:.82rem"></p>
       <div class="buttonRow" style="margin:0;justify-content:flex-end;flex-wrap:wrap;gap:8px">
@@ -4001,6 +4014,11 @@
       editingKind: 0,
       editingEventId: '',
       editingTitle: '',
+      // Private publishing: 'public' (feed-listed) or 'private' (encrypted,
+      // only the author can open it). privateDTag is the persistent random
+      // d-tag a private design keeps so edits replace it in place.
+      visibility: 'public',
+      privateDTag: '',
       preset: 'dvd',
       panelW: presets.dvd.panelW,
       trimH: presets.dvd.trimH,
@@ -9191,6 +9209,173 @@
       return signed;
     }
 
+    // ===================================================================
+    // Private publishing — encrypt a design so only the author can read
+    // it. AES-256-GCM over gzip(JSON), with the AES key NIP-44/NIP-04
+    // key-wrapped to the author. See docs/PRIVATE_PUBLISHING_FEATURE.md.
+    // ===================================================================
+    function nostrEncryptCapability() {
+      const n = window.nostr;
+      if (n && n.nip44 && typeof n.nip44.encrypt === 'function') return 'nip44';
+      if (n && n.nip04 && typeof n.nip04.encrypt === 'function') return 'nip04';
+      return null;
+    }
+
+    function _bytesToB64(bytes) {
+      let s = '';
+      for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+      return btoa(s);
+    }
+    function _b64ToBytes(str) {
+      const s = atob(str);
+      const b = new Uint8Array(s.length);
+      for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i);
+      return b;
+    }
+
+    async function _gzipBytes(bytes) {
+      if (typeof CompressionStream === 'undefined') return { data: bytes, compression: 'none' };
+      const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+      return { data: new Uint8Array(await new Response(stream).arrayBuffer()), compression: 'gzip' };
+    }
+    async function _gunzipBytes(bytes, compression) {
+      if (compression !== 'gzip' || typeof DecompressionStream === 'undefined') return bytes;
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    }
+
+    async function _wrapAesKey(rawKey, selfPubkey, method) {
+      const keyB64 = _bytesToB64(rawKey);
+      return method === 'nip44'
+        ? await window.nostr.nip44.encrypt(selfPubkey, keyB64)
+        : await window.nostr.nip04.encrypt(selfPubkey, keyB64);
+    }
+    async function _unwrapAesKey(wrapped, selfPubkey, method) {
+      const keyB64 = method === 'nip44'
+        ? await window.nostr.nip44.decrypt(selfPubkey, wrapped)
+        : await window.nostr.nip04.decrypt(selfPubkey, wrapped);
+      return _b64ToBytes(keyB64);
+    }
+
+    // Encrypt a design payload into the publishable envelope.
+    async function encryptProjectEnvelope(payload) {
+      const method = nostrEncryptCapability();
+      if (!method) throw new Error('Your Nostr extension does not support encryption (NIP-44 / NIP-04).');
+      const selfPubkey = normalizePubkey(state.community?.myPubkey || '');
+      if (!selfPubkey) throw new Error('Sign in with Nostr before publishing privately.');
+      const rawBytes = new TextEncoder().encode(JSON.stringify(payload));
+      const { data: compressed, compression } = await _gzipBytes(rawBytes);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+      const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, compressed));
+      const rawKey = new Uint8Array(await crypto.subtle.exportKey('raw', key));
+      const wrappedKey = await _wrapAesKey(rawKey, selfPubkey, method);
+      return {
+        v: 1,
+        visibility: 'encrypted',
+        enc: { alg: 'aes-256-gcm', keywrap: method, compression },
+        iv: _bytesToB64(iv),
+        ciphertext: _bytesToB64(ct),
+        recipients: [{ pubkey: selfPubkey, wrappedKey }]
+      };
+    }
+
+    // Decrypt an envelope back to the design payload.
+    async function decryptProjectEnvelope(envelope) {
+      const method = envelope?.enc?.keywrap || nostrEncryptCapability();
+      if (!method) throw new Error('Your Nostr extension does not support decryption.');
+      const selfPubkey = normalizePubkey(state.community?.myPubkey || '');
+      const mine = (envelope.recipients || []).find(r => normalizePubkey(r.pubkey) === selfPubkey);
+      if (!mine) throw new Error('This private design is not addressed to you.');
+      const rawKey = await _unwrapAesKey(mine.wrappedKey, selfPubkey, method);
+      const key = await crypto.subtle.importKey('raw', rawKey, { name: 'AES-GCM' }, false, ['decrypt']);
+      const iv = _b64ToBytes(envelope.iv);
+      const ct = _b64ToBytes(envelope.ciphertext);
+      const compressed = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct));
+      const rawBytes = await _gunzipBytes(compressed, envelope?.enc?.compression);
+      return JSON.parse(new TextDecoder().decode(rawBytes));
+    }
+
+    function isEncryptedEnvelope(obj) {
+      return !!obj && obj.visibility === 'encrypted' && typeof obj.ciphertext === 'string';
+    }
+
+    // The persistent random d-tag a private design keeps across edits.
+    function ensurePrivateDTag() {
+      if (!state.privateDTag) {
+        state.privateDTag = `artstr-private-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      }
+      return state.privateDTag;
+    }
+
+    // Publish a design payload as an encrypted, feed-invisible event.
+    async function publishEncryptedDesign(payload) {
+      const envelope = await encryptProjectEnvelope(payload);
+      ensurePrivateDTag();
+      const dTag = isEditing() ? state.editingDTag : state.privateDTag;
+      const tags = [
+        ['d', dTag],
+        ['alt', 'Encrypted Artstr design'],
+        ['encrypted', envelope.enc.keywrap]
+      ];
+      const evt = { kind: 30078, created_at: Math.floor(Date.now() / 1000), tags, content: JSON.stringify(envelope) };
+      return await publishCommunityEvent(evt);
+    }
+
+    function typeTagForMode(mode) {
+      if (mode === 'disc') return 'casewrap-disc';
+      if (mode === 'jewel') return 'casewrap-jewel';
+      if (mode === 'deck') return 'casewrap-deck';
+      if (mode === 'slide') return 'casewrap-slide';
+      if (mode === 'customart') return 'casewrap-customart';
+      if (mode === 'disc-design') return 'casewrap-disc-design';
+      return 'casewrap-cover';
+    }
+
+    // Flip a published design between public and private in place — a fresh
+    // event under the same d-tag with the opposite wrapper (NIP-33 replace).
+    async function republishDesignVisibility(row, makePrivate) {
+      if (!state.community?.myPubkey) { toastError('Sign in with Nostr first.'); return; }
+      const dTag = rowDTag(row);
+      if (!dTag) { toastError('This design has no address to update.'); return; }
+      if (makePrivate) {
+        if (!confirm('Make this design private?\n\nIt will be encrypted and removed from the community feed. Anyone who already saw or cached the public version may still have a copy — encryption cannot erase the past.')) return;
+      } else {
+        if (!confirm('Make this design public?\n\nIt will be decrypted and listed in the community feed for anyone to see.')) return;
+      }
+      try {
+        const payload = JSON.parse(JSON.stringify(row.payload || {}));
+        const created_at = Math.floor(Date.now() / 1000);
+        let evt;
+        if (makePrivate) {
+          payload.visibility = 'private';
+          payload.privateDTag = dTag;
+          const envelope = await encryptProjectEnvelope(payload);
+          evt = {
+            kind: 30078, created_at,
+            tags: [['d', dTag], ['alt', 'Encrypted Artstr design'], ['encrypted', envelope.enc.keywrap]],
+            content: JSON.stringify(envelope)
+          };
+        } else {
+          delete payload.visibility;
+          delete payload.privateDTag;
+          const mode = normalizeTemplateMode(payload);
+          evt = {
+            kind: 30078, created_at,
+            tags: [['d', dTag], ...getTemplateTags(payload, typeTagForMode(mode))],
+            content: JSON.stringify(payload)
+          };
+        }
+        const signed = await publishCommunityEvent(evt);
+        cachePublishedTemplateEvent(signed);
+        toastSuccess(makePrivate ? 'Design is now private.' : 'Design is now public.');
+        closeNostrPreview();
+        await loadMyDesigns();
+      } catch (err) {
+        toastError(err?.message || 'Could not change the design’s visibility.');
+      }
+    }
+
     function buildTemplateTombstonePayload(payload, { reason = '', deletedAt = Math.floor(Date.now() / 1000), deletedBy = '' } = {}) {
       const next = JSON.parse(JSON.stringify(payload || {}));
       const meta = { ...(next.meta || {}) };
@@ -9414,6 +9599,17 @@
           throw new Error('Add cover artwork or at least one layer before publishing.');
         }
       }
+      // Private: encrypt and publish a feed-invisible event instead of the
+      // normal public, tagged one.
+      if (state.visibility === 'private') {
+        payload.visibility = 'private';
+        payload.privateDTag = ensurePrivateDTag();
+        const signed = await publishEncryptedDesign(payload);
+        const label = isEditing() ? `Updated "${state.meta.title}" (private)` : `Private "${state.meta.title}"`;
+        await finalizePublishedTemplateEvent(signed, { label });
+        if (isEditing()) exitEditMode();
+        return signed;
+      }
       const mode = normalizeTemplateMode(payload);
       const dBase = state.meta.imdbId
         || state.meta.title
@@ -9445,6 +9641,15 @@
       const designName = (design.name || '').trim() || state.meta.title;
       if (!designName?.trim()) {
         throw new Error('Add a title in Project Metadata or a custom design name before publishing.');
+      }
+      if (state.visibility === 'private') {
+        payload.visibility = 'private';
+        payload.privateDTag = ensurePrivateDTag();
+        const signed = await publishEncryptedDesign(payload);
+        const label = isEditing() ? `Updated "${designName}" (private)` : `Private "${designName}"`;
+        await finalizePublishedTemplateEvent(signed, { label });
+        if (isEditing()) exitEditMode();
+        return signed;
       }
       const dTag = isEditing() ? state.editingDTag : `disc-design:${state.meta.imdbId || designName}`;
       const tags = [
@@ -11346,6 +11551,8 @@
       state.jewelSpineLabels = { left: '', right: '' };
       state.customArt = { width: 1920, height: 1080, background: '#ffffff', preset: '1920x1080' };
       state.deck = { theme: { fontFamily: '', background: '' }, slides: [], editingIndex: null };
+      state.visibility = 'public';
+      state.privateDTag = '';
       state.meta = blankMeta();
       state.layers = (state.layers || []).filter(l => l.target === 'designer-disc');
       state.selectedLayerId = '';
@@ -11523,9 +11730,31 @@
         metaEl.innerHTML = rows.map(([k, v]) => `<div class="publishConfirmMetaRow"><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(String(v))}</dd></div>`).join('');
       }
 
+      // Visibility control — Public / Private (encrypted).
+      const cap = nostrEncryptCapability();
+      const privLabel = $('publishConfirmPrivateLabel');
+      const privInput = privLabel ? privLabel.querySelector('input') : null;
+      const pubInput = document.querySelector('input[name="pubVisibility"][value="public"]');
+      let vis = state.visibility === 'private' ? 'private' : 'public';
+      if (!cap) vis = 'public';
+      state.visibility = vis;
+      if (privInput) privInput.disabled = !cap;
+      if (privLabel) {
+        privLabel.style.opacity = cap ? '1' : '.5';
+        privLabel.title = cap ? '' : 'Your Nostr extension does not support encryption (NIP-44 / NIP-04).';
+      }
+      if (pubInput) pubInput.checked = vis === 'public';
+      if (privInput) privInput.checked = vis === 'private';
+      updatePublishConfirmVisibilityNote();
+
       modal.style.display = 'flex';
       modal.setAttribute('aria-hidden', 'false');
       bringModalToFront(modal);
+    }
+
+    function updatePublishConfirmVisibilityNote() {
+      const note = $('publishConfirmPrivateNote');
+      if (note) note.style.display = state.visibility === 'private' ? '' : 'none';
     }
 
     function closePublishConfirmModal() {
@@ -11641,6 +11870,10 @@
       // Loading a project file is always a fresh-start operation — never an
       // in-place edit of a published event. Drop any prior editing context.
       exitEditMode();
+      // Restore publish visibility — a decrypted private design carries
+      // `visibility`/`privateDTag` so re-publishing replaces it in place.
+      state.visibility = parsed.visibility === 'private' ? 'private' : 'public';
+      state.privateDTag = parsed.privateDTag || '';
       if (parsed.version && parsed.templateMode === 'disc-design' && parsed.discDesign) {
         importDiscDesignFromPayload(parsed, 'a', { openDesigner: true });
         return;
@@ -13662,6 +13895,9 @@
         if (authorPubkey && _blockedAuthors.has(authorPubkey)) continue;
         let payload = null;
         try { payload = JSON.parse(e.content || '{}'); } catch { continue; }
+        // Encrypted designs never render here — they're feed-invisible and
+        // are pre-decrypted by loadMyDesigns before reaching this builder.
+        if (isEncryptedEnvelope(payload)) continue;
         if (!skipVersionFilter && (payload.version ?? 0) < MIN_SUPPORTED_SCHEMA_VERSION) continue;
         const address = templateEventAddress(e, payload);
         const eventTime = e.created_at || 0;
@@ -13845,6 +14081,12 @@
         badge.className = 'feedCardBrokenBadge';
         badge.textContent = 'MISSING IMAGE';
         thumb.appendChild(badge);
+      }
+      if (row.private) {
+        const lockBadge = document.createElement('span');
+        lockBadge.className = 'feedCardPrivateBadge';
+        lockBadge.textContent = '🔒 Private';
+        thumb.appendChild(lockBadge);
       }
       if (showBlur) {
         const overlay = document.createElement('div');
@@ -14039,7 +14281,23 @@
         }
       }
       const ownEvents = mergeCachedPublishedEvents(events).filter(event => event.pubkey === state.community.myPubkey);
-      const rows = buildRowsFromEvents(ownEvents, typeFilter, '', false, categoryFilter, languageFilter);
+      // Decrypt the user's own private events so they render in My Designs.
+      // (A failed decrypt — extension locked, etc. — is skipped silently.)
+      const prepared = [];
+      for (const e of ownEvents) {
+        let parsed = null;
+        if (e.kind === 30078) { try { parsed = JSON.parse(e.content || '{}'); } catch {} }
+        if (isEncryptedEnvelope(parsed)) {
+          try {
+            const decoded = await decryptProjectEnvelope(parsed);
+            prepared.push({ ...e, content: JSON.stringify(decoded), _private: true });
+          } catch (err) { /* can't decrypt — omit */ }
+        } else {
+          prepared.push(e);
+        }
+      }
+      const rows = buildRowsFromEvents(prepared, typeFilter, '', false, categoryFilter, languageFilter);
+      rows.forEach((r) => { if (r.e && r.e._private) r.private = true; });
       rows.sort((a, b) => b.createdAt - a.createdAt);
       wall.innerHTML = '';
       if (!rows.length) {
@@ -14550,6 +14808,23 @@
         editBtn.title = 'Edit this design and publish an update (replaces the original)';
         editBtn.addEventListener('click', () => startEditFromRow(row));
         actionsDiv.insertBefore(editBtn, saveJsonBtn);
+
+        // Owner-only Visibility toggle — flip a published design between
+        // public (feed-listed) and private (encrypted) in place.
+        const makePrivate = !row.private;
+        const visBtn = document.createElement('button');
+        visBtn.type = 'button';
+        visBtn.textContent = makePrivate ? 'Make Private' : 'Make Public';
+        if (makePrivate && !nostrEncryptCapability()) {
+          visBtn.disabled = true;
+          visBtn.title = 'Your Nostr extension does not support encryption (NIP-44 / NIP-04).';
+        } else {
+          visBtn.title = makePrivate
+            ? 'Re-publish this design encrypted, so only you can open it'
+            : 'Re-publish this private design publicly, listed in the community feed';
+        }
+        visBtn.addEventListener('click', () => republishDesignVisibility(row, makePrivate));
+        actionsDiv.insertBefore(visBtn, saveJsonBtn);
       }
 
       // Lightning tip button — only shown when the author has a resolvable LN address.
@@ -17499,6 +17774,14 @@
       on('publishConfirmCloseBtn', 'click', closePublishConfirmModal);
       on('publishConfirmCancelBtn', 'click', closePublishConfirmModal);
       on('publishConfirmPublishBtn', 'click', handlePublishConfirmPublish);
+      document.querySelectorAll('input[name="pubVisibility"]').forEach((radio) => {
+        radio.addEventListener('change', (e) => {
+          if (e.target.checked) {
+            state.visibility = e.target.value === 'private' ? 'private' : 'public';
+            updatePublishConfirmVisibilityNote();
+          }
+        });
+      });
       on('supportDevCloseBtn', 'click', closeSupportDevModal);
       on('supportDevNoBtn', 'click', closeSupportDevModal);
       on('supportDevLaterBtn', 'click', closeSupportDevModal);

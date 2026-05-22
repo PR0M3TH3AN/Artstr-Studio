@@ -38,6 +38,39 @@ plaintext JSON.
 4. **No `SCHEMA_VERSION` bump** — the decrypted payload is unchanged
    (still v5). The *encryption envelope* is versioned separately.
 
+### Implementation status
+
+- **Phase 0 — codebase audit: done.** The app uses only `getPublicKey` /
+  `signEvent`; **no NIP-04/44 anywhere** — the `kind:10000` mute list is
+  plain `p` tags, so there is no crypto codepath to reuse. `CompressionStream`
+  is assumed (with a `compression:"none"` fallback). Extension-runtime
+  checks (encrypt-to-self on Alby/nos2x, relay size) are validated by the
+  user in-browser; the build is defensive (capability probe + NIP-04
+  fallback) so it works regardless.
+- **Phase 1 — built (pending in-browser testing).** Done:
+  - Crypto helpers — `encryptProjectEnvelope` / `decryptProjectEnvelope`
+    (AES-256-GCM over gzip, NIP-44 key-wrap with NIP-04 fallback,
+    `nostrEncryptCapability` probe).
+  - `publishEncryptedDesign` — feed-invisible event: random persistent
+    `d`-tag, only `d` / `alt` / `encrypted` tags, no `casewrap` tag.
+  - Publish-confirm modal Public/Private control + private warning +
+    capability gate; private branch wired into `publishCurrentTemplate`
+    and `publishDiscDesign`.
+  - My Designs decrypts the author's own private events and shows a
+    🔒 Private badge; `buildRowsFromEvents` skips stray encrypted events.
+  - `state.visibility` / `state.privateDTag`; restored on load, cleared
+    on close.
+  - Known v1 gaps: file-save writes plaintext without a `visibility`
+    flag (re-pick Private on publish); a failed decrypt in My Designs is
+    skipped silently rather than shown as a locked card.
+- **Phase 2 — built (pending in-browser testing).** An owner-only
+  **Make Public / Make Private** button on a design's preview page
+  (`republishDesignVisibility`) re-publishes the design under the same
+  `d`-tag with the opposite wrapper — a NIP-33 in-place replace — behind
+  a confirm that states the public→private caveat. The button is gated
+  on encryption capability for the →private direction.
+- **Phases 3–4 — not started.**
+
 ### The honest caveat
 
 Encryption protects the design *contents*. It does **not** hide that an
