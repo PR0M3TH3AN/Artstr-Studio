@@ -1321,6 +1321,28 @@
       outline-offset: 2px;
     }
 
+    /* Drag-resize handles on the selected layer — 4 corners + 4 edges. */
+    .layerHandle {
+      position: absolute;
+      width: 13px; height: 13px;
+      margin: -7px 0 0 -7px;
+      background: #fff;
+      border: 2px solid var(--accent);
+      border-radius: 3px;
+      box-sizing: border-box;
+      z-index: 30;
+      pointer-events: auto;
+    }
+    body.tool-drawing .layerHandle { display: none; }
+    .lh-nw { left: 0;    top: 0;    cursor: nwse-resize; }
+    .lh-n  { left: 50%;  top: 0;    cursor: ns-resize; }
+    .lh-ne { left: 100%; top: 0;    cursor: nesw-resize; }
+    .lh-e  { left: 100%; top: 50%;  cursor: ew-resize; }
+    .lh-se { left: 100%; top: 100%; cursor: nwse-resize; }
+    .lh-s  { left: 50%;  top: 100%; cursor: ns-resize; }
+    .lh-sw { left: 0;    top: 100%; cursor: nesw-resize; }
+    .lh-w  { left: 0;    top: 50%;  cursor: ew-resize; }
+
     .freeLayer img {
       width: 100%;
       height: 100%;
@@ -3231,11 +3253,23 @@
           </div>
           <div id="textToolOptions" style="display:none">
             <h4>Text tool</h4>
+            <label for="textToolFont">Font</label>
+            <select id="textToolFont"></select>
             <div class="toolOptRow">
               <div><label for="textToolColor">Color</label><input type="color" id="textToolColor" value="#111827" /></div>
-              <div><label for="textToolSize">Size</label><input type="number" id="textToolSize" min="6" max="200" step="1" value="24" /></div>
+              <div><label for="textToolSize">Point size</label><input type="number" id="textToolSize" min="6" max="200" step="1" value="24" /></div>
             </div>
-            <p class="toolOptHint">Click on the canvas to place a text box, then type.</p>
+            <label for="textToolAlign">Alignment</label>
+            <select id="textToolAlign">
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
+            </select>
+            <div class="buttonRow">
+              <button type="button" id="textToolBold" class="aspectLockBtn" aria-pressed="false" title="Bold"><b>B</b></button>
+              <button type="button" id="textToolItalic" class="aspectLockBtn" aria-pressed="false" title="Italic"><i>I</i></button>
+            </div>
+            <p class="toolOptHint">Click the canvas to place a text box. With a text box selected, these controls restyle it.</p>
           </div>
         </div>
 
@@ -5437,7 +5471,7 @@
       strokeColor: '#111827',
       strokeWidth: 0
     };
-    const _textToolOpts = { color: '#111827', size: 24 };
+    const _textToolOpts = { color: '#111827', fontSize: 24, fontFamily: 'inherit', align: 'center', bold: false, italic: false };
 
     function currentCanvasHost() {
       return state.appMode === 'designer' ? $('designerDiscWrap') : $('sheet');
@@ -5538,8 +5572,18 @@
         set('shapeStrokeColor', _shapeToolOpts.strokeColor);
         set('shapeStrokeWidth', _shapeToolOpts.strokeWidth);
       } else if (_editorTool === 'text') {
-        set('textToolColor', _textToolOpts.color);
-        set('textToolSize', _textToolOpts.size);
+        // With a text layer selected the panel mirrors (and edits) it;
+        // otherwise it shows the defaults for the next text box.
+        const tl = layer && layer.type === 'text' ? layer
+          : (selectedLayer() && selectedLayer().type === 'text' ? selectedLayer() : null);
+        set('textToolFont', tl ? (tl.fontFamily || 'inherit') : _textToolOpts.fontFamily);
+        set('textToolColor', tl ? (tl.color || '#111827') : _textToolOpts.color);
+        set('textToolSize', tl ? (tl.fontSize || _textToolOpts.fontSize) : _textToolOpts.fontSize);
+        set('textToolAlign', tl ? (tl.align || 'left') : _textToolOpts.align);
+        const bBtn = $('textToolBold');
+        if (bBtn) bBtn.setAttribute('aria-pressed', (tl ? !!tl.bold : _textToolOpts.bold) ? 'true' : 'false');
+        const iBtn = $('textToolItalic');
+        if (iBtn) iBtn.setAttribute('aria-pressed', (tl ? !!tl.italic : _textToolOpts.italic) ? 'true' : 'false');
       }
     }
 
@@ -5781,8 +5825,8 @@
         html: 'Text',
         x: p.x - w / 2, y: p.y - h / 2, w, h,
         rotate: 0, opacity: 1, z: nextLayerZ(),
-        fontFamily: 'inherit', fontSize: _textToolOpts.size, color: _textToolOpts.color,
-        align: 'center', bold: false, italic: false
+        fontFamily: _textToolOpts.fontFamily, fontSize: _textToolOpts.fontSize, color: _textToolOpts.color,
+        align: _textToolOpts.align, bold: _textToolOpts.bold, italic: _textToolOpts.italic
       });
       // Hand off to Select so the new text box is editable and movable, and
       // focus it so the user can type right away (selecting the placeholder).
@@ -8679,6 +8723,19 @@
           }
           render();
         });
+
+        // Drag-resize handles — only on the selected, unlocked layer.
+        if (layer.id === state.selectedLayerId && !layer.locked) {
+          for (const dir of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+            const handle = document.createElement('div');
+            handle.className = `layerHandle lh-${dir}`;
+            handle.dataset.handle = dir;
+            handle.addEventListener('pointerdown', startLayerResize);
+            handle.addEventListener('click', (e) => e.stopPropagation());
+            el.appendChild(handle);
+          }
+        }
+
         (isDesignerLayer ? designerOverlay : overlay).appendChild(el);
       }
       renderLayerList();
@@ -10457,6 +10514,109 @@
       if (controlsEl) {
         try { controlsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch {}
       }
+    }
+
+    // Drag-resize a layer from one of its 8 handles. Resizes in the layer's
+    // own (rotated) frame and keeps the opposite edge/corner anchored.
+    // Text layers reflow inside the new box — fontSize is never touched.
+    function startLayerResize(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      const handle = event.currentTarget;
+      const dir = handle.dataset.handle;
+      const el = handle.parentElement;
+      const layer = getLayer(el?.dataset.layerId);
+      if (!layer || layer.locked) return;
+      state.selectedLayerId = layer.id;
+
+      const isDesignerLayer = layer.target === 'designer-disc';
+      const dragHost = isDesignerLayer ? $('designerDiscWrap') : $('sheet');
+      const hostRect = dragHost.getBoundingClientRect();
+      const unitW = isDesignerLayer ? discTemplate.discD : sheetW();
+      const unitH = isDesignerLayer ? discTemplate.discD : sheetH();
+
+      const startX = event.clientX, startY = event.clientY;
+      const w0 = Number(layer.w) || 0, h0 = Number(layer.h) || 0;
+      const cx0 = (Number(layer.x) || 0) + w0 / 2;
+      const cy0 = (Number(layer.y) || 0) + h0 / 2;
+      const theta = (Number(layer.rotate) || 0) * Math.PI / 180;
+      const cos = Math.cos(theta), sin = Math.sin(theta);
+
+      // Anchor sign points at the FIXED side (opposite the dragged handle).
+      const sx = dir.includes('w') ? 1 : dir.includes('e') ? -1 : 0;
+      const sy = dir.includes('n') ? 1 : dir.includes('s') ? -1 : 0;
+      const drivesW = dir.includes('e') || dir.includes('w');
+      const drivesH = dir.includes('n') || dir.includes('s');
+      const MIN = 0.12;
+
+      // World position of the fixed anchor (must stay put through the drag).
+      const axOld = sx * w0 / 2, ayOld = sy * h0 / 2;
+      const anchorWX = cx0 + (axOld * cos - ayOld * sin);
+      const anchorWY = cy0 + (axOld * sin + ayOld * cos);
+
+      let snapshotted = false;
+      document.body.classList.add('dragging-layer');
+      handle.setPointerCapture(event.pointerId);
+
+      const move = (e) => {
+        if (!snapshotted) { pushHistory('resize layer'); snapshotted = true; }
+        // Screen delta → inches → the layer's local (un-rotated) frame.
+        const idx = (e.clientX - startX) / hostRect.width * unitW;
+        const idy = (e.clientY - startY) / hostRect.height * unitH;
+        const ldx = idx * cos + idy * sin;
+        const ldy = -idx * sin + idy * cos;
+        const dw = drivesW ? (dir.includes('e') ? ldx : -ldx) : 0;
+        const dh = drivesH ? (dir.includes('s') ? ldy : -ldy) : 0;
+
+        // Edge handles are always single-axis — they resize in their one
+        // direction only. Aspect-lock applies to corner handles alone, so
+        // grabbing an edge never balloons the box on the other axis.
+        const isCorner = drivesW && drivesH;
+        let newW, newH;
+        if (_aspectLocked && isCorner && w0 > 0 && h0 > 0) {
+          const sw = dw / w0;
+          const sh = dh / h0;
+          const s = Math.abs(sw) >= Math.abs(sh) ? sw : sh;
+          newW = Math.max(MIN, w0 * (1 + s));
+          newH = Math.max(MIN, h0 * (1 + s));
+        } else {
+          newW = drivesW ? Math.max(MIN, w0 + dw) : w0;
+          newH = drivesH ? Math.max(MIN, h0 + dh) : h0;
+        }
+
+        // Re-place the box so the fixed anchor stays at its world position.
+        const axNew = sx * newW / 2, ayNew = sy * newH / 2;
+        const ncx = anchorWX - (axNew * cos - ayNew * sin);
+        const ncy = anchorWY - (axNew * sin + ayNew * cos);
+        layer.w = newW; layer.h = newH;
+        layer.x = ncx - newW / 2; layer.y = ncy - newH / 2;
+
+        if (isDesignerLayer) {
+          const d = discTemplate.discD;
+          el.style.left = `${layer.x / d * 100}%`;
+          el.style.top = `${layer.y / d * 100}%`;
+          el.style.width = `${layer.w / d * 100}%`;
+          el.style.height = `${layer.h / d * 100}%`;
+        } else {
+          el.style.left = inches(layer.x);
+          el.style.top = inches(layer.y);
+          el.style.width = inches(layer.w);
+          el.style.height = inches(layer.h);
+        }
+        syncLayerInputs();
+      };
+
+      const stop = () => {
+        document.body.classList.remove('dragging-layer');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', stop);
+        handle.removeEventListener('pointercancel', stop);
+        if (snapshotted) render();
+      };
+
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', stop);
+      handle.addEventListener('pointercancel', stop);
     }
 
     function readDimensionInputs() {
@@ -17107,11 +17267,14 @@
           render();
         });
       }
+      const fontOptionsHtml = WEB_SAFE_FONTS.map(f => `<option value="${escapeHtml(f.value)}" style="font-family:${f.value === 'inherit' ? 'inherit' : escapeHtml(f.value)}">${escapeHtml(f.label)}</option>`).join('');
       const fontFamilyEl = $('textFontFamily');
       if (fontFamilyEl) {
-        fontFamilyEl.innerHTML = WEB_SAFE_FONTS.map(f => `<option value="${escapeHtml(f.value)}" style="font-family:${f.value === 'inherit' ? 'inherit' : escapeHtml(f.value)}">${escapeHtml(f.label)}</option>`).join('');
+        fontFamilyEl.innerHTML = fontOptionsHtml;
         fontFamilyEl.addEventListener('change', (event) => updateSelectedLayer('fontFamily', event.target.value));
       }
+      const textToolFontEl = $('textToolFont');
+      if (textToolFontEl) textToolFontEl.innerHTML = fontOptionsHtml;
       const deckFontEl = $('deckThemeFont');
       if (deckFontEl) {
         deckFontEl.innerHTML = '<option value="">No font override</option>'
@@ -17407,8 +17570,27 @@
       on('shapeFillColor', 'input', (e) => { _shapeToolOpts.fillColor = e.target.value; });
       on('shapeStrokeColor', 'input', (e) => { _shapeToolOpts.strokeColor = e.target.value; });
       on('shapeStrokeWidth', 'input', (e) => { _shapeToolOpts.strokeWidth = Math.max(0, Math.min(50, Number(e.target.value) || 0)); });
-      on('textToolColor', 'input', (e) => { _textToolOpts.color = e.target.value; });
-      on('textToolSize', 'input', (e) => { _textToolOpts.size = Math.max(6, Math.min(200, Number(e.target.value) || 24)); });
+      // Text tool controls: set the default for the next text box, and —
+      // when a text layer is selected — restyle it live.
+      const applyTextToolField = (field, value) => {
+        _textToolOpts[field] = value;
+        const l = selectedLayer();
+        if (l && l.type === 'text') updateSelectedLayer(field, value);
+      };
+      on('textToolFont', 'change', (e) => applyTextToolField('fontFamily', e.target.value));
+      on('textToolColor', 'input', (e) => applyTextToolField('color', e.target.value));
+      on('textToolSize', 'input', (e) => applyTextToolField('fontSize', Math.max(6, Math.min(200, Number(e.target.value) || 24))));
+      on('textToolAlign', 'change', (e) => applyTextToolField('align', e.target.value));
+      on('textToolBold', 'click', () => {
+        const next = $('textToolBold').getAttribute('aria-pressed') !== 'true';
+        $('textToolBold').setAttribute('aria-pressed', next ? 'true' : 'false');
+        applyTextToolField('bold', next);
+      });
+      on('textToolItalic', 'click', () => {
+        const next = $('textToolItalic').getAttribute('aria-pressed') !== 'true';
+        $('textToolItalic').setAttribute('aria-pressed', next ? 'true' : 'false');
+        applyTextToolField('italic', next);
+      });
       syncToolUI();
 
       // Global undo/redo keyboard shortcuts. Bypass when an editable
