@@ -56,6 +56,9 @@ Each has a full spec in `docs/`.
 - **Artstr Stacks** — `docs/STACKS_FEATURE.md`. Interactive fullscreen
   page/card stacks (HyperCard for Nostr) — the Slide Deck extended with
   layer actions and an interactive viewer. Queued after private publishing.
+- **Pixel Art** — `docs/PIXEL_ART_FEATURE.md`. An editable `pixelart`
+  layer type (palette-indexed grid in JSON), a dedicated Pixel Editor
+  view, PNG/GIF export, and a standalone `casewrap-pixelart` design.
 - **Badges (NIP-58)** — `docs/BADGES_FEATURE.md`. Award / display Nostr
   badges on profile pages.
 - **Collections (NIP-51 sets)** — `docs/COLLECTIONS_FEATURE.md`. Let users
