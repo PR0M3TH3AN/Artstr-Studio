@@ -143,8 +143,14 @@ wholesale. An `isDeckLike(mode)` helper covers both `'deck'` and
   drops `notes`, and its `layers` may carry `action`s. Canvas dimensions
   live at the **stack** level (every card shares the aspect) rather than
   per-card — all cards in a stack are the same size.
-- The deck's render-time theme composition (`composeSlideForDeck`) is
-  reused as-is (`ignoreStackTheme` mirrors `ignoreDeckTheme`).
+- **Feeding the shared renderer:** the deck's renderer / theme composition
+  read a per-entry `{ slide: {width,height,background}, layers }` shape.
+  For a stack, the engine synthesises that on the fly — `width`/`height`
+  from `stack`, `background` from the card — so `renderCustomArtPreviewDOM`
+  and `composeSlideForDeck` are reused untouched. (`ignoreStackTheme`
+  mirrors `ignoreDeckTheme`.)
+- **`startCard`** holds a card `id`; if that card is deleted it falls back
+  to the first card.
 
 ### The `action` on a layer
 
@@ -191,11 +197,15 @@ The Deck Builder sorter, reused. A new **Stack** option in the Template-
 tab Layout panel (beside Case cover / Disc labels / Slide deck). The
 sidebar adds a **Stack** panel:
 
-- **Aspect ratio** — 16:9 / 9:16 / 1:1 / 4:3 / custom. Chosen up front;
-  changing it resizes every card's canvas (layers keep their inch
-  positions; a warning notes some may need nudging).
+- **Aspect ratio** — 16:9 / 9:16 / 1:1 / 4:3 / custom. Chosen up front.
+  Changing it later **re-fits every card** by reusing the deck's existing
+  import-letterbox remap (`deckSlideFromImport`'s scale-to-fit + centre
+  math) — layers scale and centre into the new aspect instead of being
+  stranded off-canvas. The user confirms before a re-fit runs.
 - **Add card** (blank / import a design / import from Nostr), duplicate,
-  delete, drag-reorder, inline-rename — all from the deck sorter.
+  delete, drag-reorder, inline-rename — all from the deck sorter. Imports
+  letterbox onto the **stack's** aspect, not a hardcoded 16:9 — the
+  existing remap is generalised to take a target width/height.
 - **Start card** — which card the viewer opens on (default: first).
 - A **Stack theme** panel (font + background), reused from the deck.
 
@@ -224,16 +234,27 @@ The fullscreen runtime, built on the Presenter Mode engine:
 - Renders the current card full-screen, letterboxed to the stack aspect,
   themed (`composeSlideForDeck` reused), via `renderCustomArtPreviewDOM`.
 - An **action overlay** sits above the card: for each layer with an
-  `action`, a positioned, pointer-enabled hit region (matching the
-  layer's box). A hovered actionable region shows a pointer cursor.
-- **Click routing:** `goto-card` → navigate (resolving keywords /
-  ids); `open-url` → a confirm dialog showing the destination, then open
-  in a new tab.
+  `action`, a positioned hit region matching the layer's (transformed)
+  box. The regions are real **`<button>`s**, so they are Tab-focusable,
+  Enter/Space-activatable, and screen-reader-announced — the viewer is
+  not mouse-only. Overlapping actionable layers resolve by **z-order**
+  (topmost wins); a hovered/focused region shows a pointer cursor.
+- **Click routing:** `goto-card` → navigate (ids; or the keywords
+  `next` / `prev` / `first` / `last`, **clamped at the ends — no wrap**);
+  `open-url` → a confirm dialog showing the destination, then open in a
+  new tab with `rel="noopener noreferrer"`. Clicking empty (non-action)
+  space is a **no-op** — a stack wanting click-anywhere advance adds a
+  full-card hotspot.
 - **Keyboard fallback** — arrows / space still do prev/next so a stack
   with no on-card navigation is never a dead end; `Esc` exits. The viewer
   owns the keyboard (capture-phase handler), like Presenter Mode.
 - **History** — visited cards form a back-stack so a Back control / the
   Backspace key can return, even across `goto-card` jumps.
+- **Touch** — taps act as clicks; fullscreen is best-effort (matching
+  Presenter Mode). A 9:16 stack is the natural phone format.
+- Launching **from the editor** persists the in-progress card edit first
+  (the `persistEditingDeckSlide` step), so the viewer always shows saved
+  state.
 - Entry points: a ▶ **"View"** button in the Stack Builder tool palette,
   and an **"Open Stack"** button on a stack's community-browser preview.
 
@@ -243,7 +264,9 @@ The fullscreen runtime, built on the Presenter Mode engine:
 and boots straight into the interactive viewer (no editor chrome). Needs
 a `vercel.json` rewrite (`/p/:id` → SPA), mirroring `/share/:id`.
 `/share/<naddr>` of a stack continues to open the editor, as other
-designs do.
+designs do. A `/p/` link to an **encrypted** stack the viewer can't
+decrypt shows a "This stack is private" locked state, consistent with
+`PRIVATE_PUBLISHING_FEATURE.md`.
 
 ### 5. Community feed
 
@@ -329,10 +352,11 @@ jumps and Back works; `open-url` confirms then opens.
 | `open-url` is a phishing / malware vector in shared stacks | Mandatory confirm dialog showing the destination; new tab + `noopener`; never auto-navigate. |
 | `goto-card` targets break on reorder / delete | Targets are stable card `id`s, never indices; dangling targets are editor-flagged and viewer no-ops. |
 | A stack with only on-card navigation could trap the viewer | Keyboard prev/next + a back-stack + `Esc` always work, regardless of the stack's own buttons. |
-| Aspect-ratio change strands existing layers off-canvas | Layers keep inch positions; the editor warns; the off-canvas veil already shows what's clipped. |
+| Aspect-ratio change strands existing layers off-canvas | Changing aspect re-fits every card through the existing import-letterbox remap (scale-to-fit + centre), behind a confirm — layers are never silently stranded. |
 | Stack vs Deck duplication | One shared card-container engine via `isDeckLike()`; only aspect, actions, and the viewer branch. |
 | Big stacks → large events (relay size caps) | Images are URLs; warn past ~100 KB / ~25 cards; Blossom offload + multi-event stacks deferred. |
-| Layer click hit-testing under rotation / clipping | The action overlay uses the same box math as the renderer; rotated hotspots use the layer's transformed box; complex clip shapes hit-test on the bounding box (documented limitation). |
+| Layer click hit-testing | The overlay reuses the renderer's box math; a CSS `transform:rotate` hit region catches clicks in its true rotated shape, so **rotation is exact**. A *clip-masked* layer hit-tests on its bounding box, not the mask shape — documented limitation; authors wanting a precise non-rect hotspot use a rotated/sized rect. |
+| Viewer is mouse-centric | Action regions are focusable `<button>`s — Tab / Enter / Space and screen readers work; keyboard prev/next is always available. |
 
 ---
 
@@ -352,9 +376,10 @@ jumps and Back works; `open-url` confirms then opens.
 ## Acceptance summary
 
 ### Phase A
-- [ ] Stack is a Template-tab layout; per-stack aspect ratio works.
+- [ ] Stack is a Template-tab layout; per-stack aspect ratio works, and
+      changing it re-fits existing cards (no stranded layers).
 - [ ] Card sorter: add / import / duplicate / delete / reorder / rename;
-      cards have stable ids.
+      cards have stable ids; imports letterbox onto the stack's aspect.
 - [ ] Save / load / publish / fork as `casewrap-stack`; feed card shows a
       card-count badge.
 
@@ -367,9 +392,12 @@ jumps and Back works; `open-url` confirms then opens.
 ### Phase C
 - [ ] The interactive viewer renders cards full-screen and routes clicks
       on actionable layers.
-- [ ] `goto-card` (ids + keywords) navigates; a back-stack + keyboard +
-      `Esc` always work; `open-url` confirms then opens in a new tab.
+- [ ] `goto-card` (ids + keywords, clamped at the ends) navigates; a
+      back-stack + keyboard + `Esc` always work; `open-url` confirms then
+      opens in a new tab.
 - [ ] The viewer owns the keyboard; theme is composed in.
+- [ ] Action regions are focusable buttons — Tab / Enter reach and fire
+      them; empty-space clicks are no-ops.
 
 ### Phase D
 - [ ] `/p/<naddr>` cold-boots a published stack into the viewer.
