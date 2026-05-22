@@ -429,10 +429,27 @@
        off .template-only / .designer-only — show it for either. */
     #designerLayoutFieldset { display: none; }
     body.app-designer #designerLayoutFieldset,
-    body.template-customart #designerLayoutFieldset { display: block; }
-    /* Custom Art now lives on the Designer tab, so the Template-tab Layout
-       panel hides while Custom Art is active. */
-    body.template-customart #layoutFieldset { display: none !important; }
+    body.template-customart #designerLayoutFieldset,
+    body.template-slide #designerLayoutFieldset { display: block; }
+    /* Custom Art and Slide Designer live on the Designer tab, so the
+       Template-tab Layout panel hides while either is active. */
+    body.template-customart #layoutFieldset,
+    body.template-slide #layoutFieldset { display: none !important; }
+    /* Editing a deck's slide opens the slide editor; suppress the layout
+       panels so the only way out is the "Back to deck" control. */
+    body.editing-deck-slide #designerLayoutFieldset,
+    body.editing-deck-slide #layoutFieldset,
+    body.editing-deck-slide #metadataFieldset,
+    body.editing-deck-slide #exportFieldset,
+    body.editing-deck-slide #printSaveFieldset { display: none !important; }
+    /* The Deck Builder's "Slides" and "Deck theme" panels show only in
+       deck mode; the per-slide theme opt-out shows only while editing a
+       deck slide. */
+    #deckFieldset, #deckThemeFieldset { display: none; }
+    body.template-deck #deckFieldset,
+    body.template-deck #deckThemeFieldset { display: block; }
+    #deckSlideThemeWrap { display: none; margin-top: 10px; }
+    body.editing-deck-slide #deckSlideThemeWrap { display: block; }
     #layersFieldset { order: 40; }
     #designerMetadataFieldset { order: 45; }
     #exportFieldset { order: 50; }
@@ -523,6 +540,175 @@
     }
 
     body.app-designer #discDesignerView { display: flex; }
+
+    /* ---- Deck Builder (slide sorter) ---- */
+    #deckSorterView { display: none; }
+    #deckEditBar { display: none; }
+    body.template-deck:not(.editing-deck-slide) #deckSorterView {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      gap: 16px;
+      padding: 22px 26px;
+      box-sizing: border-box;
+      min-height: calc(100vh - 160px);
+    }
+    /* In the sorter view there is nothing to draw on or zoom — hide the
+       sheet, the tool palette, the tool options, and the zoom bar. */
+    body.template-deck:not(.editing-deck-slide) #sheetWrap,
+    body.template-deck:not(.editing-deck-slide) #toolOptions,
+    body.template-deck:not(.editing-deck-slide) #canvasToolbar,
+    body.template-deck:not(.editing-deck-slide) #layersFieldset { display: none !important; }
+    /* Deck sorter: the tool palette shows only the Present (▶) action. */
+    body.template-deck:not(.editing-deck-slide) #tool-select,
+    body.template-deck:not(.editing-deck-slide) #tool-hand,
+    body.template-deck:not(.editing-deck-slide) #tool-pen,
+    body.template-deck:not(.editing-deck-slide) #tool-pencil,
+    body.template-deck:not(.editing-deck-slide) #tool-shape,
+    body.template-deck:not(.editing-deck-slide) #tool-text,
+    body.template-deck:not(.editing-deck-slide) .toolPaletteDivider { display: none !important; }
+    #deckPresentBtn { display: none; font-size: .9rem; }
+    body.template-deck #deckPresentBtn,
+    body.editing-deck-slide #deckPresentBtn { display: flex; }
+    .deckSorterBar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap;
+    }
+    .deckSorterCount { font-weight: 600; color: var(--ink); font-size: .92rem; }
+    .deckSlideGrid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+      gap: 16px; align-content: start;
+    }
+    .deckSlideEmpty {
+      grid-column: 1 / -1; text-align: center; padding: 48px 16px;
+      color: #64748b; border: 1px dashed var(--line); border-radius: 10px;
+    }
+    .deckSlideCard {
+      position: relative; border: 1px solid var(--line); border-radius: 9px;
+      background: #fff; overflow: hidden; cursor: pointer;
+      transition: box-shadow .12s ease, transform .12s ease;
+    }
+    .deckSlideCard:hover { box-shadow: 0 6px 20px rgba(15,23,42,.16); }
+    .deckSlideCard.dragging { opacity: .35; }
+    .deckSlideCard.dragover { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .deckSlideThumb {
+      position: relative; width: 100%; aspect-ratio: 16 / 9;
+      overflow: hidden; background: #fff;
+      display: flex; align-items: center; justify-content: center;
+    }
+    /* Stop flexbox from horizontally shrinking the fixed-width mini-preview
+       (it would squish the slide); scale uniformly via fitMiniPreview. */
+    .deckSlideThumb > * { flex: 0 0 auto; transform-origin: center center; }
+    .deckSlideMeta {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 8px; border-top: 1px solid var(--line); font-size: .78rem;
+    }
+    .deckSlideNum {
+      font-weight: 700; color: #fff; background: var(--accent);
+      border-radius: 4px; padding: 1px 6px; flex: 0 0 auto;
+    }
+    .deckSlideName {
+      flex: 1; min-width: 0;
+      border: 1px solid transparent; background: transparent;
+      font: inherit; color: inherit; border-radius: 4px; padding: 1px 5px;
+    }
+    .deckSlideName:hover { border-color: var(--line); }
+    .deckSlideName:focus { border-color: var(--accent); background: #fff; outline: none; }
+    .deckSlideName::placeholder { color: #94a3b8; }
+    body.dark .deckSlideName:focus { background: #0b1220; }
+    .deckSlideActions { display: flex; gap: 4px; flex: 0 0 auto; }
+    .deckSlideActions button {
+      border: 1px solid var(--line); background: #fff; border-radius: 4px;
+      cursor: pointer; font-size: .8rem; padding: 2px 6px; line-height: 1.1;
+    }
+    .deckSlideActions button:hover { background: #f1f5f9; }
+    #deckEditBar {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      z-index: 60; align-items: center; gap: 10px;
+      background: var(--panel, #fff); border: 1px solid var(--line);
+      border-radius: 999px; padding: 5px 14px 5px 8px;
+      box-shadow: 0 6px 20px rgba(15,23,42,.18); font-size: .82rem;
+    }
+    body.editing-deck-slide #deckEditBar { display: flex; }
+    #deckBackBtn {
+      border: 0; background: var(--accent); color: #fff; cursor: pointer;
+      border-radius: 999px; padding: 4px 12px; font-weight: 600; font-size: .8rem;
+    }
+    #deckEditLabel { color: var(--ink); font-weight: 600; }
+    body.dark .deckSlideCard,
+    body.dark .deckSlideThumb,
+    body.dark .deckSlideActions button { background: var(--panel); }
+    body.dark .deckSlideActions button:hover { background: #1e293b; }
+    .deckCountBadge {
+      position: absolute; right: 6px; bottom: 6px; z-index: 5;
+      background: rgba(15,23,42,.82); color: #fff;
+      font-size: .68rem; font-weight: 700; padding: 2px 7px;
+      border-radius: 999px; pointer-events: none;
+    }
+
+    /* ---- Presenter Mode ---- */
+    #presenterMode {
+      position: fixed; inset: 0; z-index: 100000;
+      background: #0b0d12; display: none; flex-direction: column;
+    }
+    #presenterMode.open { display: flex; }
+    #presenterStage {
+      flex: 1; min-height: 0; position: relative;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden; background: #000; cursor: pointer;
+    }
+    #presenterStage > * { flex: 0 0 auto; transform-origin: center center; }
+    #presenterNotesPanel {
+      display: flex; gap: 18px; padding: 14px 22px; box-sizing: border-box;
+      height: 188px; background: #14171f; border-top: 1px solid #2a2f3a;
+    }
+    #presenterNotesInner { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    #presenterNotesInner h4,
+    .presenterNextLabel {
+      margin: 0 0 6px; font-size: .7rem; letter-spacing: .08em;
+      text-transform: uppercase; color: #8b93a7;
+    }
+    #presenterNotesText {
+      flex: 1; overflow-y: auto; color: #e6e9f0;
+      font-size: 1.02rem; line-height: 1.5; white-space: pre-wrap;
+    }
+    #presenterNextWrap { flex: 0 0 auto; width: 256px; display: flex; flex-direction: column; }
+    #presenterNextThumb {
+      flex: 1; position: relative; overflow: hidden;
+      background: #000; border: 1px solid #2a2f3a; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #presenterNextThumb > * { flex: 0 0 auto; transform-origin: center center; }
+    #presenterBar {
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 18px; background: #0b0d12; border-top: 1px solid #2a2f3a;
+    }
+    .presenterBarSpacer { flex: 1; }
+    #presenterCounter {
+      color: #e6e9f0; font-weight: 700; font-size: .95rem;
+      min-width: 72px; text-align: center;
+    }
+    .presenterBtn {
+      border: 1px solid #2a2f3a; background: #1c2029; color: #e6e9f0;
+      border-radius: 7px; padding: 7px 14px; font-size: .85rem; font-weight: 600;
+      cursor: pointer;
+    }
+    .presenterBtn:hover:not(:disabled) { background: #262b36; }
+    .presenterBtn:disabled { opacity: .4; cursor: default; }
+    #presenterExitBtn { border-color: #5b2330; background: #3a1820; }
+    #presenterExitBtn:hover { background: #4d1f2a; }
+    /* Audience view — the slide fills the screen; the control bar floats
+       over the bottom and auto-hides when the mouse goes idle. */
+    #presenterMode.audience #presenterNotesPanel { display: none !important; }
+    #presenterMode.audience #presenterBar {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      background: rgba(11,13,18,.92);
+      transition: transform .25s ease, opacity .25s ease;
+    }
+    #presenterMode.audience.chromeHidden #presenterBar {
+      transform: translateY(115%); opacity: 0; pointer-events: none;
+    }
 
     .designerDiscWrap {
       position: relative;
@@ -856,14 +1042,20 @@
     /* Export toggles: fold/safe/trim/bleed/crops only apply to case covers */
     body.template-disc .cover-toggle,
     body.template-jewel .cover-toggle,
-    body.template-customart .cover-toggle {
+    body.template-customart .cover-toggle,
+    body.template-slide .cover-toggle {
       display: none !important;
     }
 
-    /* Custom Art mode: hide all the slot/region UI and decorations, show only the canvas + layers */
-    body:not(.template-customart) #customArtFieldset {
+    /* Custom Art / Slide mode: hide all the slot/region UI and decorations,
+       show only the canvas + layers (the Canvas panel serves both). */
+    body:not(.template-customart):not(.template-slide) #customArtFieldset {
       display: none !important;
     }
+    /* Speaker notes belong to slides only. */
+    #slideNotesWrap { display: none; }
+    body.template-slide #slideNotesWrap { display: block; }
+    #slideNotes { width: 100%; box-sizing: border-box; resize: vertical; font-family: inherit; font-size: .82rem; }
     body.template-customart #coverSizeFieldset,
     body.template-customart #coverArtworkFieldset,
     body.template-customart #discArtworkFieldset,
@@ -875,9 +1067,32 @@
     body.template-customart .trimArea,
     body.template-customart .foldLine,
     body.template-customart .discSpineStrip,
-    body.template-customart .jewelSpineGuide {
+    body.template-customart .jewelSpineGuide,
+    body.template-slide #coverSizeFieldset,
+    body.template-slide #coverArtworkFieldset,
+    body.template-slide #discArtworkFieldset,
+    body.template-slide #jewelArtworkFieldset,
+    body.template-slide .coverOnly,
+    body.template-slide .diskLayer,
+    body.template-slide .jewelLayer,
+    body.template-slide .bleedFill,
+    body.template-slide .trimArea,
+    body.template-slide .foldLine,
+    body.template-slide .discSpineStrip,
+    body.template-slide .jewelSpineGuide {
       display: none !important;
     }
+
+    /* Deck Builder (sorter): only Layout, Slides, Theme, Metadata and
+       Print/Save make sense — hide every artwork / canvas / layers panel. */
+    body.template-deck #coverSizeFieldset,
+    body.template-deck #coverArtworkFieldset,
+    body.template-deck #discArtworkFieldset,
+    body.template-deck #jewelArtworkFieldset,
+    body.template-deck #customArtFieldset,
+    body.template-deck #exportFieldset,
+    body.template-deck #layersFieldset,
+    body.template-deck #printExportRow { display: none !important; }
 
     .templateLayerPanels {
       display: grid;
@@ -2079,8 +2294,8 @@
       </div>
 
       <div class="appModeTabs">
-        <button type="button" class="appModeTab active" id="modeTabTemplate"><img src="paper_icon_32px.png" alt="Template" style="height: 40px; width: auto;" />Template</button>
-        <button type="button" class="appModeTab" id="modeTabDesigner"><img src="design_icon_32px.png" alt="Designer" style="height: 40px; width: auto;" />Designer</button>
+        <button type="button" class="appModeTab active" id="modeTabTemplate"><img src="paper_icon_32px.png" alt="Template" style="height: 60px; width: auto;" />Template</button>
+        <button type="button" class="appModeTab" id="modeTabDesigner"><img src="design_icon_32px.png" alt="Designer" style="height: 60px; width: auto;" />Designer</button>
       </div>
 
 
@@ -2102,6 +2317,7 @@
         <div class="layoutTabs" role="tablist" aria-label="Template layout">
           <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover</button>
           <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels</button>
+          <button type="button" class="layoutTab" id="mode-deck" data-template-mode="deck" role="tab">Slide deck</button>
         </div>
       </fieldset>
 
@@ -2180,10 +2396,7 @@
           <option value="zh">Chinese</option>
           <option value="other">Other</option>
         </select>
-        <div id="imdbImportRow" class="buttonRow">
-          <button type="button" id="imdbImportBtn">Import IMDb data</button>
-        </div>
-        <p id="imdbImportHint" class="hint">IMDb import uses OMDb-compatible endpoint + API key. Title and category are required to save or export.</p>
+        <p class="hint">Title and category are required to save or publish.</p>
       </fieldset>
 
 
@@ -2208,7 +2421,7 @@
 
       <fieldset class="workflowStep template-only" id="printSaveFieldset">
         <legend data-step="6">Print &amp; Save</legend>
-        <div class="buttonRow">
+        <div class="buttonRow" id="printExportRow">
           <button class="primary" id="printBtn">Print / Save PDF</button>
           <button id="exportJpegBtn">Export JPEG</button>
         </div>
@@ -2245,7 +2458,41 @@
         </div>
         <label for="customArtBg">Background color</label>
         <input id="customArtBg" type="color" />
-        <p class="hint">100–8192 px. Add layers (image / text / color) using the Layers panel below.</p>
+        <p class="hint" id="customArtSizeHint">100–8192 px. Add layers (image / text / color) using the Layers panel below.</p>
+        <div id="slideNotesWrap">
+          <label for="slideNotes">Speaker notes</label>
+          <textarea id="slideNotes" rows="4" placeholder="Notes for Presenter Mode — never shown on the slide itself."></textarea>
+        </div>
+        <div id="deckSlideThemeWrap">
+          <label class="toggle"><input type="checkbox" id="deckSlideIgnoreTheme" /> Ignore deck theme for this slide</label>
+          <p class="hint" style="margin:4px 0 0">The deck theme restyles fonts and backgrounds across the deck — turn this on to keep this slide's own look.</p>
+        </div>
+      </fieldset>
+
+      <fieldset class="workflowStep template-only" id="deckFieldset">
+        <legend data-step="2">Slides</legend>
+        <div class="buttonRow">
+          <button type="button" id="deckAddSlideBtn">+ Add blank slide</button>
+        </div>
+        <div class="buttonRow">
+          <button type="button" id="deckImportSlideBtn">Import slide from Nostr</button>
+          <button type="button" id="deckImportFileBtn">Import from file</button>
+        </div>
+        <input id="deckSlideImportFile" type="file" accept="application/json,.json" hidden />
+        <p class="hint" id="deckCountHint">No slides yet — add one to start your deck.</p>
+        <p class="hint">Click a slide thumbnail to edit it. Drag thumbnails to reorder.</p>
+      </fieldset>
+
+      <fieldset class="workflowStep template-only" id="deckThemeFieldset">
+        <legend data-step="3">Deck theme</legend>
+        <p class="hint">A deck theme restyles every slide in the thumbnails and Presenter Mode — the slides themselves are never changed.</p>
+        <label for="deckThemeFont">Font for all slides</label>
+        <select id="deckThemeFont"></select>
+        <label class="toggle" style="margin-top:10px"><input type="checkbox" id="deckThemeBgEnabled" /> Override slide backgrounds</label>
+        <div id="deckThemeBgRow" style="display:none;margin-top:6px">
+          <label for="deckThemeBg">Deck background color</label>
+          <input id="deckThemeBg" type="color" />
+        </div>
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="coverArtworkFieldset">
@@ -2382,6 +2629,7 @@
         <legend data-step="1">Layout</legend>
         <div class="layoutTabs" role="tablist" aria-label="Designer layout">
           <button type="button" class="layoutTab" id="mode-customart" data-layout="customart" role="tab">Custom art</button>
+          <button type="button" class="layoutTab" id="mode-slide" data-layout="slide" role="tab">Slide</button>
           <button type="button" class="layoutTab" id="mode-discdesign" data-layout="discdesign" role="tab">Disc design</button>
         </div>
       </fieldset>
@@ -2905,6 +3153,19 @@
           </div>
           <div class="designerDiscLabel" id="designerDiscLabel">Design A</div>
         </div>
+
+        <div id="deckSorterView">
+          <div class="deckSorterBar">
+            <div class="deckSorterCount" id="deckSorterCount">0 slides</div>
+            <button type="button" id="deckSorterAddBtn" class="primary">+ Add slide</button>
+          </div>
+          <div class="deckSlideGrid" id="deckSlideGrid"></div>
+        </div>
+
+        <div id="deckEditBar">
+          <button type="button" id="deckBackBtn">← Back to deck</button>
+          <span id="deckEditLabel"></span>
+        </div>
       </div>
 
         <div class="toolPalette" id="toolPalette">
@@ -2915,6 +3176,7 @@
           <button type="button" class="toolPaletteBtn" id="tool-pencil" data-tool="pencil" title="Pencil tool (B)" aria-label="Pencil tool">✎</button>
           <button type="button" class="toolPaletteBtn" id="tool-shape" data-tool="shape" title="Shape tool (S)" aria-label="Shape tool">▢</button>
           <button type="button" class="toolPaletteBtn" id="tool-text" data-tool="text" title="Text tool (T)" aria-label="Text tool">T</button>
+          <button type="button" class="toolPaletteBtn" id="deckPresentBtn" title="Present this deck" aria-label="Present deck">▶</button>
         </div>
 
         <div class="toolOptions" id="toolOptions" style="display:none">
@@ -2998,7 +3260,7 @@
       <p class="subhead" style="margin:0 0 14px">Browse community templates or start your own.</p>
       <div class="welcomeSearchRow">
         <div><label for="welcomeQuery" style="font-size:.78rem">Title or IMDb ID</label><input id="welcomeQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
-        <div><label for="welcomeType" style="font-size:.78rem">Type</label><select id="welcomeType"><option value="any">Any type</option><option value="cover">Case cover</option><option value="disc">Disc labels</option><option value="jewel">CD jewel inserts</option><option value="disc-design">Disc designs</option><option value="customart">Custom art</option></select></div>
+        <div><label for="welcomeType" style="font-size:.78rem">Type</label><select id="welcomeType"><option value="any">Any type</option><option value="cover">Case cover</option><option value="disc">Disc labels</option><option value="jewel">CD jewel inserts</option><option value="disc-design">Disc designs</option><option value="customart">Custom art</option><option value="slide">Slide</option><option value="deck">Slide deck</option></select></div>
         <div><label for="welcomeCategory" style="font-size:.78rem">Category</label><select id="welcomeCategory" class="categorySelect"></select></div>
         <div class="buttonRow" style="margin:0"><button type="button" id="welcomeSearchBtn" class="primary">Search</button></div>
       </div>
@@ -3150,7 +3412,7 @@
       <div id="panelSearch" style="display:none">
         <div class="searchGrid">
           <div><label for="nostrQuery">Title or IMDb ID</label><input id="nostrQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
-          <div><label for="nostrType">Type</label><select id="nostrType"><option value="any">Any</option><option value="cover">Case cover</option><option value="disc">Disc sheet</option><option value="jewel">CD jewel inserts</option><option value="disc-design">Disc design</option><option value="customart">Custom art</option></select></div>
+          <div><label for="nostrType">Type</label><select id="nostrType"><option value="any">Any</option><option value="cover">Case cover</option><option value="disc">Disc sheet</option><option value="jewel">CD jewel inserts</option><option value="disc-design">Disc design</option><option value="customart">Custom art</option><option value="slide">Slide</option><option value="deck">Slide deck</option></select></div>
           <div><label for="nostrCategory">Category</label><select id="nostrCategory" class="categorySelect"></select></div>
           <div class="buttonRow" style="margin:0"><button type="button" id="nostrRunSearch" class="primary">Search</button></div>
         </div>
@@ -3384,6 +3646,28 @@
     </div>
   </div>
 
+  <div id="presenterMode" aria-hidden="true">
+    <div id="presenterStage" title="Click to advance"></div>
+    <div id="presenterNotesPanel">
+      <div id="presenterNotesInner">
+        <h4>Speaker notes</h4>
+        <div id="presenterNotesText"></div>
+      </div>
+      <div id="presenterNextWrap">
+        <div class="presenterNextLabel">Next slide</div>
+        <div id="presenterNextThumb"></div>
+      </div>
+    </div>
+    <div id="presenterBar">
+      <button type="button" id="presenterPrevBtn" class="presenterBtn" aria-label="Previous slide">‹ Prev</button>
+      <span id="presenterCounter">1 / 1</span>
+      <button type="button" id="presenterNextBtn" class="presenterBtn" aria-label="Next slide">Next ›</button>
+      <span class="presenterBarSpacer"></span>
+      <button type="button" id="presenterViewBtn" class="presenterBtn">Audience view</button>
+      <button type="button" id="presenterExitBtn" class="presenterBtn">Exit ⎋</button>
+    </div>
+  </div>
+
   <div class="modal" id="pdfJpegModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:480px">
       <h2 style="font-size:1.05rem;margin:0 0 8px;font-family:inherit">Export as JPEG</h2>
@@ -3517,10 +3801,16 @@
 
     // The "primary" target for each sub-mode — used when migrating legacy
     // page/empty-target layers and as the paste destination for the clipboard.
+    // A slide is mechanically a Custom Art canvas (flat, layer 'canvas'
+    // target) locked to 16:9 — it shares all of Custom Art's rendering.
+    function isCanvasMode(mode) {
+      return mode === 'customart' || mode === 'slide';
+    }
+
     function primaryTargetForMode(mode) {
       if (mode === 'disc') return 'disc-top';
       if (mode === 'jewel') return 'jewel-front';
-      if (mode === 'customart') return 'canvas';
+      if (isCanvasMode(mode)) return 'canvas';
       return 'cover-trim'; // cover mode
     }
 
@@ -3528,7 +3818,7 @@
       const t = String(layer?.target || '');
       if (!t) return false; // strict isolation: no target = doesn't belong here
       const mode = state.templateMode;
-      if (mode === 'customart') return t === 'canvas';
+      if (isCanvasMode(mode)) return t === 'canvas';
       if (mode === 'disc') return t.startsWith('disc-');
       if (mode === 'jewel') return t.startsWith('jewel-');
       if (mode === 'cover') return t === 'cover-trim' || t === 'back' || t === 'spine' || t === 'front';
@@ -3557,7 +3847,7 @@
         { key: 'jewel-front', label: 'Jewel front insert' },
         { key: 'jewel-tray', label: 'Jewel tray insert' }
       ];
-      if (state.templateMode === 'customart') return [
+      if (isCanvasMode(state.templateMode)) return [
         { key: 'canvas', label: 'Canvas' }
       ];
       // Cover mode. In combined-wrap mode the artwork is one open canvas, so
@@ -3646,7 +3936,9 @@
       { value: 'sega-saturn', label: 'Sega Saturn' },
       { value: 'sega-cd', label: 'Sega CD' },
       { value: 'audio-cd', label: 'Audio CD' },
-      { value: 'custom-art', label: 'Custom art' }
+      { value: 'custom-art', label: 'Custom art' },
+      { value: 'slide', label: 'Slide design' },
+      { value: 'slide-deck', label: 'Slide deck' }
     ];
 
     const DEFAULT_NOSTR_RELAYS = [
@@ -3666,7 +3958,7 @@
     const RELAY_HEALTH_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
     const state = {
-      meta: { title: "", imdbId: "", upc: "", tvdbId: "", musicbrainzDiscId: "", omdbApiKey: "", category: "", language: "en" },
+      meta: { title: "", imdbId: "", upc: "", tvdbId: "", musicbrainzDiscId: "", category: "", language: "en" },
       darkMode: false,
       appMode: 'template',
       templateMode: 'cover',
@@ -3713,6 +4005,9 @@
       },
       discDesign: { name: '', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 },
       customArt: { width: 1920, height: 1080, background: '#ffffff', preset: '1920x1080' },
+      // Slide deck: an ordered list of self-contained slides. `editingIndex` is
+      // non-null while one of the deck's slides is open in the canvas editor.
+      deck: { theme: { fontFamily: '', background: '' }, slides: [], editingIndex: null },
       discSpineLabels: { top: '', bottom: '' },
       jewelSpineLabels: { left: '', right: '' },
       jewelInserts: {
@@ -3931,7 +4226,9 @@
       'sega-cd':     new Set(['upc']),
       'cd':          new Set(['upc', 'mb']),
       'audio-cd':    new Set(['upc', 'mb']),
-      'custom-art':  new Set()
+      'custom-art':  new Set(),
+      'slide':       new Set(),
+      'slide-deck':  new Set()
     };
 
     function relevantIdentifiersForCategory(category) {
@@ -3946,19 +4243,15 @@
         const visible = !allowed || allowed.has(key);
         el.style.display = visible ? '' : 'none';
       });
-      // Custom Art mode collapses the standard media-identifier panel and
-      // the IMDb import affordance, and shows a single optional "Custom tag"
-      // field instead — IMDb / UPC / TheTVDB / MusicBrainz don't apply to
-      // generic art / wallpaper / banner work.
-      const isCustomArt = state.templateMode === 'customart';
+      // Custom Art, Slide and Slide Deck modes collapse the standard
+      // media-identifier panel and show a single optional "Custom tag" field
+      // instead — IMDb / UPC / TheTVDB / MusicBrainz don't apply to generic
+      // art / wallpaper / slide / deck work.
+      const isCustomArt = isCanvasMode(state.templateMode) || state.templateMode === 'deck';
       const idWrap = $('mediaIdentifiersWrap');
       const customWrap = $('customTagWrap');
-      const imdbRow = $('imdbImportRow');
-      const imdbHint = $('imdbImportHint');
       if (idWrap) idWrap.style.display = isCustomArt ? 'none' : '';
       if (customWrap) customWrap.style.display = isCustomArt ? '' : 'none';
-      if (imdbRow) imdbRow.style.display = isCustomArt ? 'none' : '';
-      if (imdbHint) imdbHint.style.display = isCustomArt ? 'none' : '';
     }
 
     function categoryOptions(emptyLabel = 'Any category') {
@@ -4074,7 +4367,11 @@
       if (raw === 'jewel-inserts') return 'jewel';
       if (raw === 'disc-design') return 'disc-design';
       if (raw === 'customart' || raw === 'custom-art') return 'customart';
+      if (raw === 'slide') return 'slide';
+      if (raw === 'deck') return 'deck';
       if (raw === 'cover' || raw === 'disc' || raw === 'jewel') return raw;
+      if (payload.deck) return 'deck';
+      if (payload.slide) return 'slide';
       if (payload.customArt) return 'customart';
       if (payload.discTemplate || payload.discMeta) return 'disc';
       if (payload.discDesign && !payload.discTemplate) return 'disc-design';
@@ -4101,6 +4398,8 @@
     function templateTypeForMode(mode = state.templateMode) {
       if (mode === 'jewel') return 'cd-jewel-case';
       if (mode === 'disc') return 'disc-label-sheet';
+      if (mode === 'slide') return 'slide';
+      if (mode === 'deck') return 'deck';
       if (mode === 'customart') return 'customart';
       const preset = state.preset === 'jewel8693' ? 'dvd' : (state.preset || 'custom');
       if (preset === 'dvd' || preset === 'bluray') return preset;
@@ -4519,14 +4818,14 @@
     function sheetW() {
       if (state.templateMode === 'disc') return discTemplate.sheetW;
       if (state.templateMode === 'jewel') return jewelTemplate.sheetW;
-      if (state.templateMode === 'customart') return customArtCanvasInches().wIn;
+      if (isCanvasMode(state.templateMode)) return customArtCanvasInches().wIn;
       return totalTrimW() + state.bleed * 2;
     }
 
     function sheetH() {
       if (state.templateMode === 'disc') return discTemplate.sheetH;
       if (state.templateMode === 'jewel') return jewelTemplate.sheetH;
-      if (state.templateMode === 'customart') return customArtCanvasInches().hIn;
+      if (isCanvasMode(state.templateMode)) return customArtCanvasInches().hIn;
       return state.trimH + state.bleed * 2;
     }
 
@@ -4565,10 +4864,12 @@
       const layoutActive = {
         cover: !isDesignerApp && state.templateMode === 'cover',
         disc: !isDesignerApp && state.templateMode === 'disc',
+        deck: !isDesignerApp && state.templateMode === 'deck',
         customart: !isDesignerApp && state.templateMode === 'customart',
+        slide: !isDesignerApp && state.templateMode === 'slide',
         discdesign: isDesignerApp
       };
-      for (const m of ['cover', 'disc', 'customart', 'discdesign']) {
+      for (const m of ['cover', 'disc', 'deck', 'customart', 'slide', 'discdesign']) {
         const button = $(`mode-${m}`);
         if (!button) continue;
         button.classList.toggle('active', !!layoutActive[m]);
@@ -4629,15 +4930,41 @@
       const jsr = $('jewelSpineTextRight'); if (jsr) jsr.value = state.jewelSpineLabels?.right || '';
       const caPresetEl = $('customArtPreset');
       if (caPresetEl) {
-        if (!caPresetEl.options.length) {
-          caPresetEl.innerHTML = CUSTOM_ART_PRESETS.map(p =>
+        // Slides are locked to a single 16:9 preset; Custom art gets the full list.
+        const isSlide = state.templateMode === 'slide';
+        const presets = isSlide
+          ? CUSTOM_ART_PRESETS.filter(p => p.key === '1920x1080')
+              .map(p => ({ ...p, label: '1920 × 1080  · Slide (16:9)' }))
+          : CUSTOM_ART_PRESETS;
+        const setKey = isSlide ? 'slide' : 'all';
+        if (caPresetEl.dataset.presetSet !== setKey) {
+          caPresetEl.innerHTML = presets.map(p =>
             `<option value="${p.key}">${p.label}</option>`).join('');
+          caPresetEl.dataset.presetSet = setKey;
         }
-        caPresetEl.value = state.customArt?.preset || 'custom';
+        caPresetEl.value = isSlide ? '1920x1080' : (state.customArt?.preset || 'custom');
       }
       const caW = $('customArtWidth'); if (caW) caW.value = state.customArt?.width || 1920;
       const caH = $('customArtHeight'); if (caH) caH.value = state.customArt?.height || 1080;
       const caBg = $('customArtBg'); if (caBg) caBg.value = state.customArt?.background || '#ffffff';
+      const snEl = $('slideNotes'); if (snEl && snEl !== document.activeElement) snEl.value = state.customArt?.notes || '';
+      const caHint = $('customArtSizeHint');
+      if (caHint) caHint.textContent = state.templateMode === 'slide'
+        ? 'Slides are locked to 16:9 — editing the width re-derives the height.'
+        : '100–8192 px. Add layers (image / text / color) using the Layers panel below.';
+      // Deck theme controls.
+      const deck = state.deck || {};
+      const theme = deck.theme || {};
+      const deckFontEl = $('deckThemeFont'); if (deckFontEl) deckFontEl.value = theme.fontFamily || '';
+      const deckBgOn = !!theme.background;
+      const deckBgEnabledEl = $('deckThemeBgEnabled'); if (deckBgEnabledEl) deckBgEnabledEl.checked = deckBgOn;
+      const deckBgRowEl = $('deckThemeBgRow'); if (deckBgRowEl) deckBgRowEl.style.display = deckBgOn ? '' : 'none';
+      const deckBgEl = $('deckThemeBg');
+      if (deckBgEl) deckBgEl.value = /^#[0-9a-fA-F]{6}$/.test(theme.background || '') ? theme.background : '#ffffff';
+      const ignoreThemeEl = $('deckSlideIgnoreTheme');
+      if (ignoreThemeEl && deck.editingIndex !== null && deck.editingIndex !== undefined) {
+        ignoreThemeEl.checked = !!deck.slides?.[deck.editingIndex]?.ignoreDeckTheme;
+      }
       syncPublishReadout();
       syncModeTabsUI();
     }
@@ -4660,6 +4987,8 @@
       disc:      ['layoutFieldset', 'discArtworkFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
       jewel:     ['layoutFieldset', 'coverSizeFieldset', 'jewelArtworkFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
       customart: ['designerLayoutFieldset', 'customArtFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
+      slide:     ['designerLayoutFieldset', 'customArtFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
+      deck:      ['layoutFieldset', 'deckFieldset', 'deckThemeFieldset', 'metadataFieldset', 'printSaveFieldset'],
       designer:  ['designerLayoutFieldset', 'designerFieldset', 'layersFieldset', 'designerMetadataFieldset', 'designerPrintSaveFieldset']
     };
 
@@ -4684,6 +5013,9 @@
       document.body.classList.toggle('template-disc', state.templateMode === 'disc');
       document.body.classList.toggle('template-jewel', state.templateMode === 'jewel');
       document.body.classList.toggle('template-customart', state.templateMode === 'customart');
+      document.body.classList.toggle('template-slide', state.templateMode === 'slide');
+      document.body.classList.toggle('template-deck', state.templateMode === 'deck');
+      document.body.classList.toggle('editing-deck-slide', !!state.deck && state.deck.editingIndex !== null);
       document.body.classList.toggle('hide-guides', !state.showGuides);
       document.body.classList.toggle('hide-bleed', !state.showBleed);
       document.body.classList.toggle('hide-crops', !state.showCrops);
@@ -4722,12 +5054,15 @@
       // Reset inline sheet background; customart branch sets it below.
       $('sheet').style.background = '';
 
-      if (state.templateMode === 'customart') {
+      if (isCanvasMode(state.templateMode)) {
         const ca = state.customArt || {};
         const w = Math.max(CUSTOM_ART_MIN, Math.min(CUSTOM_ART_MAX, Number(ca.width) || 1920));
         const h = Math.max(CUSTOM_ART_MIN, Math.min(CUSTOM_ART_MAX, Number(ca.height) || 1080));
-        $('projectTitle').textContent = 'Custom art canvas';
-        document.querySelector('.printHelp').textContent = `${w} × ${h} px canvas. Export as JPEG for sharing.`;
+        const isSlide = state.templateMode === 'slide';
+        $('projectTitle').textContent = isSlide ? 'Slide' : 'Custom art canvas';
+        document.querySelector('.printHelp').textContent = isSlide
+          ? `${w} × ${h} px slide (16:9).`
+          : `${w} × ${h} px canvas. Export as JPEG for sharing.`;
         $('trimReadout').textContent = `${w} × ${h} px`;
         $('sheetReadout').textContent = `(${fmt(w/96)} × ${fmt(h/96)} in)`;
         $('sheet').style.background = ca.background || '#ffffff';
@@ -4742,6 +5077,14 @@
           <b>Disc centers:</b> X ${fmt(4.25)} in; Y ${fmt(3)} in and ${fmt(8)} in from top<br>
           <b>Center hole:</b> ${fmt(discTemplate.holeD)} in (${fmt(mm(discTemplate.holeD), 1)} mm)
         `;
+      } else if (state.templateMode === 'deck') {
+        const n = (state.deck?.slides || []).length;
+        $('projectTitle').textContent = 'Slide deck';
+        document.querySelector('.printHelp').textContent = n
+          ? `${n} slide${n === 1 ? '' : 's'} · click a thumbnail to edit.`
+          : 'Add slides to build your deck.';
+        $('trimReadout').textContent = n === 1 ? '1 slide' : `${n} slides`;
+        $('sheetReadout').textContent = '16:9 slides';
       } else if (state.templateMode === 'jewel') {
         $('projectTitle').textContent = 'CD jewel insert preview';
         document.querySelector('.printHelp').textContent = 'Avery 8693 / 8943 layout: front and tray inserts on Letter paper.';
@@ -6091,6 +6434,7 @@
       syncLayerInputs();
       syncDesignerInputs();
       updateBodyClasses();
+      renderDeckSorter();
       // After updateBodyClasses so the designer view is displayed/laid out —
       // the disc image's cover-pan math needs the wrapper's real size.
       renderDesignerDisc();
@@ -6823,6 +7167,8 @@
       if (m === 'cover') return 'Cover';
       if (m === 'disc') return 'Disc sheet';
       if (m === 'jewel') return 'Jewel';
+      if (m === 'slide') return 'Slide';
+      if (m === 'deck') return 'Slide deck';
       if (m === 'customart') return 'Custom art';
       return m;
     }
@@ -6952,7 +7298,9 @@
         return;
       }
       if (target === 'canvas') {
-        state.templateMode = 'customart';
+        // 'canvas' layers belong to both Custom Art and Slide — don't flip a
+        // slide back to custom art just because a layer was added.
+        if (!isCanvasMode(state.templateMode)) state.templateMode = 'customart';
       } else if (target.startsWith('disc')) {
         state.templateMode = 'disc';
       } else if (target.startsWith('jewel')) {
@@ -8988,9 +9336,15 @@
         if (!previewFromPayload(payload, 'jewel') && !(payload.layers || []).length) {
           throw new Error('Add jewel insert artwork or at least one layer before publishing.');
         }
-      } else if (state.templateMode === 'customart') {
+      } else if (state.templateMode === 'deck') {
+        payload = deckPayload();
+        typeTag = 'casewrap-deck';
+        if (!(payload.deck?.slides || []).length) {
+          throw new Error('Add at least one slide before publishing the deck.');
+        }
+      } else if (isCanvasMode(state.templateMode)) {
         payload = customArtPayload();
-        typeTag = 'casewrap-customart';
+        typeTag = state.templateMode === 'slide' ? 'casewrap-slide' : 'casewrap-customart';
         const hasContent = (state.layers || []).some(l => l.target === 'canvas');
         const hasNonWhiteBg = (state.customArt?.background || '#ffffff').toLowerCase() !== '#ffffff';
         if (!hasContent && !hasNonWhiteBg) {
@@ -9006,7 +9360,7 @@
       const mode = normalizeTemplateMode(payload);
       const dBase = state.meta.imdbId
         || state.meta.title
-        || (mode === 'customart' ? `${state.customArt?.width || 0}x${state.customArt?.height || 0}` : '');
+        || (isCanvasMode(mode) ? `${state.customArt?.width || 0}x${state.customArt?.height || 0}` : '');
       // In edit mode, reuse the original d-tag so the new event supersedes the
       // old one on relays. Otherwise mint a fresh d-tag from current state.
       const dTag = isEditing() ? state.editingDTag : `${mode}:${dBase}`;
@@ -10158,14 +10512,64 @@
     }
 
     function customArtPayload() {
+      const isSlide = state.templateMode === 'slide';
+      const ca = { ...state.customArt };
+      const layers = nonGeneratedLayers().filter(l => l.target === 'canvas');
+      if (isSlide) {
+        // A slide carries a `slide` object (with speaker notes); the canvas
+        // itself is the same flat-canvas model as Custom Art.
+        return {
+          version: SCHEMA_VERSION,
+          templateMode: 'slide',
+          templateType: 'slide',
+          meta: state.meta,
+          ui: { zoom: state.zoom },
+          slide: {
+            width: ca.width, height: ca.height,
+            background: ca.background || '#ffffff',
+            notes: ca.notes || ''
+          },
+          layers
+        };
+      }
       return {
         version: SCHEMA_VERSION,
         templateMode: 'customart',
         templateType: 'customart',
         meta: state.meta,
         ui: { zoom: state.zoom, showGuides: state.showGuides },
-        customArt: { ...state.customArt },
-        layers: nonGeneratedLayers().filter(l => l.target === 'canvas')
+        customArt: ca,
+        layers
+      };
+    }
+
+    // A deck is a self-contained file: every slide's full data is embedded
+    // inline, so previews and Presenter Mode never depend on external events.
+    function deckPayload() {
+      persistEditingDeckSlide();
+      const deck = ensureDeck();
+      return {
+        version: SCHEMA_VERSION,
+        templateMode: 'deck',
+        templateType: 'deck',
+        meta: state.meta,
+        deck: {
+          theme: {
+            fontFamily: deck.theme?.fontFamily || '',
+            background: deck.theme?.background || ''
+          },
+          slides: (deck.slides || []).map(s => ({
+            name: s.name || '',
+            slide: {
+              width: s.slide?.width || 1920,
+              height: s.slide?.height || 1080,
+              background: s.slide?.background || '#ffffff',
+              notes: s.slide?.notes || ''
+            },
+            layers: Array.isArray(s.layers) ? s.layers.map(l => ({ ...l })) : [],
+            ignoreDeckTheme: !!s.ignoreDeckTheme
+          }))
+        }
       };
     }
 
@@ -10718,9 +11122,13 @@
         triggerDownload(discSheetPayload(), discProjectFilename());
       } else if (state.templateMode === 'jewel') {
         triggerDownload(jewelTemplatePayload(), projectFilename('cd_jewel_case', 'jewel8693'));
-      } else if (state.templateMode === 'customart') {
+      } else if (state.templateMode === 'deck') {
+        const n = (state.deck?.slides || []).length;
+        triggerDownload(deckPayload(), projectFilename('slide_deck', `${n}slides`));
+      } else if (isCanvasMode(state.templateMode)) {
         const ca = state.customArt || { width: 1920, height: 1080 };
-        triggerDownload(customArtPayload(), projectFilename('custom_art', `${ca.width}x${ca.height}`));
+        const stem = state.templateMode === 'slide' ? 'slide' : 'custom_art';
+        triggerDownload(customArtPayload(), projectFilename(stem, `${ca.width}x${ca.height}`));
       } else {
         triggerDownload(coverTemplatePayload(), projectFilename('case_cover', state.preset));
       }
@@ -10777,6 +11185,7 @@
       state.discSpineLabels = { top: '', bottom: '' };
       state.jewelSpineLabels = { left: '', right: '' };
       state.customArt = { width: 1920, height: 1080, background: '#ffffff', preset: '1920x1080' };
+      state.deck = { theme: { fontFamily: '', background: '' }, slides: [], editingIndex: null };
       state.meta = blankMeta();
       state.layers = (state.layers || []).filter(l => l.target === 'designer-disc');
       state.selectedLayerId = '';
@@ -10796,7 +11205,7 @@
     }
 
     function blankMeta() {
-      return { title: '', imdbId: '', upc: '', tvdbId: '', musicbrainzDiscId: '', customTag: '', omdbApiKey: state.meta?.omdbApiKey || '', category: '', language: 'en' };
+      return { title: '', imdbId: '', upc: '', tvdbId: '', musicbrainzDiscId: '', customTag: '', category: '', language: 'en' };
     }
 
     function enterEditMode({ dTag, kind, eventId, title }) {
@@ -10886,7 +11295,9 @@
       disc: 'Disc-label sheet',
       jewel: 'Jewel-case insert',
       'disc-design': 'Disc design',
-      customart: 'Custom art'
+      customart: 'Custom art',
+      slide: 'Slide',
+      deck: 'Slide deck'
     };
 
     let _publishConfirmTarget = null; // { onConfirm }
@@ -10925,7 +11336,8 @@
           if (mode === 'disc-design') renderDiscPreviewDOM(previewEl, payload, { compact: true });
           else if (mode === 'disc') renderDiscSheetPreviewDOM(previewEl, payload, { compact: true });
           else if (mode === 'jewel') renderJewelPreviewDOM(previewEl, payload, { compact: true });
-          else if (mode === 'customart') renderCustomArtPreviewDOM(previewEl, payload, { compact: true });
+          else if (mode === 'customart' || mode === 'slide') renderCustomArtPreviewDOM(previewEl, payload, { compact: true });
+          else if (mode === 'deck') renderDeckPreviewDOM(previewEl, payload, { compact: true });
           else renderTemplatePreviewDOM(previewEl, payload, { compact: true });
           fitMiniPreview(previewEl);
         } catch (err) {
@@ -11155,16 +11567,52 @@
         return;
       }
 
-      if (mode === 'customart' || parsed.customArt) {
-        const customArtDefaults = { width: 1920, height: 1080, background: '#ffffff', preset: 'custom' };
+      if (mode === 'deck' || parsed.deck) {
+        const d = parsed.deck || {};
         Object.assign(state, {
-          templateMode: 'customart',
+          templateMode: 'deck',
+          meta: { ...state.meta, ...(parsed.meta || {}) },
+          deck: {
+            theme: {
+              fontFamily: d.theme?.fontFamily || '',
+              background: d.theme?.background || ''
+            },
+            slides: (Array.isArray(d.slides) ? d.slides : []).map(s => ({
+              name: s.name || '',
+              slide: {
+                width: s.slide?.width || 1920,
+                height: s.slide?.height || 1080,
+                background: s.slide?.background || '#ffffff',
+                notes: s.slide?.notes || ''
+              },
+              layers: Array.isArray(s.layers) ? s.layers.map(l => ({ ...l, target: 'canvas' })) : [],
+              ignoreDeckTheme: !!s.ignoreDeckTheme
+            })),
+            editingIndex: null
+          },
+          // Deck slides own their layers; clear any editor canvas layers.
+          layers: state.layers.filter(l => l.target !== 'canvas'),
+          selectedLayerId: ''
+        });
+        syncInputs(); render();
+        return;
+      }
+
+      if (mode === 'customart' || mode === 'slide' || parsed.customArt || parsed.slide) {
+        const isSlide = mode === 'slide' || !!parsed.slide;
+        const canvasDefaults = { width: 1920, height: 1080, background: '#ffffff', preset: 'custom' };
+        // A slide payload carries `slide` (with notes); a custom-art payload
+        // carries `customArt`. Both load into state.customArt — the flat
+        // canvas model — with `notes` for slides.
+        const src = parsed.slide || parsed.customArt || {};
+        Object.assign(state, {
+          templateMode: isSlide ? 'slide' : 'customart',
           meta: { ...state.meta, ...(parsed.meta || {}) },
           zoom: parsed.ui?.zoom ?? state.zoom,
           showGuides: parsed.ui?.showGuides ?? state.showGuides,
-          // Fork: replace customArt entirely (don't leak the user's prior canvas dims/bg).
-          customArt: { ...customArtDefaults, ...(parsed.customArt || {}) },
-          // Keep layers from other modes (so cover/disc/jewel work-in-progress isn't lost),
+          // Fork: replace the canvas entirely (don't leak the prior dims/bg).
+          customArt: { ...canvasDefaults, ...src },
+          // Keep layers from other modes (so other work-in-progress isn't lost),
           // replace the canvas-target layers with the forked design's layers.
           layers: [
             ...state.layers.filter(l => l.target !== 'canvas'),
@@ -13147,8 +13595,12 @@
         // — those are random per-creation so don't break fingerprint matching.
         const { name: _n, ...discNoName } = dd;
         fields.push(j(discNoName));
-      } else if (mode === 'customart') {
-        fields.push(j(payload.customArt || {}));
+      } else if (mode === 'customart' || mode === 'slide') {
+        fields.push(j(payload.slide || payload.customArt || {}));
+      } else if (mode === 'deck') {
+        // The whole embedded slide list is the deck's identity.
+        fields.push(j(payload.deck?.slides || []));
+        fields.push(j(payload.deck?.theme || {}));
       }
       // Layers: strip the per-layer `id` and `_generatedDiscLayer` since
       // those vary across fork sessions but the visual content is the same.
@@ -13204,7 +13656,8 @@
         if (row.mode === 'disc-design') renderDiscPreviewDOM(previewWrap, payload, { compact: true });
         else if (row.mode === 'disc') renderDiscSheetPreviewDOM(previewWrap, payload, { compact: true });
         else if (row.mode === 'jewel') renderJewelPreviewDOM(previewWrap, payload, { compact: true });
-        else if (row.mode === 'customart') renderCustomArtPreviewDOM(previewWrap, payload, { compact: true });
+        else if (row.mode === 'customart' || row.mode === 'slide') renderCustomArtPreviewDOM(previewWrap, payload, { compact: true });
+        else if (row.mode === 'deck') renderDeckPreviewDOM(previewWrap, payload, { compact: true });
         else renderTemplatePreviewDOM(previewWrap, payload, { compact: true });
       } catch {}
       thumb.appendChild(previewWrap);
@@ -13435,6 +13888,7 @@
       }
       rows.forEach(row => {
         wall.appendChild(buildFeedCard(row, () => {
+          if (tryDeckImportRow(row)) return;
           if (row.mode === 'disc-design') {
             const slotTarget = state._discImportTargetSlot;
             if (slotTarget) {
@@ -13483,6 +13937,7 @@
     // Card factory used by both the initial render and the streaming-update diff.
     function buildFeedCardForRow(row) {
       const card = buildFeedCard(row, () => {
+        if (tryDeckImportRow(row)) return;
         if (row.mode === 'disc-design') {
           const slotTarget = state._discImportTargetSlot;
           if (slotTarget) {
@@ -13657,11 +14112,20 @@
           );
         }
 
-        if (mode === 'customart') {
+        if (mode === 'customart' || mode === 'slide') {
           // First image layer's src is used as the thumb-detection target.
           const layers = Array.isArray(payload.layers) ? payload.layers : [];
           const firstImage = layers.find(l => l.type === 'image' && l.src);
           return firstImage?.src || '';
+        }
+
+        if (mode === 'deck') {
+          // First image across the deck's slides — used for thumb detection.
+          for (const s of (payload.deck?.slides || [])) {
+            const img = (s.layers || []).find(l => l.type === 'image' && l.src);
+            if (img) return img.src;
+          }
+          return '';
         }
 
         // Cover: front → combined wrap → back (in that priority)
@@ -13717,7 +14181,7 @@
       return btn;
     }
 
-    const MODE_LABELS = { cover: 'Case cover', disc: 'Disc sheet', jewel: 'CD jewel inserts', 'disc-design': 'Disc design' };
+    const MODE_LABELS = { cover: 'Case cover', disc: 'Disc sheet', jewel: 'CD jewel inserts', 'disc-design': 'Disc design', customart: 'Custom art', slide: 'Slide', deck: 'Slide deck' };
 
     function buildDiscSheetThumb(thumb, payload, compact = false) {
       const slots = payload?.discTemplate?.discs || payload?.discs || {};
@@ -13842,6 +14306,7 @@
 
     function forkRowIntoEditor(row) {
       if (!row?.payload) return;
+      if (tryDeckImportRow(row)) return;
       if (row.mode === 'disc-design') {
         const slotTarget = state._discImportTargetSlot;
         if (slotTarget) {
@@ -13987,6 +14452,20 @@
       });
       actionsDiv.insertBefore(forkBtn, saveJsonBtn);
 
+      // Decks get a Start Presentation button — present straight from the
+      // browser without forking.
+      if (mode === 'deck') {
+        const presentBtn = document.createElement('button');
+        presentBtn.type = 'button';
+        presentBtn.textContent = '▶ Start Presentation';
+        presentBtn.title = 'Present this deck full-screen';
+        presentBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          startPresenter(p.deck || {});
+        });
+        actionsDiv.insertBefore(presentBtn, saveJsonBtn);
+      }
+
       if (isDiscDesign) {
         const import1Btn = document.createElement('button');
         import1Btn.type = 'button';
@@ -14091,8 +14570,10 @@
         renderDiscSheetPreviewDOM(content, p);
       } else if (mode === 'jewel') {
         renderJewelPreviewDOM(content, p);
-      } else if (mode === 'customart') {
+      } else if (mode === 'customart' || mode === 'slide') {
         renderCustomArtPreviewDOM(content, p);
+      } else if (mode === 'deck') {
+        renderDeckPreviewDOM(content, p);
       } else {
         renderTemplatePreviewDOM(content, p);
       }
@@ -14848,9 +15329,27 @@
       container.appendChild(sheet);
     }
 
+    // A deck preview is its first slide, with a slide-count badge so a deck
+    // reads as a deck at a glance.
+    function renderDeckPreviewDOM(container, payload, opts = {}) {
+      const slides = payload?.deck?.slides || [];
+      const first = slides[0];
+      const composed = first
+        ? composeSlideForDeck(first, payload?.deck?.theme)
+        : { slide: { width: 1920, height: 1080, background: '#ffffff' }, layers: [] };
+      renderCustomArtPreviewDOM(container, composed, opts);
+      if (!container.style.position) container.style.position = 'relative';
+      const badge = document.createElement('div');
+      badge.className = 'deckCountBadge';
+      badge.textContent = slides.length === 1 ? '1 slide' : `${slides.length} slides`;
+      container.appendChild(badge);
+    }
+
     function renderCustomArtPreviewDOM(container, payload, opts = {}) {
       const compact = !!opts.compact;
-      const ca = payload.customArt || {};
+      // Slides and Custom Art share this flat-canvas preview; a slide payload
+      // carries `slide`, a custom-art payload carries `customArt`.
+      const ca = payload.slide || payload.customArt || {};
       const wPx = Math.max(CUSTOM_ART_MIN, Math.min(CUSTOM_ART_MAX, Number(ca.width) || 1920));
       const hPx = Math.max(CUSTOM_ART_MIN, Math.min(CUSTOM_ART_MAX, Number(ca.height) || 1080));
       const wIn = wPx / 96;
@@ -14928,6 +15427,7 @@
       out.innerHTML = rows.length ? '' : '<div class="hint">No templates found.</div>';
       rows.slice(0, 40).forEach(row => {
         out.appendChild(buildResultCard(row, () => {
+          if (tryDeckImportRow(row)) return;
           if (row.mode === 'disc-design') {
             const slotTarget = state._discImportTargetSlot;
             if (slotTarget) {
@@ -15075,7 +15575,7 @@
     function syncModeTabsUI() {
       // The Designer tab hosts both Custom Art (a template mode) and Disc
       // Design (the designer appMode).
-      const designerTab = state.appMode === 'designer' || state.templateMode === 'customart';
+      const designerTab = state.appMode === 'designer' || isCanvasMode(state.templateMode);
       $('modeTabTemplate').classList.toggle('active', !designerTab);
       $('modeTabDesigner').classList.toggle('active', designerTab);
     }
@@ -15099,7 +15599,7 @@
           <option value="jewel-front">Jewel front insert</option>
           <option value="jewel-tray">Jewel tray insert</option>
         `;
-      } else if (state.templateMode === 'customart') {
+      } else if (isCanvasMode(state.templateMode)) {
         select.innerHTML = `<option value="canvas">Canvas</option>`;
       } else {
         select.innerHTML = `
@@ -15114,18 +15614,14 @@
 
     // Save the metadata currently in state.meta into savedMetaByMode for the
     // old appMode, and load the saved metadata for the new appMode (or a fresh
-    // blank if we've never been there). omdbApiKey is treated as a per-user
-    // preference and stays sticky across mode switches.
+    // blank if we've never been there).
     function swapMetaForAppMode(newMode) {
       if (!state.savedMetaByMode) state.savedMetaByMode = {};
       const oldMode = state.appMode;
       if (oldMode === newMode) return;
-      const apiKey = state.meta?.omdbApiKey || '';
       state.savedMetaByMode[oldMode] = { ...state.meta };
       const next = state.savedMetaByMode[newMode];
-      state.meta = next
-        ? { ...next, omdbApiKey: apiKey || next.omdbApiKey || '' }
-        : { ...blankMeta(), omdbApiKey: apiKey };
+      state.meta = next ? { ...next } : blankMeta();
     }
 
     function switchAppMode(mode) {
@@ -15154,9 +15650,448 @@
 
     // Switch the active layout. 'cover'/'disc'/'jewel'/'customart' run as the
     // template appMode; 'discdesign' runs as the designer appMode. Custom Art
+    // ===================================================================
+    // Deck Builder — an ordered list of self-contained slides. The sorter
+    // view (templateMode 'deck') shows slide thumbnails; opening one flips
+    // to the canvas editor (templateMode 'slide') with deck.editingIndex
+    // set, and "Back to deck" persists the edit and returns.
+    // ===================================================================
+    function ensureDeck() {
+      if (!state.deck) state.deck = { theme: { fontFamily: '', background: '' }, slides: [], editingIndex: null };
+      if (!Array.isArray(state.deck.slides)) state.deck.slides = [];
+      if (!state.deck.theme) state.deck.theme = { fontFamily: '', background: '' };
+      if (state.deck.editingIndex === undefined) state.deck.editingIndex = null;
+      return state.deck;
+    }
+
+    function blankDeckSlide(name) {
+      return {
+        name: name || '',
+        slide: { width: 1920, height: 1080, background: '#ffffff', notes: '' },
+        layers: [],
+        ignoreDeckTheme: false
+      };
+    }
+
+    // Snapshot the canvas editor's current state as a deck-slide object.
+    function deckSlideSnapshot() {
+      const ca = state.customArt || {};
+      return {
+        width: ca.width || 1920,
+        height: ca.height || 1080,
+        background: ca.background || '#ffffff',
+        notes: ca.notes || ''
+      };
+    }
+
+    // Write the slide currently open in the editor back into the deck.
+    function persistEditingDeckSlide() {
+      const deck = state.deck;
+      if (!deck || deck.editingIndex === null || deck.editingIndex === undefined) return;
+      const slot = deck.slides[deck.editingIndex];
+      if (!slot) return;
+      slot.slide = deckSlideSnapshot();
+      slot.layers = nonGeneratedLayers().filter(l => l.target === 'canvas').map(l => ({ ...l }));
+    }
+
+    // Compose a deck theme onto a slide entry at render time — the slide's
+    // own JSON is never mutated. A slide with ignoreDeckTheme keeps its look.
+    function composeSlideForDeck(entry, theme) {
+      const t = theme || {};
+      const slideSrc = entry.slide || {};
+      if (entry.ignoreDeckTheme) {
+        return { slide: { ...slideSrc }, layers: entry.layers || [] };
+      }
+      const slide = { ...slideSrc };
+      if (t.background) slide.background = t.background;
+      const layers = (entry.layers || []).map(l =>
+        (l.type === 'text' && t.fontFamily) ? { ...l, fontFamily: t.fontFamily } : l
+      );
+      return { slide, layers };
+    }
+
+    function renderDeckSorter() {
+      const grid = $('deckSlideGrid');
+      if (!grid) return;
+      const deck = ensureDeck();
+      const slides = deck.slides;
+      const editLabel = $('deckEditLabel');
+      if (editLabel) {
+        const s = deck.editingIndex !== null ? slides[deck.editingIndex] : null;
+        editLabel.textContent = s
+          ? `Editing slide ${deck.editingIndex + 1}${s.name ? ' · ' + s.name : ''}`
+          : '';
+      }
+      const count = slides.length;
+      const countText = count === 1 ? '1 slide' : `${count} slides`;
+      const countEl = $('deckSorterCount'); if (countEl) countEl.textContent = countText;
+      const hint = $('deckCountHint');
+      if (hint) hint.textContent = count ? `${countText} in this deck.`
+        : 'No slides yet — add one to start your deck.';
+      // Only rebuild the thumbnail grid while the sorter is the visible view.
+      if (state.templateMode !== 'deck' || deck.editingIndex !== null) return;
+      grid.innerHTML = '';
+      if (!count) {
+        const empty = document.createElement('div');
+        empty.className = 'deckSlideEmpty';
+        empty.textContent = 'No slides yet. Click "Add slide" to begin your deck.';
+        grid.appendChild(empty);
+        return;
+      }
+      slides.forEach((s, i) => {
+        const card = document.createElement('div');
+        card.className = 'deckSlideCard';
+        card.draggable = true;
+        card.dataset.index = String(i);
+
+        const thumb = document.createElement('div');
+        thumb.className = 'deckSlideThumb';
+        try {
+          renderCustomArtPreviewDOM(thumb, composeSlideForDeck(s, deck.theme), { compact: true });
+          fitMiniPreview(thumb);
+        } catch (e) {}
+        card.appendChild(thumb);
+
+        const meta = document.createElement('div');
+        meta.className = 'deckSlideMeta';
+        const num = document.createElement('span');
+        num.className = 'deckSlideNum'; num.textContent = String(i + 1);
+        const name = document.createElement('input');
+        name.type = 'text';
+        name.className = 'deckSlideName';
+        name.value = s.name || '';
+        name.placeholder = `Slide ${i + 1}`;
+        name.title = 'Rename slide';
+        // Editing the name must not start a card drag or open the slide.
+        name.addEventListener('mousedown', e => e.stopPropagation());
+        name.addEventListener('click', e => e.stopPropagation());
+        name.addEventListener('keydown', e => { if (e.key === 'Enter') name.blur(); });
+        name.addEventListener('focus', () => { card.draggable = false; });
+        name.addEventListener('blur', () => { card.draggable = true; });
+        name.addEventListener('change', () => {
+          const slot = (state.deck?.slides || [])[i];
+          if (!slot) return;
+          const v = name.value.trim();
+          if ((slot.name || '') === v) return;
+          pushHistory('rename slide');
+          slot.name = v;
+          render();
+        });
+        const acts = document.createElement('span');
+        acts.className = 'deckSlideActions';
+        acts.innerHTML = '<button type="button" data-act="dup" title="Duplicate slide">⧉</button>'
+          + '<button type="button" data-act="del" title="Delete slide">✕</button>';
+        meta.appendChild(num); meta.appendChild(name); meta.appendChild(acts);
+        card.appendChild(meta);
+        grid.appendChild(card);
+      });
+    }
+
+    function deckAddBlankSlide() {
+      const deck = ensureDeck();
+      pushHistory('add slide');
+      // No stored name — unnamed slides display as "Slide <position>", so
+      // the numbering always tracks the current order.
+      deck.slides.push(blankDeckSlide());
+      render();
+    }
+
+    function deckDuplicateSlide(i) {
+      const deck = ensureDeck();
+      const src = deck.slides[i];
+      if (!src) return;
+      pushHistory('duplicate slide');
+      const copy = JSON.parse(JSON.stringify(src));
+      // Keep unnamed slides unnamed (so they stay position-numbered); only a
+      // custom-named slide carries a "… copy" label.
+      copy.name = src.name ? src.name + ' copy' : '';
+      copy.layers = (copy.layers || []).map(l => ({ ...l, id: makeLayerId() }));
+      deck.slides.splice(i + 1, 0, copy);
+      render();
+    }
+
+    function deckDeleteSlide(i) {
+      const deck = ensureDeck();
+      if (!deck.slides[i]) return;
+      pushHistory('delete slide');
+      deck.slides.splice(i, 1);
+      render();
+    }
+
+    function deckMoveSlide(from, to) {
+      const deck = ensureDeck();
+      const n = deck.slides.length;
+      if (from === to || from < 0 || to < 0 || from >= n || to >= n) return;
+      pushHistory('reorder slides');
+      const [moved] = deck.slides.splice(from, 1);
+      deck.slides.splice(to, 0, moved);
+      render();
+    }
+
+    // Open a deck slide in the canvas editor (templateMode flips to 'slide').
+    function openDeckSlide(i) {
+      const deck = ensureDeck();
+      const s = deck.slides[i];
+      if (!s) return;
+      persistEditingDeckSlide();
+      pushHistory('edit deck slide');
+      deck.editingIndex = i;
+      const sl = s.slide || {};
+      state.customArt = {
+        width: sl.width || 1920, height: sl.height || 1080,
+        background: sl.background || '#ffffff', preset: '1920x1080',
+        notes: sl.notes || ''
+      };
+      state.layers = [
+        ...state.layers.filter(l => l.target !== 'canvas'),
+        ...(s.layers || []).map(l => ({ ...l, target: 'canvas' }))
+      ];
+      state.templateMode = 'slide';
+      state.selectedLayerId = '';
+      syncInputs();
+      render();
+    }
+
+    // Build a deck slide from an imported design's canvas + layers, scaled
+    // to fit a 16:9 1920×1080 slide (centered; non-16:9 sources letterbox).
+    function deckSlideFromImport(srcCanvas, srcLayers, name) {
+      const TARGET_W = 1920, TARGET_H = 1080;
+      const swIn = (Number(srcCanvas.width) || 1920) / 96;
+      const shIn = (Number(srcCanvas.height) || 1080) / 96;
+      const twIn = TARGET_W / 96, thIn = TARGET_H / 96;
+      const k = Math.min(twIn / swIn, thIn / shIn);
+      const ox = (twIn - swIn * k) / 2;
+      const oy = (thIn - shIn * k) / 2;
+      const layers = (Array.isArray(srcLayers) ? srcLayers : [])
+        .filter(l => l.target === 'canvas' || !l.target)
+        .map(l => {
+          const m = { ...l, id: makeLayerId(), target: 'canvas' };
+          m.x = ox + (Number(l.x) || 0) * k;
+          m.y = oy + (Number(l.y) || 0) * k;
+          if (l.w !== undefined) m.w = (Number(l.w) || 0) * k;
+          if (l.h !== undefined) m.h = (Number(l.h) || 0) * k;
+          if (l.fontSize !== undefined) m.fontSize = (Number(l.fontSize) || 14) * k;
+          if (l.strokeWidth !== undefined) m.strokeWidth = (Number(l.strokeWidth) || 0) * k;
+          return m;
+        });
+      return {
+        name: name || '',
+        slide: {
+          width: TARGET_W, height: TARGET_H,
+          background: srcCanvas.background || '#ffffff',
+          notes: srcCanvas.notes || ''
+        },
+        layers,
+        ignoreDeckTheme: false
+      };
+    }
+
+    function deckImportFromPayload(payload) {
+      const deck = ensureDeck();
+      const mode = normalizeTemplateMode(payload);
+      const incoming = [];
+      if (mode === 'deck' && payload.deck && Array.isArray(payload.deck.slides)) {
+        payload.deck.slides.forEach(s =>
+          incoming.push(deckSlideFromImport(s.slide || {}, s.layers || [], s.name || '')));
+      } else if (mode === 'slide' && payload.slide) {
+        incoming.push(deckSlideFromImport(payload.slide, payload.layers || [], payload.meta?.title || ''));
+      } else if (mode === 'customart' && payload.customArt) {
+        incoming.push(deckSlideFromImport(payload.customArt, payload.layers || [], payload.meta?.title || ''));
+      } else {
+        toastError('Only slide, custom-art, and deck designs can be imported as slides.');
+        return;
+      }
+      if (!incoming.length) { toastError('That design had no slides to import.'); return; }
+      pushHistory('import slide');
+      incoming.forEach(s => deck.slides.push(s));
+      render();
+      toastSuccess(incoming.length === 1 ? 'Slide imported.' : `${incoming.length} slides imported.`);
+    }
+
+    function deckImportSlideFromFile() {
+      $('deckSlideImportFile')?.click();
+    }
+
+    // Open the community browser scoped to published slides, so the next
+    // design the user picks is imported into the deck (mirrors the
+    // disc-design → disc-slot import flow).
+    function openDeckSlideImportBrowser() {
+      ensureDeck();
+      state._deckImportMode = true;
+      const typeEl = $('nostrType'); if (typeEl) typeEl.value = 'slide';
+      const qEl = $('nostrQuery'); if (qEl) qEl.value = '';
+      const catEl = $('nostrCategory'); if (catEl) catEl.value = state.meta.category || '';
+      $('nostrModal')?.classList.add('open');
+      if (typeof switchModalTab === 'function') switchModalTab('Search');
+      runNostrSearch();
+    }
+
+    // Intercept a community-browser selection while the deck import browser
+    // is open: import the chosen design as slides instead of loading it.
+    function tryDeckImportRow(row) {
+      if (!state._deckImportMode) return false;
+      state._deckImportMode = false;
+      try { closeNostrPreview(); } catch (e) {}
+      $('nostrModal')?.classList.remove('open');
+      if (row && row.payload) deckImportFromPayload(row.payload);
+      return true;
+    }
+
+    function handleDeckSlideImportFile(e) {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        let payload;
+        try { payload = JSON.parse(reader.result); }
+        catch (err) { toastError('Could not read that file as a design.'); return; }
+        deckImportFromPayload(payload);
+      };
+      reader.readAsText(file);
+    }
+
+    // Return from the slide editor to the deck sorter.
+    function deckReturnToSorter() {
+      const deck = ensureDeck();
+      if (deck.editingIndex === null || deck.editingIndex === undefined) return;
+      pushHistory('return to deck');
+      persistEditingDeckSlide();
+      deck.editingIndex = null;
+      state.templateMode = 'deck';
+      state.layers = state.layers.filter(l => l.target !== 'canvas');
+      state.selectedLayerId = '';
+      syncInputs();
+      render();
+    }
+
+    // ===================================================================
+    // Presenter Mode — a full-screen runtime that plays a deck: current
+    // slide (themed) + speaker notes + next-slide thumbnail + counter.
+    // Owns the keyboard while active. Launches from the Deck Builder tool
+    // palette and from a deck's community-browser preview page.
+    // ===================================================================
+    let _presenterActive = false;
+    // view: 'presenter' = slide + notes + next thumbnail; 'audience' = the
+    // slide alone, full-screen, with auto-hiding chrome (single-screen use).
+    let _presenter = { slides: [], theme: {}, index: 0, view: 'presenter' };
+    let _presenterIdleTimer = null;
+
+    function startPresenter(deckData) {
+      const slides = (deckData && Array.isArray(deckData.slides)) ? deckData.slides : [];
+      if (!slides.length) { toastError('This deck has no slides to present.'); return; }
+      // Launching from the editor's own deck: save the slide being edited.
+      persistEditingDeckSlide();
+      _presenter = { slides, theme: (deckData && deckData.theme) || {}, index: 0, view: 'presenter' };
+      _presenterActive = true;
+      const overlay = $('presenterMode');
+      overlay.classList.add('open');
+      overlay.setAttribute('aria-hidden', 'false');
+      presenterRender();
+      // Best-effort fullscreen — the overlay already covers the viewport.
+      try {
+        if (overlay.requestFullscreen && !document.fullscreenElement) {
+          overlay.requestFullscreen().catch(() => {});
+        }
+      } catch (e) {}
+    }
+
+    function presenterRender() {
+      const p = _presenter;
+      const n = p.slides.length;
+      if (!n) return;
+      p.index = Math.max(0, Math.min(n - 1, p.index));
+      const cur = p.slides[p.index];
+      const stage = $('presenterStage');
+      stage.innerHTML = '';
+      try {
+        renderCustomArtPreviewDOM(stage, composeSlideForDeck(cur, p.theme), { compact: true });
+        fitMiniPreview(stage);
+      } catch (e) {}
+      $('presenterCounter').textContent = `${p.index + 1} / ${n}`;
+      const notes = (cur.slide && cur.slide.notes) || '';
+      $('presenterNotesText').textContent = notes || 'No notes for this slide.';
+      const nextThumb = $('presenterNextThumb');
+      nextThumb.innerHTML = '';
+      const next = p.slides[p.index + 1];
+      const nextWrap = $('presenterNextWrap');
+      if (next) {
+        try {
+          renderCustomArtPreviewDOM(nextThumb, composeSlideForDeck(next, p.theme), { compact: true });
+          fitMiniPreview(nextThumb);
+        } catch (e) {}
+        nextWrap.style.visibility = 'visible';
+      } else {
+        nextWrap.style.visibility = 'hidden';
+      }
+      $('presenterPrevBtn').disabled = p.index === 0;
+      $('presenterNextBtn').disabled = p.index >= n - 1;
+      const overlay = $('presenterMode');
+      const audience = p.view === 'audience';
+      overlay.classList.toggle('audience', audience);
+      $('presenterViewBtn').textContent = audience ? 'Presenter view' : 'Audience view';
+      if (audience) {
+        presenterShowChrome();
+      } else {
+        overlay.classList.remove('chromeHidden');
+        clearTimeout(_presenterIdleTimer);
+      }
+    }
+
+    function presenterNav(delta) {
+      if (!_presenterActive) return;
+      _presenter.index += delta;
+      presenterRender();
+    }
+
+    function presenterGoto(i) {
+      if (!_presenterActive) return;
+      _presenter.index = i;
+      presenterRender();
+    }
+
+    function presenterToggleView() {
+      _presenter.view = _presenter.view === 'audience' ? 'presenter' : 'audience';
+      presenterRender();
+    }
+
+    // Audience view: reveal the floating control bar, then auto-hide it
+    // again after the mouse goes idle.
+    function presenterShowChrome() {
+      const overlay = $('presenterMode');
+      overlay.classList.remove('chromeHidden');
+      clearTimeout(_presenterIdleTimer);
+      if (_presenterActive && _presenter.view === 'audience') {
+        _presenterIdleTimer = setTimeout(() => {
+          if (_presenterActive && _presenter.view === 'audience') {
+            $('presenterMode').classList.add('chromeHidden');
+          }
+        }, 2600);
+      }
+    }
+
+    function exitPresenter() {
+      if (!_presenterActive) return;
+      _presenterActive = false;
+      clearTimeout(_presenterIdleTimer);
+      const overlay = $('presenterMode');
+      overlay.classList.remove('open', 'audience', 'chromeHidden');
+      overlay.setAttribute('aria-hidden', 'true');
+      try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch (e) {}
+    }
+
+    // Present the deck currently open in the editor.
+    function presentCurrentDeck() {
+      const deck = ensureDeck();
+      startPresenter({ slides: deck.slides, theme: deck.theme });
+    }
+
     // and Disc Design are the Designer tab's two layouts; Cover/Disc are the
     // Template tab's. applyLayout() handles any appMode crossing.
     function applyLayout(layout) {
+      // If a deck slide is open in the editor, save it back before any
+      // layout change carries us out of the slide editor.
+      persistEditingDeckSlide();
       if (layout === 'discdesign') {
         if (state.appMode !== 'designer') switchAppMode('designer');
         state._lastDesignerLayout = 'discdesign';
@@ -15179,11 +16114,26 @@
         state.preset = 'dvd';
         Object.assign(state, presets.dvd);
       }
-      // First time into Custom Art, default the category so save/publish work.
-      if (layout === 'customart' && !state.meta.category) {
-        state.meta.category = 'custom-art';
+      // First time into Custom Art / Slide, default the category and (for a
+      // slide) lock the canvas to a 16:9 resolution.
+      // Slides and decks always classify under their own category; Custom
+      // Art just gets a default the user can override.
+      if (layout === 'slide') state.meta.category = 'slide';
+      else if (layout === 'deck') state.meta.category = 'slide-deck';
+      else if (layout === 'customart' && !state.meta.category) state.meta.category = 'custom-art';
+      if (layout === 'slide') {
+        const ca = state.customArt || {};
+        if (Math.abs((ca.width || 0) / (ca.height || 1) - 16 / 9) > 0.01) {
+          state.customArt = { ...ca, width: 1920, height: 1080, preset: '1920x1080' };
+        }
       }
-      if (layout === 'customart') state._lastDesignerLayout = 'customart';
+      if (layout === 'deck') {
+        // Entering the Deck Builder always lands on the slide sorter, never
+        // mid-edit of a slide.
+        state.deck = state.deck || { theme: { fontFamily: '', background: '' }, slides: [], editingIndex: null };
+        state.deck.editingIndex = null;
+      }
+      if (isCanvasMode(layout)) state._lastDesignerLayout = layout;
       else state._lastTemplateLayout = layout;
       syncInputs();
       render();
@@ -15295,9 +16245,115 @@
     function attachEvents() {
       // Layout tabs: cover/disc live on the Template tab; customart/discdesign
       // on the Designer tab. applyLayout() sorts out the appMode crossing.
-      for (const layout of ['cover', 'disc', 'customart', 'discdesign']) {
+      for (const layout of ['cover', 'disc', 'deck', 'customart', 'slide', 'discdesign']) {
         const btn = $(`mode-${layout}`);
         if (btn) btn.addEventListener('click', () => applyLayout(layout));
+      }
+
+      // ---- Deck Builder wiring ----
+      $('deckAddSlideBtn')?.addEventListener('click', deckAddBlankSlide);
+      $('deckSorterAddBtn')?.addEventListener('click', deckAddBlankSlide);
+      $('deckImportSlideBtn')?.addEventListener('click', openDeckSlideImportBrowser);
+      $('deckImportFileBtn')?.addEventListener('click', deckImportSlideFromFile);
+      $('deckThemeBgEnabled')?.addEventListener('change', (e) => {
+        ensureDeck();
+        pushHistory('toggle deck background');
+        state.deck.theme.background = e.target.checked ? ($('deckThemeBg')?.value || '#ffffff') : '';
+        render();
+      });
+      $('deckThemeBg')?.addEventListener('input', (e) => {
+        ensureDeck();
+        if (!$('deckThemeBgEnabled')?.checked) return;
+        state.deck.theme.background = e.target.value;
+        pushHistoryDebounced('deck:bg', 'change deck background', 400);
+        render();
+      });
+      $('deckSlideIgnoreTheme')?.addEventListener('change', (e) => {
+        const deck = ensureDeck();
+        if (deck.editingIndex === null || deck.editingIndex === undefined) return;
+        const slot = deck.slides[deck.editingIndex];
+        if (!slot) return;
+        pushHistory('toggle slide theme opt-out');
+        slot.ignoreDeckTheme = e.target.checked;
+        render();
+      });
+      $('deckBackBtn')?.addEventListener('click', deckReturnToSorter);
+      $('deckSlideImportFile')?.addEventListener('change', handleDeckSlideImportFile);
+
+      // ---- Presenter Mode wiring ----
+      $('deckPresentBtn')?.addEventListener('click', presentCurrentDeck);
+      $('presenterPrevBtn')?.addEventListener('click', () => presenterNav(-1));
+      $('presenterNextBtn')?.addEventListener('click', () => presenterNav(1));
+      $('presenterViewBtn')?.addEventListener('click', presenterToggleView);
+      $('presenterExitBtn')?.addEventListener('click', exitPresenter);
+      $('presenterStage')?.addEventListener('click', () => presenterNav(1));
+      // In audience view, moving the mouse reveals the auto-hiding control bar.
+      $('presenterMode')?.addEventListener('mousemove', () => {
+        if (_presenterActive && _presenter.view === 'audience') presenterShowChrome();
+      });
+      // Presenter owns the keyboard: capture-phase + stopPropagation blocks
+      // every editor / layer shortcut while a presentation is running.
+      document.addEventListener('keydown', (e) => {
+        if (!_presenterActive) return;
+        e.stopPropagation();
+        const k = e.key;
+        if (k === 'Escape') { e.preventDefault(); exitPresenter(); }
+        else if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'PageDown' || k === ' ' || k === 'Spacebar') { e.preventDefault(); presenterNav(1); }
+        else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'PageUp') { e.preventDefault(); presenterNav(-1); }
+        else if (k === 'Home') { e.preventDefault(); presenterGoto(0); }
+        else if (k === 'End') { e.preventDefault(); presenterGoto(_presenter.slides.length - 1); }
+      }, true);
+      // Leaving browser fullscreen (e.g. via Esc) should close Presenter Mode.
+      document.addEventListener('fullscreenchange', () => {
+        if (_presenterActive && !document.fullscreenElement) exitPresenter();
+      });
+
+      const deckGrid = $('deckSlideGrid');
+      if (deckGrid) {
+        deckGrid.addEventListener('click', (e) => {
+          const card = e.target.closest('.deckSlideCard');
+          if (!card) return;
+          const idx = Number(card.dataset.index);
+          const actBtn = e.target.closest('button[data-act]');
+          if (actBtn) {
+            e.stopPropagation();
+            if (actBtn.dataset.act === 'dup') deckDuplicateSlide(idx);
+            else if (actBtn.dataset.act === 'del') deckDeleteSlide(idx);
+            return;
+          }
+          openDeckSlide(idx);
+        });
+        // Drag-to-reorder.
+        let dragFrom = null;
+        deckGrid.addEventListener('dragstart', (e) => {
+          const card = e.target.closest('.deckSlideCard');
+          if (!card) return;
+          dragFrom = Number(card.dataset.index);
+          card.classList.add('dragging');
+          e.dataTransfer.effectAllowed = 'move';
+        });
+        deckGrid.addEventListener('dragend', (e) => {
+          const card = e.target.closest('.deckSlideCard');
+          if (card) card.classList.remove('dragging');
+          deckGrid.querySelectorAll('.dragover').forEach(el => el.classList.remove('dragover'));
+          dragFrom = null;
+        });
+        deckGrid.addEventListener('dragover', (e) => {
+          const card = e.target.closest('.deckSlideCard');
+          if (!card || dragFrom === null) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          deckGrid.querySelectorAll('.dragover').forEach(el => el.classList.remove('dragover'));
+          card.classList.add('dragover');
+        });
+        deckGrid.addEventListener('drop', (e) => {
+          const card = e.target.closest('.deckSlideCard');
+          if (!card || dragFrom === null) return;
+          e.preventDefault();
+          const to = Number(card.dataset.index);
+          deckMoveSlide(dragFrom, to);
+          dragFrom = null;
+        });
       }
 
       $('preset').addEventListener('change', (event) => applyPreset(event.target.value));
@@ -15313,13 +16369,25 @@
           state.customArt.width = preset.w;
           state.customArt.height = preset.h;
         }
+        // Slides stay 16:9 — re-derive height from whatever width the preset set.
+        if (state.templateMode === 'slide') {
+          state.customArt.height = Math.round(state.customArt.width * 9 / 16);
+          const m = CUSTOM_ART_PRESETS.find(p => p.key !== 'custom' && p.w === state.customArt.width && p.h === state.customArt.height);
+          state.customArt.preset = m ? m.key : 'custom';
+        }
         syncInputs();
         render();
       });
-      const setCustomArtSize = () => {
+      const setCustomArtSize = (driver) => {
         pushHistoryDebounced('customArt:size', 'resize canvas', 400);
-        const w = Number($('customArtWidth')?.value) || state.customArt.width;
-        const h = Number($('customArtHeight')?.value) || state.customArt.height;
+        let w = Number($('customArtWidth')?.value) || state.customArt.width;
+        let h = Number($('customArtHeight')?.value) || state.customArt.height;
+        // Slides are locked to 16:9 — re-derive the other dimension from
+        // whichever input the user edited.
+        if (state.templateMode === 'slide') {
+          if (driver === 'height') w = Math.round(h * 16 / 9);
+          else h = Math.round(w * 9 / 16);
+        }
         state.customArt = state.customArt || {};
         state.customArt.width = Math.max(CUSTOM_ART_MIN, Math.min(CUSTOM_ART_MAX, w));
         state.customArt.height = Math.max(CUSTOM_ART_MIN, Math.min(CUSTOM_ART_MAX, h));
@@ -15328,8 +16396,14 @@
         state.customArt.preset = matched ? matched.key : 'custom';
         render();
       };
-      const caW = $('customArtWidth');  if (caW) caW.addEventListener('input', setCustomArtSize);
-      const caH = $('customArtHeight'); if (caH) caH.addEventListener('input', setCustomArtSize);
+      const caW = $('customArtWidth');  if (caW) caW.addEventListener('input', () => setCustomArtSize('width'));
+      const caH = $('customArtHeight'); if (caH) caH.addEventListener('input', () => setCustomArtSize('height'));
+      const slideNotesEl = $('slideNotes');
+      if (slideNotesEl) slideNotesEl.addEventListener('input', (e) => {
+        pushHistoryDebounced('slide:notes', 'edit speaker notes', 500);
+        state.customArt = state.customArt || {};
+        state.customArt.notes = e.target.value;
+      });
       const caBg = $('customArtBg');
       if (caBg) caBg.addEventListener('change', (e) => {
         pushHistory('change canvas background');
@@ -15391,17 +16465,7 @@
       $("designerCategoryField").addEventListener("change", (e)=>{pushHistory(`change category to ${e.target.value || 'Uncategorized'}`); state.meta.category=e.target.value; syncIdentifierVisibility(); render();});
       $("designerLanguageField").addEventListener("change", (e)=>{pushHistory('change language'); state.meta.language=e.target.value; render();});
 
-      $("imdbImportBtn").addEventListener("click", async ()=>{
-        const imdb = state.meta.imdbId.trim();
-        const key = prompt("OMDb API key:", state.meta.omdbApiKey || "");
-        if (!imdb || !key) return;
-        state.meta.omdbApiKey = key;
-        const res = await fetch(`https://www.omdbapi.com/?i=${encodeURIComponent(imdb)}&apikey=${encodeURIComponent(key)}`);
-        const data = await res.json();
-        if (data && data.Title) { state.meta.title = data.Title; $("titleField").value = data.Title; render(); } else toastError("IMDb import failed");
-      });
-
-      $("nostrClose").addEventListener("click", () => { closeNostrPreview(); $("nostrModal").classList.remove("open"); _feedCache.softModRevealed.clear(); });
+      $("nostrClose").addEventListener("click", () => { closeNostrPreview(); $("nostrModal").classList.remove("open"); _feedCache.softModRevealed.clear(); state._deckImportMode = false; });
       $("nostrRefreshBtn").addEventListener("click", async () => {
         const btn = $("nostrRefreshBtn");
         const original = btn.textContent;
@@ -15501,9 +16565,13 @@
             payload = jewelTemplatePayload();
             mode = 'jewel';
             if (!previewFromPayload(payload, 'jewel')) throw new Error('Load jewel insert artwork before publishing.');
-          } else if (state.templateMode === 'customart') {
+          } else if (state.templateMode === 'deck') {
+            payload = deckPayload();
+            mode = 'deck';
+            if (!(payload.deck?.slides || []).length) throw new Error('Add at least one slide before publishing the deck.');
+          } else if (isCanvasMode(state.templateMode)) {
             payload = customArtPayload();
-            mode = 'customart';
+            mode = state.templateMode;
             const hasContent = (state.layers || []).some(l => l.target === 'canvas');
             const hasNonWhiteBg = (state.customArt?.background || '#ffffff').toLowerCase() !== '#ffffff';
             if (!hasContent && !hasNonWhiteBg) throw new Error('Add at least one layer or set a non-white background before publishing.');
@@ -15565,7 +16633,7 @@
           pageWIn = sheetW();
           pageHIn = sheetH();
         }
-        const bg = state.templateMode === 'customart' ? (state.customArt?.background || '#ffffff') : '';
+        const bg = isCanvasMode(state.templateMode) ? (state.customArt?.background || '#ffffff') : '';
         _exportSheetOrigParent = sheet.parentNode;
         _exportSheetOrigNext = sheet.nextSibling;
         _exportSheetOrigStyle = sheet.getAttribute('style') || '';
@@ -16043,6 +17111,18 @@
       if (fontFamilyEl) {
         fontFamilyEl.innerHTML = WEB_SAFE_FONTS.map(f => `<option value="${escapeHtml(f.value)}" style="font-family:${f.value === 'inherit' ? 'inherit' : escapeHtml(f.value)}">${escapeHtml(f.label)}</option>`).join('');
         fontFamilyEl.addEventListener('change', (event) => updateSelectedLayer('fontFamily', event.target.value));
+      }
+      const deckFontEl = $('deckThemeFont');
+      if (deckFontEl) {
+        deckFontEl.innerHTML = '<option value="">No font override</option>'
+          + WEB_SAFE_FONTS.filter(f => f.value !== 'inherit')
+              .map(f => `<option value="${escapeHtml(f.value)}" style="font-family:${escapeHtml(f.value)}">${escapeHtml(f.label)}</option>`).join('');
+        deckFontEl.addEventListener('change', (event) => {
+          ensureDeck();
+          pushHistory('change deck font');
+          state.deck.theme.fontFamily = event.target.value;
+          render();
+        });
       }
       $('textFontSize').addEventListener('input', (event) => updateSelectedLayer('fontSize', Number(event.target.value)));
       $('textColor').addEventListener('input', (event) => updateSelectedLayer('color', event.target.value));

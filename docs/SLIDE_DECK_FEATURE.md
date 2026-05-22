@@ -36,6 +36,56 @@ the deck — all Nostr-native, forkable, and driven entirely off JSON data.
 - A per-property theme matrix — v1 theme overrides a small fixed set
   (font family, background); per-property locking is future polish.
 
+### Implementation status
+
+- **Phase A — Slide format: done.** `templateMode: 'slide'` (a thin alias
+  of the Custom Art canvas engine via `isCanvasMode()`), Slide Designer
+  layout on the Designer tab, 16:9-locked Canvas panel + Speaker notes
+  textarea (`state.customArt.notes`), and `slide` save / load / publish /
+  fork as `casewrap-slide`. Slides appear in the community browser.
+- **Phase B — Deck Builder: done.** `templateMode: 'deck'` with the
+  embedded-slide `deck` data model; Deck Builder layout on the Template
+  tab; the slide-sorter view (thumbnail grid with add-blank / import from
+  Nostr / import from file / duplicate / delete / drag-reorder); open a
+  slide in the canvas editor
+  and write back via `persistEditingDeckSlide()`; deck save / load /
+  publish / fork as `casewrap-deck`, self-contained; deck feed-card and
+  publish-confirm previews show the first slide with a slide-count badge.
+  Import letterboxes non-16:9 sources onto the slide.
+- **Phase C — Deck theme: done.** `deck.theme` (font family + optional
+  background-color override) with controls in the Deck Builder sidebar;
+  per-slide `ignoreDeckTheme` opt-out in the slide editor; render-time
+  theme composition (`composeSlideForDeck`) applied non-destructively to
+  deck thumbnails and the community-browser preview.
+- **Phase D — Presenter Mode (single-window): done.** Full-screen runtime
+  (`#presenterMode`): the themed current slide, speaker notes, a next-slide
+  thumbnail, and a `n / total` counter. On-screen prev/next, click-to-
+  advance, and keyboard nav (arrows / space / PageUp-Down / Home / End /
+  Esc); a Presenter-view ⇄ Audience-view toggle (Audience view shows the
+  slide alone, full-screen, with auto-hiding chrome — for single-screen
+  use). Presenter owns the keyboard via a
+  capture-phase handler, so editor shortcuts are suppressed while it runs.
+  Launches from a ▶ button in the Deck Builder tool palette and a
+  "▶ Start Presentation" button on a deck's community-browser preview.
+- **Phase E (dual-window presenter):** not started — explicit future work.
+
+**The v1 plan (Phases A–D) is complete and shipping.** Two new categories —
+`slide` ("Slide design") and `slide-deck` ("Slide deck") — were added so
+slides and decks classify on their own terms, and both use the free-form
+"Custom tag" field rather than the media-identifier panel.
+
+### Remaining work
+
+- **Phase E — dual-window presenter** (audience window + a separate
+  presenter window with notes/timer on a second screen).
+- v1 non-goals still deferred: slide transitions/animations, a presenter
+  timer / rehearsal stats / laser pointer, rich-text speaker notes,
+  PowerPoint/Keynote/PDF import, deck → PDF/video export, per-property
+  theme locking, and a Keynote-style always-on filmstrip.
+- Minor polish: the "Back to deck" bar is absolutely positioned (scrolls
+  away if the slide-edit canvas overflows); deck theme background is
+  color-only (an image-URL background was floated as future).
+
 ---
 
 ## Why this fits the repo

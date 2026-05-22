@@ -19,13 +19,9 @@ surface + canvas export, JSON round-trip).
 
 ## Cleanup
 
-- **Remove the IMDb import.** The OMDb prompt-based lookup isn't pulling its
-  weight — rip out the `imdbImportBtn` button, its handler, and the OMDb
-  fetch. (The `imdbId` metadata field itself stays — only the auto-import
-  goes.)
 - **Delete `docs/TMDB_AUTOFILL_FEATURE.md`.** TMDB auto-fill was declined —
-  the metadata fields work fine filled by hand and the IMDb-style import is
-  being removed anyway.
+  the metadata fields work fine filled by hand, and the IMDb-style import
+  has been removed.
 
 ## Profile pages — deferred polish
 

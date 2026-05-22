@@ -1,17 +1,19 @@
 # Artstr Studio
 
-Artstr Studio is a static, browser-only design tool for printable physical media packaging — and increasingly, a general-purpose Nostr-native graphics editor. It started as a DVD/Blu-ray case wrap maker and now also covers Avery 8960/8944 disc labels, Avery 8693/8943 CD jewel-case inserts, single-disc designs, and free-form custom art canvases. Designs publish to and load from Nostr, are forkable and editable in place, and can be tipped via Lightning.
+Artstr Studio is a static, browser-only design tool for printable physical media packaging — and increasingly, a general-purpose Nostr-native graphics editor. It started as a DVD/Blu-ray case wrap maker and now also covers Avery 8960/8944 disc labels, Avery 8693/8943 CD jewel-case inserts, single-disc designs, free-form custom art canvases, and 16:9 slides assembled into presentable slide decks. Designs publish to and load from Nostr, are forkable and editable in place, and can be tipped via Lightning.
 
 ## Tabs and layouts
 
 The editor has two tabs at the top level, each with its own Layout panel:
 
-- **Template** — designs that map to a real printed surface.
+- **Template** — designs that map to a real printed surface, plus the deck container.
   - **Case cover** — DVD / Blu-ray wraps with separate front / spine / back artwork or a single combined wrap image.
   - **Disc labels** — Avery 8960 / 8944 sheets with two disc positions.
   - **CD jewel inserts** — Avery 8693 / 8943 sheets with a front insert + tray insert (chosen via the Template preset).
+  - **Slide deck** — an ordered, self-contained presentation deck that embeds its slides inline (see below).
 - **Designer** — free-form and reusable designs.
   - **Custom art** (the Designer tab's default) — a free-form canvas with size presets (1920×1080, square sizes, etc.) or custom dimensions. Treats the project as generic art rather than packaging.
+  - **Slide** — a 16:9 design surface (a Custom Art canvas locked to 16:9) with a speaker-notes field. A standalone, publishable design that can be imported into a slide deck.
   - **Disc design** — a reusable single-disc design you can publish on Nostr and import later into either disc position of a disc-label sheet.
 
 Each layout keeps its own metadata (title / identifiers / category / language) so switching layouts — or loading a project — doesn't overwrite a design already in progress.
@@ -55,6 +57,16 @@ Renders consistently in the editor, the preview surfaces, and the canvas / PDF /
 ### Layer clipboard
 
 Cross-target and cross-tool copy/paste — Copy / Cut on a selected layer, Copy all / Paste for the whole panel. Paste retargets to the current sub-mode and clamps positions so layers copied from a wide cover don't land off-canvas on a narrow disc.
+
+## Slide decks & presenting
+
+Artstr Studio doubles as a Nostr-native presentation tool.
+
+- **Slide** — a 16:9 design surface on the Designer tab. Mechanically a Custom Art canvas locked to 16:9, plus a **speaker-notes** field. A slide is a first-class design: publish it, fork it, load it.
+- **Slide deck** — a Template-tab container holding an ordered, variable-length list of slides. The deck **embeds every slide's full data inline**, so a published deck is a single self-contained event — no external lookups.
+  - **Deck Builder** — a reorderable grid of slide thumbnails. Add a blank slide, import a slide from Nostr or a file (non-16:9 imports are scaled-to-fit and letterboxed), duplicate, delete, and drag to reorder. Click a thumbnail to edit that slide in the canvas editor; edits write back into the deck.
+  - **Deck theme** — a deck-level font and background that restyle every slide at render time without altering the slides themselves; any slide can opt out.
+- **Presenter Mode** — a full-screen runtime that plays a deck: the themed current slide, speaker notes, a next-slide thumbnail, and a slide counter. Navigate with on-screen controls, click-to-advance, or the keyboard (arrows / space / Page keys / Home / End / Esc). A **Presenter ⇄ Audience** view toggle switches between the notes-and-thumbnail layout and a clean slide-only full-screen view. Launch it from the ▶ button in the Deck Builder tool palette, or from **Start Presentation** on a deck's preview page in the community browser.
 
 ## Editor canvas
 
@@ -117,14 +129,14 @@ Two flavors of Lightning are wired in:
 
 - `src/index.html` — the complete single-file app. Open it directly in a browser, or serve it from any static host. Vercel rewrites in `vercel.json` map `/share/:id` and `/u/:npub` to the SPA entry.
 - `src/vendor/qrcode.min.js` — vendored QR encoder (used for Lightning tip invoices).
-- `docs/` — feature specs. `PEN_TOOL_FEATURE.md` covers the now-shipped pen / pencil / vector tooling; badges, collections, NWC zaps, and zap-gated templates are still unbuilt.
+- `docs/` — feature specs. `PEN_TOOL_FEATURE.md` covers the shipped pen / pencil / vector tooling; `SLIDE_DECK_FEATURE.md` covers the shipped slide / deck / presenter system (Phases A–D; dual-window presenter is future). Badges, collections, NWC zaps, and zap-gated templates are still unbuilt.
 - `TODO.md` — running list of deferred work and cleanup items.
 
 ## Schema
 
 - Current project schema version: **5**.
 - Minimum supported version: **4**. Older payloads load but won't round-trip cleanly.
-- Template-mode discriminator in payloads: `cover`, `disc`, `jewel`, `customart`, `disc-design`.
+- Template-mode discriminator in payloads: `cover`, `disc`, `jewel`, `customart`, `disc-design`, `slide`, `deck`. A `slide` payload carries a `slide` object (canvas dims + speaker `notes`); a `deck` payload carries a `deck` object (`theme` + an inline ordered `slides` array).
 - Layer types: `image`, `text`, `color`, `shape`, `qr`. Shape kinds: `rect`, `rounded-rect`, `circle`, `ellipse`, `triangle`, `polygon`, `star`, `line`, `path`, `svg`. Any layer may carry a `clip` field for masking.
 
 ## Defaults and stack
