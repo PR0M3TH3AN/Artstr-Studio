@@ -4,63 +4,77 @@
 
 Turn Artstr into a Nostr-native **HyperCard**: a user builds a **stack**
 of fullscreen **cards**, each one an Artstr canvas (layers, drawings,
-text, images, shapes, QR), and any layer can be made **interactive** —
-click it to jump to another card or open a link. The whole stack
-publishes as one self-contained Nostr event and plays in a fullscreen
-**interactive viewer**.
+text, images, shapes, QR), and any object can be made to **do
+something** — a click runs an ordered **action chain** that navigates,
+reveals, hides, or links. The whole stack publishes as one self-contained
+Nostr event and plays in a fullscreen **interactive runtime**.
 
-Think interactive zines, micro-sites, portfolios, album booklets, comics,
-choose-your-path pages — all decentralized, forkable, no hosting.
+Think interactive zines, micro-sites, portfolios, comics, choose-your-
+path pages, simple games — decentralized, forkable, no hosting.
 
 ### The core realisation
 
-**A Stack is a Slide Deck with interactive layers.** The Deck Builder
-already gives us ~70% of this — a Stack is not a greenfield feature, it's
-a focused extension of `templateMode: 'deck'`. What's genuinely new is
-*layer actions* and an *interactive (non-linear) viewer*.
+**A Stack is a Slide Deck whose cards have interactive logic.** The Deck
+Builder already gives us the card container, sorter, edit round-trip,
+embed-inline storage, publish/fork path, and a fullscreen renderer. Stacks
+are a focused extension of that — not a greenfield feature. What's
+genuinely new is the **behaviour system**: triggers, action chains, and a
+runtime that executes them.
+
+> A stack is a collection of visual cards where any object can do
+> something — and "something" is an ordered list of actions, not a single
+> link.
 
 ### Product goals
 
 1. **Stack format** — a Template-tab layout: an ordered set of fullscreen
    cards, each an Artstr canvas, at a stack-wide aspect ratio (16:9, 9:16,
    1:1, 4:3, or custom — not locked to 16:9 like slide decks).
-2. **Interactive layers** — any layer can carry an `action`: jump to a
-   card, or open a URL. Transparent **hotspot** layers make
-   click-anywhere regions trivial.
-3. **Interactive viewer** — a fullscreen runtime that renders a card and
-   routes clicks on actionable layers. Non-linear: the stack decides where
-   a click goes, not just next/prev.
-4. **Nostr-native** — publish/fork/edit-in-place as a `kind:30078`
+2. **Interactivity** — a card has `onEnter` / `onExit` action chains; any
+   layer has an `onClick` action chain. Actions navigate between cards,
+   open links, and show / hide / toggle layers on the current card.
+3. **Action builder** — a no-code panel: *"When this is clicked: 1. Hide
+   layer X  2. Show layer Y  3. Go to card Z."* It should feel like Apple
+   Shortcuts, not like writing code.
+4. **Interactive runtime** — a fullscreen player that renders a card,
+   routes clicks through `onClick` chains, runs `onEnter`/`onExit`, and
+   tracks per-card layer visibility.
+5. **Nostr-native** — publish / fork / edit-in-place as a `kind:30078`
    addressable event, shareable by `naddr`, encryptable via the
    private-publishing envelope.
 
 ### Non-goals (v1)
 
-- **Arbitrary HTML / CSS / JavaScript.** Stacks are a *safe declarative
-  schema* Artstr renders — never executable web content. No iframes, no
-  script, no custom CSS. This is the single most important constraint.
-- **Forms, inputs, databases, server logic** — a stack is a presentation
-  artifact, not an app.
-- **Per-card transitions / animations** — future polish.
-- **Blossom media upload** — v1 uses image URLs, like the rest of Artstr.
-- **`zap`, `open-nostr`, `toggle-layer` actions** — namespace reserved,
-  not built in v1 (`zap` alone drags in the whole Lightning flow).
-- **Scrolling / multi-viewport cards** — a card is one fixed-size canvas.
+- **Arbitrary HTML / CSS / JavaScript.** A stack is a *safe declarative
+  schema* Artstr interprets — never executable web content. No iframes,
+  no script, no custom CSS, no `eval`. An action chain is data. This is
+  the single most important constraint.
+- **A scripting language.** v1 has triggers + action chains, *not*
+  variables, counters, or conditionals. Those are a defined later tier
+  (Phase E) — the action model is built to accept them without a rewrite.
+- **New layer *types*** for interactivity — `onClick` is an *attribute*
+  of the existing layers. (Audio / video layers are a real future
+  addition, but later.)
+- **Asset library, modals, Nostr embeds, Blossom upload, static-HTML
+  export, stack templates** — all later.
+- **Extra triggers** (`hover`, `timer`, `keypress`, `double-click`) —
+  later; v1 triggers are `click`, `card-enter`, `card-exit`.
+- **Forms, inputs, server logic** — a stack is a presentation artifact,
+  not an app.
 
 ### Decisions (proposed — confirm before building)
 
-1. **New `templateMode: 'stack'`**, reusing the Deck Builder's
-   card-container engine — *not* a flag on `deck`. A Stack and a Slide
-   Deck are distinct products (free aspect + interactivity vs. locked
-   16:9 + linear presenting), even though they share most code.
-2. **v1 action set: `goto-card` and `open-url` only.** Everything else is
-   reserved namespace.
-3. **`open-url` shows a confirm** with the destination before navigating
-   — a published stack is untrusted content.
-4. **One event = one stack** (all cards embedded inline), exactly like a
-   deck. Multi-event stacks are explicitly not v1.
-5. Additive schema — `action` on layers, `id` on cards, a `stack` payload
-   object. No `SCHEMA_VERSION` bump required.
+1. **New `templateMode: 'stack'`**, reusing the Deck Builder's card-
+   container engine via an `isDeckLike(mode)` helper — not a flag on
+   `deck`. A Stack and a Slide Deck are distinct products.
+2. **Interactivity is an attribute, not a layer type** — cards carry
+   `onEnter`/`onExit`, layers carry `onClick`; each is an action chain.
+3. **v1 action set:** `goto-card`, `go-back`, `open-url`, `show-layer`,
+   `hide-layer`, `toggle-layer`. Everything else is reserved namespace.
+4. **`open-url` shows a confirm** with the destination before navigating.
+5. **One event = one stack** (all cards embedded inline), like a deck.
+6. Additive schema — `onClick` on layers, `onEnter`/`onExit` + `id` on
+   cards, a `stack` payload object. No `SCHEMA_VERSION` bump required.
 
 ---
 
@@ -78,33 +92,38 @@ wholesale. An `isDeckLike(mode)` helper covers both `'deck'` and
   load / fork path; `naddr` sharing; the community feed card with a
   count badge.
 - **The whole canvas editor** — layers, text, shapes, the pen/pencil
-  tools, clipping, undo/redo all apply to a card unchanged.
+  tools, clipping, undo/redo all apply to a card unchanged. Every layer
+  already has a stable `id` (`makeLayerId()`) and a `visible` flag — the
+  exact hooks `show`/`hide`/`toggle` actions need.
+- **Theme composition** — `composeSlideForDeck` is reused
+  (`ignoreStackTheme` mirrors `ignoreDeckTheme`).
 - **Encryption** — a stack payload is deck-shaped, so the
   `PRIVATE_PUBLISHING_FEATURE.md` envelope wraps it with zero extra work.
 - **The fullscreen renderer** — Presenter Mode already renders a card
   full-screen, letterboxed, via `renderCustomArtPreviewDOM`. The
-  interactive viewer is that runtime plus an action-routing overlay.
+  interactive runtime is that renderer plus an action layer.
 
 ### Genuinely new work
 
 1. A per-stack **aspect ratio** (decks are locked 16:9).
-2. The **`action`** field on layers + the editor UI to set it.
-3. Stable **card `id`s** (so `goto-card` survives reordering).
-4. The **interactive viewer** — action hit-testing over the rendered card.
+2. The **behaviour model** — `onClick` on layers, `onEnter`/`onExit` on
+   cards, each an ordered **action chain**.
+3. The **action-builder UI** in the editor.
+4. The **interactive runtime** — executes chains, tracks per-card layer
+   visibility, hit-tests clickable layers.
 5. A public **viewer route** (`/p/<naddr>`).
 
 ### Current-state facts the plan is built on
 
 - `templateMode: 'deck'` — embedded ordered cards, the sorter view,
-  edit-a-card-in-the-canvas-editor with write-back, publish/fork as
-  `casewrap-deck`, feed card with a count badge. (See
-  `SLIDE_DECK_FEATURE.md`.)
+  edit-a-card-with-write-back, publish/fork as `casewrap-deck`, feed card
+  with a count badge. (See `SLIDE_DECK_FEATURE.md`.)
 - Presenter Mode (`#presenterMode`) — fullscreen, renders a card with
-  `renderCustomArtPreviewDOM`, keyboard nav, an Audience (slide-only)
-  view.
-- Layer renderer positions every layer as an absolutely-placed div from
-  inch coordinates; `renderCustomArtPreviewDOM` does the same at preview
-  scale, with `pointer-events:none` on layers.
+  `renderCustomArtPreviewDOM`, keyboard nav, capture-phase keyboard
+  ownership, an Audience (slide-only) view.
+- Every layer has a stable `id` and a `visible` boolean; the layer
+  renderer positions each layer as an absolutely-placed div from inch
+  coordinates.
 - `casewrap-*` typed `kind:30078` events; `/share/<naddr>` cold-resolves;
   `vercel.json` rewrites `/share/:id` and `/u/:npub` to the SPA.
 
@@ -123,14 +142,16 @@ wholesale. An `isDeckLike(mode)` helper covers both `'deck'` and
   stack: {
     aspect: '16:9',                  // 16:9 | 9:16 | 1:1 | 4:3 | custom
     width: 1920, height: 1080,       // canvas size every card shares
-    theme: { fontFamily: '', background: '' },   // same as deck.theme
+    theme: { fontFamily: '', background: '' },
     startCard: '<cardId>',           // entry card (default: first)
     cards: [
       {
         id: 'c_a1b2c3',              // stable; goto-card targets this
-        name: 'Cover',               // optional label in the sorter
+        name: 'Cover',
         background: '#111111',
-        layers: [ … ],               // standard layers, may carry `action`
+        layers: [ … ],               // standard layers; may carry onClick
+        onEnter: [ <action>, … ],    // runs when the card is shown
+        onExit:  [ <action>, … ],    // runs when leaving the card
         ignoreStackTheme: false
       },
       …
@@ -139,53 +160,90 @@ wholesale. An `isDeckLike(mode)` helper covers both `'deck'` and
 }
 ```
 
-- A `card` is the deck's slide entry generalised: it gains a stable `id`,
-  drops `notes`, and its `layers` may carry `action`s. Canvas dimensions
-  live at the **stack** level (every card shares the aspect) rather than
-  per-card — all cards in a stack are the same size.
-- **Feeding the shared renderer:** the deck's renderer / theme composition
-  read a per-entry `{ slide: {width,height,background}, layers }` shape.
-  For a stack, the engine synthesises that on the fly — `width`/`height`
-  from `stack`, `background` from the card — so `renderCustomArtPreviewDOM`
-  and `composeSlideForDeck` are reused untouched. (`ignoreStackTheme`
-  mirrors `ignoreDeckTheme`.)
-- **`startCard`** holds a card `id`; if that card is deleted it falls back
-  to the first card.
+- A `card` is the deck's slide entry generalised: a stable `id`, no
+  `notes`, plus `onEnter` / `onExit` action chains.
+- **Feeding the shared renderer:** the deck renderer reads a per-entry
+  `{ slide:{width,height,background}, layers }` shape. For a stack the
+  engine synthesises that — `width`/`height` from `stack`, `background`
+  from the card — so `renderCustomArtPreviewDOM` / `composeSlideForDeck`
+  are reused untouched.
+- **`startCard`** holds a card `id`; if that card is deleted it falls
+  back to the first card.
 
-### The `action` on a layer
+### Layer interactivity
 
-Any layer may carry an optional `action`:
+Any layer gains one optional field — an `onClick` action chain:
 
 ```js
-// Jump to another card — target is a card id or a keyword.
-{ "action": { "type": "goto-card", "target": "c_a1b2c3" } }
-{ "action": { "type": "goto-card", "target": "next" } }   // next|prev|first|last
-
-// Open an external link.
-{ "action": { "type": "open-url", "url": "https://example.com" } }
+{
+  id: 'l_x1', type: 'shape', /* …normal layer fields… */
+  visible: true,
+  onClick: [ <action>, <action>, … ]   // empty / absent = not interactive
+}
 ```
 
-- `goto-card.target` is a **card id**, never an index — reordering or
-  duplicating cards never breaks a link.
-- A dangling target (the card was deleted) is a viewer no-op + a console
-  warning; the editor flags it.
-- Unknown `action.type` values are ignored by the viewer — forward-safe
-  for the reserved set (`open-nostr`, `zap`, `toggle-layer`, …).
+A **hotspot** is just a transparent shape layer (no fill, no stroke) with
+an `onClick`. No new layer type — the editor offers an "Add hotspot"
+convenience that drops a transparent, click-ready rect; otherwise any
+text / image / shape layer can be given an `onClick`.
 
-### Hotspots
+### Triggers (v1)
 
-No new layer type. A **hotspot** is just a shape (rect) layer that is
-transparent — no fill, no stroke — carrying an `action`. The editor
-offers an **"Add hotspot"** convenience that drops a transparent rect
-ready for an action; otherwise any image / text / shape layer can be made
-actionable.
+| Trigger | Lives on | Fires when |
+|---|---|---|
+| `onClick` | a layer | the layer is clicked / tapped / Enter-activated |
+| `onEnter` | a card | the card becomes visible |
+| `onExit`  | a card | the runtime leaves the card |
+
+Named slots, not a generic trigger list — `onHover`, `onDoubleClick`,
+etc. slot in later as additional named slots.
+
+### Actions
+
+An **action chain** is an ordered array of actions. v1 action types:
+
+```js
+{ "type": "goto-card", "target": "c_a1b2c3" }      // or next|prev|first|last
+{ "type": "go-back" }                               // pop the visit back-stack
+{ "type": "open-url", "url": "https://example.com" }
+{ "type": "show-layer",   "target": "l_x1" }        // layer id on this card
+{ "type": "hide-layer",   "target": "l_x1" }
+{ "type": "toggle-layer", "target": "l_x1" }
+```
+
+**Execution rules:**
+
+- A chain runs top to bottom.
+- `goto-card` / `go-back` **end the chain** — actions after them are
+  ignored (you're on a different card now). The editor flags trailing
+  actions.
+- `show` / `hide` / `toggle` `target` a layer **on the current card**;
+  cross-card layer manipulation is not v1.
+- **`onEnter` / `onExit` chains may not contain `goto-card` or `go-back`**
+  — only `onClick` can navigate. This makes card-enter→navigate→card-enter
+  loops structurally impossible.
+- Chains are capped at **20 actions**; the runtime ignores the excess.
+- Unknown `action.type` values are silently ignored — forward-safe for
+  the Phase E logic actions (`set-variable`, `if`, …) and reserved ones
+  (`open-nostr`, `zap`, `play-audio`, …).
+
+### Runtime layer visibility
+
+Show/hide/toggle never mutate the stored design. The runtime keeps a
+**per-card visibility map** (`layerId → bool`), initialised from each
+layer's authored `visible`. Re-entering a card **resets** that card's map
+to the authored state, then runs `onEnter` — so behaviour is predictable
+and re-playable. (Persisting runtime state across visits is the Phase E
+variables tier.)
+
+A `composeCardForRuntime(card, visibilityMap)` helper — analogous to
+`composeSlideForDeck` — yields the `{layers}` the renderer draws.
 
 ### Nostr
 
-- Tag `casewrap-stack`; `d`-tag `stack:<title|id>` (or a random `d`-tag
-  when published privately, per `PRIVATE_PUBLISHING_FEATURE.md`).
-- Forkable and editable-in-place via the existing NIP-33 flow.
-- `naddr` shareable; encryptable.
+- Tag `casewrap-stack`; `d`-tag `stack:<title|id>` (random when published
+  privately, per `PRIVATE_PUBLISHING_FEATURE.md`).
+- Forkable, editable-in-place (NIP-33), `naddr`-shareable, encryptable.
 
 ---
 
@@ -197,85 +255,104 @@ The Deck Builder sorter, reused. A new **Stack** option in the Template-
 tab Layout panel (beside Case cover / Disc labels / Slide deck). The
 sidebar adds a **Stack** panel:
 
-- **Aspect ratio** — 16:9 / 9:16 / 1:1 / 4:3 / custom. Chosen up front.
-  Changing it later **re-fits every card** by reusing the deck's existing
-  import-letterbox remap (`deckSlideFromImport`'s scale-to-fit + centre
-  math) — layers scale and centre into the new aspect instead of being
-  stranded off-canvas. The user confirms before a re-fit runs.
+- **Aspect ratio** — 16:9 / 9:16 / 1:1 / 4:3 / custom. Chosen up front;
+  changing it later **re-fits every card** via the deck's import-letterbox
+  remap (scale-to-fit + centre), behind a confirm — layers are never
+  stranded off-canvas.
 - **Add card** (blank / import a design / import from Nostr), duplicate,
   delete, drag-reorder, inline-rename — all from the deck sorter. Imports
-  letterbox onto the **stack's** aspect, not a hardcoded 16:9 — the
-  existing remap is generalised to take a target width/height.
-- **Start card** — which card the viewer opens on (default: first).
+  letterbox onto the **stack's** aspect, not a hardcoded 16:9.
+- **Start card** — which card the runtime opens on (default: first).
 - A **Stack theme** panel (font + background), reused from the deck.
+- A per-card **onEnter / onExit** editor (an action-chain editor; see
+  surface 3) reachable from the card's context menu.
 
-### 2. Card editor + the Action control
+### 2. Card editor — drawing
 
 Clicking a card opens it in the canvas editor (the deck edit round-trip,
-unchanged). New in the **layer panel**: an **Interactivity** section for
-the selected layer —
+unchanged). All existing tools apply. New affordances:
+
+- **Add hotspot** — drops a transparent, click-ready rect.
+- A layer with a non-empty `onClick` shows an **action badge** in the
+  layer list and a subtle dashed outline on canvas, so interactive
+  regions are visible while authoring.
+
+### 3. The action builder
+
+The heart of the feature. A panel — opened for the selected layer
+(`onClick`) or for a card (`onEnter` / `onExit`) — that edits one action
+chain with **no JSON**:
 
 ```
-Interactivity
-  Action:  [ None ▾ ]            None | Go to card | Open URL
-  → Go to card:  [ Card ▾ ]      first | previous | next | last | <named card>
-  → Open URL:    [ https://… ]
+When this layer is clicked:                       [+ Add action ▾]
+  ⠿ 1. Hide layer   → [ Intro Text      ▾ ]              ✕
+  ⠿ 2. Show layer   → [ Secret Panel    ▾ ]              ✕
+  ⠿ 3. Go to card   → [ Chapter 2       ▾ ]              ✕
 ```
 
-- Layers with an action get a badge in the layer list and a subtle dashed
-  outline on the canvas, so interactive regions are visible while editing.
-- An **"Add hotspot"** button drops a transparent, action-ready rect.
-- A dangling `goto-card` target is flagged in the panel.
+- **+ Add action** menu: Go to card · Go back · Open URL · Show layer ·
+  Hide layer · Toggle layer.
+- Each action row has a type-appropriate target picker — a **card
+  dropdown** (the keywords *first / previous / next / last* plus every
+  named card) for `goto-card`; a **layer dropdown** (layers on this card)
+  for show/hide/toggle; a URL field for `open-url`.
+- Rows are **drag-reorderable** (⠿) and removable.
+- The editor **warns** on: actions after a `goto-card`/`go-back`
+  (unreachable); a `goto-card` whose target card was deleted (dangling);
+  navigation actions placed in a card's `onEnter`/`onExit` (not allowed).
+- `target`s are stored as **ids** (card id, layer id) — reordering or
+  renaming never breaks a chain.
 
-### 3. The interactive viewer
+### 4. The interactive runtime
 
-The fullscreen runtime, built on the Presenter Mode engine:
+The fullscreen player, built on the Presenter Mode engine:
 
 - Renders the current card full-screen, letterboxed to the stack aspect,
-  themed (`composeSlideForDeck` reused), via `renderCustomArtPreviewDOM`.
-- An **action overlay** sits above the card: for each layer with an
-  `action`, a positioned hit region matching the layer's (transformed)
-  box. The regions are real **`<button>`s**, so they are Tab-focusable,
-  Enter/Space-activatable, and screen-reader-announced — the viewer is
-  not mouse-only. Overlapping actionable layers resolve by **z-order**
-  (topmost wins); a hovered/focused region shows a pointer cursor.
-- **Click routing:** `goto-card` → navigate (ids; or the keywords
-  `next` / `prev` / `first` / `last`, **clamped at the ends — no wrap**);
-  `open-url` → a confirm dialog showing the destination, then open in a
-  new tab with `rel="noopener noreferrer"`. Clicking empty (non-action)
-  space is a **no-op** — a stack wanting click-anywhere advance adds a
-  full-card hotspot.
-- **Keyboard fallback** — arrows / space still do prev/next so a stack
-  with no on-card navigation is never a dead end; `Esc` exits. The viewer
-  owns the keyboard (capture-phase handler), like Presenter Mode.
-- **History** — visited cards form a back-stack so a Back control / the
-  Backspace key can return, even across `goto-card` jumps.
-- **Touch** — taps act as clicks; fullscreen is best-effort (matching
-  Presenter Mode). A 9:16 stack is the natural phone format.
-- Launching **from the editor** persists the in-progress card edit first
-  (the `persistEditingDeckSlide` step), so the viewer always shows saved
-  state.
-- Entry points: a ▶ **"View"** button in the Stack Builder tool palette,
-  and an **"Open Stack"** button on a stack's community-browser preview.
+  themed, with the runtime visibility map applied
+  (`composeCardForRuntime`).
+- On entering a card: reset its visibility map → run `onEnter`.
+- An **action overlay** sits above the card: for each layer with a
+  non-empty `onClick`, a positioned hit region matching the layer's
+  (transformed) box, rendered as a real **`<button>`** — Tab-focusable,
+  Enter/Space-activatable, screen-reader-announced. Overlapping
+  interactive layers resolve by **z-order** (topmost wins); a
+  hovered/focused region shows a pointer cursor.
+- **Activating a layer** runs its `onClick` chain. `goto-card` runs the
+  current card's `onExit`, then navigates, then the new card's `onEnter`.
+  `open-url` shows a confirm with the destination, then opens a new tab
+  with `rel="noopener noreferrer"`. `show/hide/toggle` mutate the
+  visibility map and re-render the card. Clicking empty (non-action)
+  space is a **no-op**.
+- **Navigation safety net** — arrows / space still do prev/next, a
+  visited-card **back-stack** powers `go-back` and Backspace, `Esc`
+  exits. So a stack with broken or missing on-card navigation is never a
+  dead end. `goto-card` keywords clamp at the ends (no wrap).
+- The runtime **owns the keyboard** (capture-phase handler), like
+  Presenter Mode. Launching from the editor persists the in-progress card
+  edit first.
+- **Touch** — taps act as clicks; fullscreen is best-effort.
+- Two modes: **preview** (inside the editor — the ▶ View button in the
+  Stack Builder tool palette) and **published** (`/p/<naddr>`).
+- Entry points: ▶ **View** in the Stack Builder palette; **Open Stack**
+  on a stack's community-browser preview page.
 
-### 4. Public viewer route
+### 5. Public viewer route
 
 `/p/<naddr>` — a cold-loadable URL that resolves the addressable event
-and boots straight into the interactive viewer (no editor chrome). Needs
-a `vercel.json` rewrite (`/p/:id` → SPA), mirroring `/share/:id`.
-`/share/<naddr>` of a stack continues to open the editor, as other
-designs do. A `/p/` link to an **encrypted** stack the viewer can't
-decrypt shows a "This stack is private" locked state, consistent with
-`PRIVATE_PUBLISHING_FEATURE.md`.
+and boots straight into the runtime (no editor chrome). Needs a
+`vercel.json` rewrite (`/p/:id` → SPA), mirroring `/share/:id`.
+`/share/<naddr>` of a stack still opens the editor. A `/p/` link to an
+**encrypted** stack the viewer can't decrypt shows a "This stack is
+private" locked state, per `PRIVATE_PUBLISHING_FEATURE.md`.
 
-### 5. Community feed
+### 6. Community feed
 
 A published stack is a normal `kind:30078` event:
 
-- **Feed-card thumbnail** — the start card's mini-render with a
-  card-count badge (e.g. `8 cards`), reusing the deck preview renderer.
+- **Feed-card thumbnail** — the start card's mini-render with a card-count
+  badge (e.g. `8 cards`), reusing the deck preview renderer.
 - **Publish-confirm preview** — likewise the start card.
-- **Preview page** — carries the **Open Stack** button (surface 3).
+- **Preview page** — carries the **Open Stack** button (surface 4).
 - `stack` joins `MODE_LABELS`, the dedup fingerprint, the mode filters,
   and gets a `stack` ("Interactive page") category.
 
@@ -283,64 +360,86 @@ A published stack is a normal `kind:30078` event:
 
 ## Security
 
-- **No executable content.** The schema is declarative; the viewer only
-  ever interprets the two known action types and ignores the rest. No
-  HTML injection, no script, no iframes, no remote CSS.
-- **`open-url` is the one outward vector** — always route it through a
-  confirm dialog that shows the real destination URL, and open with
-  `rel="noopener noreferrer"` in a new tab. Never auto-navigate.
-- **Image layers stay remote URLs**, as everywhere in Artstr — no binary
-  embedded, payload size bounded to layer JSON.
-- A stack imported / forked from the community is untrusted; the same
-  rules apply when *editing* it (e.g. surface dangling/odd actions).
+- **No executable content.** The schema is declarative; the runtime only
+  ever interprets the known action types and ignores the rest. No HTML
+  injection, no script, no iframes, no remote CSS, no `eval`.
+- **`open-url` is the one outward vector** — always behind a confirm
+  dialog showing the real destination; new tab; `rel="noopener
+  noreferrer"`; only `http(s):` / `mailto:` schemes — never `javascript:`
+  or `data:`.
+- **Action chains are bounded** — capped length, no recursion (a chain
+  cannot call another chain), and `onEnter`/`onExit` cannot navigate, so
+  there is no loop or runaway-execution surface.
+- **Image layers stay remote URLs**, as everywhere in Artstr — payload
+  bounded to layer/action JSON.
+- A forked/imported stack is untrusted; `sanitizeStackJson()` drops
+  unknown action types and clamps chain lengths on load.
 
 ---
 
 ## Phased delivery
 
 > **A + B + C together are the minimum genuinely-useful unit** — a stack
-> with no actions and no viewer is just a free-aspect deck. Ship them as
-> one arc, gated individually.
+> with no behaviour is just a free-aspect deck; behaviour with no runtime
+> can't be played. Ship them as one arc, gated individually.
 
 ### Phase A — Stack format
 - `templateMode: 'stack'` reusing the deck engine via `isDeckLike()`.
 - The `stack` data model; per-stack aspect ratio (presets + custom).
 - Stack option in the Template-tab Layout panel; the Stack + theme
   sidebar panels; the card sorter (add / import / duplicate / delete /
-  reorder / rename).
-- Stable card `id`s.
+  reorder / rename); stable card `id`s.
 - Save / load / publish / fork as `casewrap-stack`; feed card + count
   badge; `stack` in `MODE_LABELS` / categories / mode filters.
 
-**Ship gate:** build a 5-card 9:16 stack, reorder it, edit a card, save,
-reload, publish — it round-trips and shows in the feed with its count.
+**Ship gate:** build a 5-card 9:16 stack, reorder, edit a card, save,
+reload, publish — round-trips; shows in the feed with its count.
 
-### Phase B — Interactive layers
-- The `action` field on layers; the layer-panel Interactivity control.
-- "Add hotspot" convenience; actionable-layer badges + canvas outline.
-- Dangling-target detection.
+### Phase B — Behaviour authoring
+- Layer `onClick` + card `onEnter` / `onExit` action chains in the data
+  model; `sanitizeStackJson()` validation on load.
+- The action set: `goto-card`, `go-back`, `open-url`, `show-layer`,
+  `hide-layer`, `toggle-layer`.
+- The **action-builder panel** (surface 3): add / reorder / remove
+  actions, id-based target pickers, the warnings.
+- "Add hotspot"; action badges on interactive layers.
 
-**Ship gate:** add a hotspot with a `goto-card` action and a button with
-an `open-url` action; both persist through save / reload.
+**Ship gate:** give a hotspot an `onClick` of *hide A → show B → go to
+card 2*; give a card an `onEnter` that shows a layer; both round-trip
+through save / reload / publish; dangling targets are flagged.
 
-### Phase C — Interactive viewer
-- The fullscreen viewer: action overlay, click routing, `open-url`
-  confirm, keyboard fallback, visited-card back-stack.
+### Phase C — Interactive runtime
+- The fullscreen runtime: `composeCardForRuntime`, the action overlay,
+  chain execution, per-card visibility, `onEnter`/`onExit`, the
+  navigation safety net, `open-url` confirm.
 - ▶ View entry point in the Stack Builder palette; Open Stack on the
   community preview.
 
-**Ship gate:** play a stack end to end by clicking hotspots; `goto-card`
-jumps and Back works; `open-url` confirms then opens.
+**Ship gate:** play a stack end to end — clicking hotspots reveals/hides
+layers and jumps cards; `onEnter` fires; Back + keyboard + `Esc` always
+work; `open-url` confirms then opens.
 
 ### Phase D — Public viewer route + polish
-- `/p/<naddr>` route + `vercel.json` rewrite; cold-boot into the viewer.
-- Profile-page "feature this stack" pinning; share-link affordances.
+- `/p/<naddr>` route + `vercel.json` rewrite; cold-boot into the runtime.
+- Profile-page "feature this stack" pinning.
 
-### Later
-- Blossom / NIP-B7 media upload.
-- More actions: `open-nostr`, `zap`, `toggle-layer`.
+### Phase E — Stack logic *(the scripting tier)*
+- `state` variables on the stack; actions `set-variable`,
+  `increment-variable`; a conditional action `{ type:'if', condition,
+  then:[…], else:[…] }`. Local-only state (`localStorage`), reset on
+  runtime start.
+- A condition builder in the action panel.
+
+The v1 action model already tolerates these (unknown types are ignored),
+so Phase E is additive — no schema rewrite.
+
+### Later / backlog
+- Audio / video layer types and `play`/`pause` actions; `onMediaEnd`.
+- More triggers: `onHover`, `onDoubleClick`, `onTimer`, `onKeyPress`.
+- `open-nostr` (npub / note / naddr) and `zap` actions; Nostr embeds.
 - Card transitions; stack templates (zine / portfolio / comic / landing).
-- Multi-event stacks (manifest + per-card events) for very large stacks.
+- Blossom / NIP-B7 media upload; an asset library.
+- Modal overlays; static-HTML export; multi-event stacks.
 
 ---
 
@@ -348,56 +447,62 @@ jumps and Back works; `open-url` confirms then opens.
 
 | Risk | Mitigation |
 |---|---|
-| "Pages on Nostr" invites expectations of real websites (HTML/JS/SEO/hosting) | Name and frame it as *interactive stacks/pages*, not websites; the declarative-only schema is a hard line. |
-| `open-url` is a phishing / malware vector in shared stacks | Mandatory confirm dialog showing the destination; new tab + `noopener`; never auto-navigate. |
-| `goto-card` targets break on reorder / delete | Targets are stable card `id`s, never indices; dangling targets are editor-flagged and viewer no-ops. |
-| A stack with only on-card navigation could trap the viewer | Keyboard prev/next + a back-stack + `Esc` always work, regardless of the stack's own buttons. |
-| Aspect-ratio change strands existing layers off-canvas | Changing aspect re-fits every card through the existing import-letterbox remap (scale-to-fit + centre), behind a confirm — layers are never silently stranded. |
-| Stack vs Deck duplication | One shared card-container engine via `isDeckLike()`; only aspect, actions, and the viewer branch. |
-| Big stacks → large events (relay size caps) | Images are URLs; warn past ~100 KB / ~25 cards; Blossom offload + multi-event stacks deferred. |
-| Layer click hit-testing | The overlay reuses the renderer's box math; a CSS `transform:rotate` hit region catches clicks in its true rotated shape, so **rotation is exact**. A *clip-masked* layer hit-tests on its bounding box, not the mask shape — documented limitation; authors wanting a precise non-rect hotspot use a rotated/sized rect. |
-| Viewer is mouse-centric | Action regions are focusable `<button>`s — Tab / Enter / Space and screen readers work; keyboard prev/next is always available. |
+| Action chains become a back-door scripting language | v1 is a fixed, finite action set; no variables/branching until Phase E; chains can't call chains; the runtime interprets, never `eval`s. |
+| `onEnter` → `goto-card` → `onEnter` infinite loop | `onEnter`/`onExit` chains structurally cannot contain navigation actions; only `onClick` navigates. |
+| `open-url` is a phishing / malware vector | Confirm dialog showing the destination; new tab + `noopener`; scheme allowlist; never `javascript:`/`data:`. |
+| Targets break on reorder / delete / rename | Actions reference stable card / layer **ids**, never indices or names; dangling targets are editor-flagged and runtime no-ops. |
+| A stack traps the viewer (bad on-card nav) | Keyboard prev/next, a back-stack, and `Esc` always work regardless of the stack's own buttons. |
+| Aspect-ratio change strands layers | Changing aspect re-fits every card via the import-letterbox remap, behind a confirm. |
+| Runtime visibility drifts / becomes unpredictable | Per-card map reset to authored `visible` on every (re-)entry; show/hide/toggle never mutate stored data. |
+| Stack vs Deck code duplication | One shared card-container engine via `isDeckLike()`; only aspect, behaviour, and the runtime branch. |
+| Layer click hit-testing | The overlay reuses the renderer's box math; a CSS `transform:rotate` hit region catches clicks in its true rotated shape (rotation is exact); a clip-masked layer hit-tests on its bounding box — documented limitation. |
+| Viewer is mouse-centric | Action regions are focusable `<button>`s — Tab / Enter / Space and screen readers work. |
+| Big stacks → large events (relay size caps) | Images are URLs; warn past ~100 KB / ~25 cards; Blossom + multi-event stacks deferred. |
 
 ---
 
 ## Open questions
 
-1. **Mode** — confirm `templateMode: 'stack'` reusing the deck engine,
-   vs. folding actions + free aspect into `deck` itself.
-2. **v1 action set** — `goto-card` + `open-url` only — confirmed?
-3. **Aspect presets** — 16:9 / 9:16 / 1:1 / 4:3 / custom — the right set?
-4. **Viewer** — extend the Presenter Mode runtime with an interactive
-   mode, or a separate viewer module? (Lean: extend it.)
-5. **Route** — `/p/<naddr>` as proposed, or a different prefix?
-6. **Category** — one `stack` category, or split (e.g. `page`, `zine`)?
+1. **Mode** — confirm `templateMode: 'stack'` reusing the deck engine.
+2. **v1 action set** — the six above — confirmed? (`open-nostr` deferred.)
+3. **Aspect presets** — 16:9 / 9:16 / 1:1 / 4:3 / custom — right set?
+4. **Runtime** — extend the Presenter Mode engine, or a separate module?
+   (Lean: extend it.)
+5. **Route** — `/p/<naddr>` as proposed?
+6. **Category** — one `stack` category, or split (`page`, `zine`)?
+7. **Re-entry semantics** — confirm a card resets its layer visibility on
+   every entry (vs. remembering it). v1 plan: reset.
 
 ---
 
 ## Acceptance summary
 
 ### Phase A
-- [ ] Stack is a Template-tab layout; per-stack aspect ratio works, and
-      changing it re-fits existing cards (no stranded layers).
+- [ ] Stack is a Template-tab layout; per-stack aspect works, and
+      changing it re-fits existing cards.
 - [ ] Card sorter: add / import / duplicate / delete / reorder / rename;
       cards have stable ids; imports letterbox onto the stack's aspect.
 - [ ] Save / load / publish / fork as `casewrap-stack`; feed card shows a
       card-count badge.
 
 ### Phase B
-- [ ] Any layer can be given a `goto-card` or `open-url` action; a
-      transparent hotspot can be added in one click.
-- [ ] Actions round-trip through save / reload / publish; dangling
-      `goto-card` targets are flagged.
+- [ ] A layer can be given an `onClick` chain and a card an
+      `onEnter`/`onExit` chain via the no-JSON action builder.
+- [ ] Action chains support goto-card / go-back / open-url /
+      show / hide / toggle-layer; rows reorder; targets are id-based.
+- [ ] Chains round-trip through save / reload / publish; dangling
+      targets, trailing-after-navigation, and navigation-in-onEnter are
+      all flagged.
 
 ### Phase C
-- [ ] The interactive viewer renders cards full-screen and routes clicks
-      on actionable layers.
-- [ ] `goto-card` (ids + keywords, clamped at the ends) navigates; a
-      back-stack + keyboard + `Esc` always work; `open-url` confirms then
-      opens in a new tab.
-- [ ] The viewer owns the keyboard; theme is composed in.
-- [ ] Action regions are focusable buttons — Tab / Enter reach and fire
-      them; empty-space clicks are no-ops.
+- [ ] The runtime renders cards full-screen and executes `onClick`,
+      `onEnter`, `onExit` chains.
+- [ ] show / hide / toggle change layer visibility live; visibility
+      resets on card re-entry.
+- [ ] `goto-card` (ids + clamped keywords) and `go-back` navigate; a
+      back-stack + keyboard + `Esc` always work; `open-url` confirms.
+- [ ] Action regions are focusable buttons; empty-space clicks are
+      no-ops; the runtime owns the keyboard; theme is composed in.
 
 ### Phase D
-- [ ] `/p/<naddr>` cold-boots a published stack into the viewer.
+- [ ] `/p/<naddr>` cold-boots a published stack into the runtime.
