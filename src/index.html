@@ -7651,7 +7651,7 @@
       const frame = document.createElement('div');
       frame.className = 'designObjectFrame';
       const fitWrap = document.createElement('div');
-      fitWrap.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none';
+      fitWrap.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none;display:flex;align-items:center;justify-content:center';
       frame.appendChild(fitWrap);
       try {
         renderDesignPayloadPreview(fitWrap, layer.design?.payload || {}, { compact: true, transparentPixelArt: true });
