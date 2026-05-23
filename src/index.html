@@ -2089,6 +2089,11 @@
     .editingBannerText { flex:1; min-width:0; }
     .editingBannerText strong { font-weight:700; }
     #editingBannerCancel { font-size:.78rem; padding:4px 10px; flex-shrink:0; }
+    #designObjectBanner { background:rgba(96,165,250,.13); border-bottom-color:rgba(96,165,250,.45); color:#1d4ed8; }
+    body.dark #designObjectBanner { background:rgba(96,165,250,.12); color:#93c5fd; }
+    #designObjectBanner button { font-size:.78rem; padding:4px 10px; flex-shrink:0; }
+    .designObjectFrame { position:absolute; inset:0; overflow:hidden; background:#fff; pointer-events:none; }
+    .designObjectFrame::after { content:''; position:absolute; inset:0; border:1px solid rgba(15,23,42,.12); pointer-events:none; }
 
     .tipAmounts { display:grid; grid-template-columns:repeat(auto-fit,minmax(72px,1fr)); gap:8px; margin:0 0 14px; }
     .tipAmounts button { padding:10px 6px; font-size:.9rem; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:8px; }
@@ -2405,6 +2410,7 @@
         <button type="button" id="browseCommunityBtn">Browse Templates</button>
         <button type="button" id="loadProjectBtn">Load from file</button>
         <input id="projectFile" type="file" accept="application/json,.json" hidden />
+        <input id="designLayerFile" type="file" accept="application/json,.json" hidden />
       </div>
 
       <div class="quickActions designer-only" aria-label="Designer actions">
@@ -2885,6 +2891,14 @@
             <p class="hint" style="font-size:.72rem;margin:4px 0 0">Opens the pixel editor. Double-clicking the layer on the canvas works too.</p>
           </div>
 
+          <div id="designLayerControls" style="display:none">
+            <div class="buttonRow">
+              <button type="button" id="editDesignLayerBtn">Edit embedded design</button>
+              <button type="button" id="replaceDesignLayerBtn">Replace from file</button>
+            </div>
+            <p class="hint" style="font-size:.72rem;margin:4px 0 0">Design objects keep the imported design editable inside this layer. Double-clicking the layer opens it too.</p>
+          </div>
+
           <div id="qrLayerControls" style="display:none">
             <label for="qrData">QR data (URL or text)</label>
             <textarea id="qrData" rows="2" placeholder="https://example.com" style="resize:vertical;width:100%"></textarea>
@@ -3161,6 +3175,13 @@
           Editing published design: <strong id="editingBannerTitle"></strong>
         </span>
         <button type="button" id="editingBannerCancel">Cancel edit</button>
+      </div>
+      <div id="designObjectBanner" class="editingBanner" style="display:none">
+        <span class="editingBannerText">
+          Editing embedded design object: <strong id="designObjectTitle"></strong>
+        </span>
+        <button type="button" id="designObjectDoneBtn" class="primary">Done editing object</button>
+        <button type="button" id="designObjectCancelBtn">Cancel</button>
       </div>
       <div class="topbar">
         <div>
@@ -7540,6 +7561,281 @@
       });
     }
 
+    let _designObjectEdit = null;
+
+    function clonePayload(value) {
+      return JSON.parse(JSON.stringify(value || {}));
+    }
+
+    function isDesignPayload(payload) {
+      if (!payload || typeof payload !== 'object') return false;
+      return Boolean(
+        payload.templateMode ||
+        payload.coverTemplate ||
+        payload.discTemplate ||
+        payload.jewelTemplate ||
+        payload.customArt ||
+        payload.slide ||
+        payload.deck ||
+        payload.pixelArt ||
+        payload.discDesign
+      );
+    }
+
+    function designObjectTitle(payload) {
+      const labels = {
+        cover: 'Case Cover',
+        disc: 'Two-Disc Sheet',
+        jewel: 'Jewel Case',
+        customart: 'Custom Art',
+        slide: 'Slide',
+        deck: 'Slide Deck',
+        pixelart: 'Pixel Art',
+        'disc-design': 'Disc Design'
+      };
+      return payload?.meta?.title || labels[normalizeTemplateMode(payload)] || 'Design object';
+    }
+
+    function designObjectAspect(payload) {
+      const mode = normalizeTemplateMode(payload);
+      if (mode === 'pixelart') {
+        const pa = payload.pixelArt || {};
+        return Math.max(1, Number(pa.width) || 32) / Math.max(1, Number(pa.height) || 32);
+      }
+      if (mode === 'customart' || mode === 'slide') {
+        const ca = payload.slide || payload.customArt || {};
+        return Math.max(1, Number(ca.width) || 1920) / Math.max(1, Number(ca.height) || 1080);
+      }
+      if (mode === 'deck') return 16 / 9;
+      if (mode === 'disc-design') return 1;
+      if (mode === 'jewel') {
+        const jt = payload.jewelTemplate?.config || jewelTemplate;
+        const w = Math.max(jt.front?.w || 0, jt.tray?.w || 0, 4.75);
+        const h = (jt.front?.h || 4.75) + (jt.tray?.h || 4.75);
+        return w / h;
+      }
+      if (mode === 'disc') return 8.5 / 11;
+      const ct = payload.coverTemplate || {};
+      const preset = presets[ct.preset] || presets.dvd;
+      const panelW = Number(ct.panelW) || preset.panelW;
+      const spineW = Number(ct.spineW) || preset.spineW;
+      const trimH = Number(ct.trimH) || preset.trimH;
+      const bleed = Number(ct.bleed) || 0;
+      return Math.max(1, panelW * 2 + spineW + bleed * 2) / Math.max(1, trimH + bleed * 2);
+    }
+
+    function currentEditableDesignPayload() {
+      if (state.appMode === 'designer' || state.templateMode === 'disc-design') return discDesignPayload();
+      if (state.templateMode === 'disc') return discSheetPayload();
+      if (state.templateMode === 'jewel') return jewelTemplatePayload();
+      if (state.templateMode === 'deck') return deckPayload();
+      if (state.templateMode === 'pixelart') return pixelArtPayload();
+      if (isCanvasMode(state.templateMode)) return customArtPayload();
+      return coverTemplatePayload();
+    }
+
+    function renderDesignPayloadPreview(container, payload, opts = {}) {
+      const mode = normalizeTemplateMode(payload);
+      if (mode === 'disc-design') renderDiscPreviewDOM(container, payload, opts);
+      else if (mode === 'disc') renderDiscSheetPreviewDOM(container, payload, opts);
+      else if (mode === 'jewel') renderJewelPreviewDOM(container, payload, opts);
+      else if (mode === 'customart' || mode === 'slide') renderCustomArtPreviewDOM(container, payload, opts);
+      else if (mode === 'deck') renderDeckPreviewDOM(container, payload, opts);
+      else if (mode === 'pixelart') renderPixelArtPreviewDOM(container, payload, opts);
+      else renderTemplatePreviewDOM(container, payload, opts);
+    }
+
+    function renderDesignObjectIntoElement(el, layer) {
+      el.innerHTML = '';
+      const frame = document.createElement('div');
+      frame.className = 'designObjectFrame';
+      const fitWrap = document.createElement('div');
+      fitWrap.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none';
+      frame.appendChild(fitWrap);
+      try {
+        renderDesignPayloadPreview(fitWrap, layer.design?.payload || {}, { compact: true });
+        fitMiniPreview(fitWrap);
+      } catch (err) {
+        fitWrap.innerHTML = `<div class="hint" style="padding:8px;font-size:.72rem">Design preview unavailable.</div>`;
+      }
+      el.appendChild(frame);
+    }
+
+    function addDesignLayerFromPayload(payload, targetOverride = '') {
+      if (!isDesignPayload(payload)) {
+        toastError('That file is not an Artstr design.');
+        return false;
+      }
+      const mode = normalizeTemplateMode(payload);
+      const target = targetOverride || $('layerTarget')?.value || primaryTargetForMode(state.templateMode || 'cover');
+      const bounds = targetBounds(target);
+      const aspect = Math.max(0.1, designObjectAspect(payload));
+      let w = bounds.w * 0.7;
+      let h = w / aspect;
+      if (h > bounds.h * 0.7) {
+        h = bounds.h * 0.7;
+        w = h * aspect;
+      }
+      applyTargetMode(target);
+      pushHistory('add design object layer');
+      addLayer({
+        id: makeLayerId(),
+        type: 'design',
+        name: designObjectTitle(payload),
+        target,
+        x: bounds.x + (bounds.w - w) / 2,
+        y: bounds.y + (bounds.h - h) / 2,
+        w, h,
+        rotate: 0,
+        opacity: 1,
+        z: nextLayerZ(),
+        design: { mode, payload: clonePayload(payload) }
+      });
+      return true;
+    }
+
+    function openDesignLayerFileImport(targetOverride = '') {
+      state._designLayerImportTarget = targetOverride || $('layerTarget')?.value || primaryTargetForMode(state.templateMode || 'cover');
+      state._designLayerReplaceId = '';
+      const input = $('designLayerFile');
+      if (input) {
+        input.value = '';
+        input.click();
+      }
+    }
+
+    function replaceSelectedDesignLayerFromFile() {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'design') return;
+      state._designLayerReplaceId = layer.id;
+      state._designLayerImportTarget = layer.target;
+      const input = $('designLayerFile');
+      if (input) {
+        input.value = '';
+        input.click();
+      }
+    }
+
+    function openDesignLayerNostrSearch(targetOverride = '') {
+      state._designLayerImportTarget = targetOverride || $('layerTarget')?.value || primaryTargetForMode(state.templateMode || 'cover');
+      state._designLayerReplaceId = '';
+      const typeEl = $('nostrType'); if (typeEl) typeEl.value = 'any';
+      const queryEl = $('nostrQuery'); if (queryEl) queryEl.value = '';
+      const catEl = $('nostrCategory'); if (catEl) catEl.value = state.meta.category || '';
+      $('nostrModal')?.classList.add('open');
+      if (typeof switchModalTab === 'function') switchModalTab('Search');
+      runNostrSearch();
+    }
+
+    function tryDesignLayerImportRow(row) {
+      if (!state._designLayerImportTarget) return false;
+      const payload = row?.payload;
+      if (!payload) return false;
+      if (!isDesignPayload(payload)) {
+        toastError('That result is not an Artstr design.');
+        return true;
+      }
+      try { closeNostrPreview(); } catch (e) {}
+      $('nostrModal')?.classList.remove('open');
+      addDesignLayerFromPayload(payload, state._designLayerImportTarget);
+      state._designLayerImportTarget = '';
+      state._designLayerReplaceId = '';
+      toastSuccess('Design imported as an editable object layer.');
+      return true;
+    }
+
+    function handleDesignLayerFileImport(event) {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        let payload;
+        try { payload = JSON.parse(String(reader.result || '')); }
+        catch { toastError('Could not read that file as a design.'); return; }
+        const replaceId = state._designLayerReplaceId || '';
+        if (replaceId) {
+          const layer = getLayer(replaceId);
+          if (!layer || layer.type !== 'design') { toastError('Select a design object layer first.'); return; }
+          if (!isDesignPayload(payload)) { toastError('That file is not an Artstr design.'); return; }
+          pushHistory('replace design object');
+          layer.name = designObjectTitle(payload);
+          layer.design = { mode: normalizeTemplateMode(payload), payload: clonePayload(payload) };
+          state._designLayerReplaceId = '';
+          state._designLayerImportTarget = '';
+          render();
+          toastSuccess('Design object replaced.');
+          return;
+        }
+        if (addDesignLayerFromPayload(payload, state._designLayerImportTarget || '')) {
+          state._designLayerImportTarget = '';
+          toastSuccess('Design imported as an editable object layer.');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function beginDesignObjectEdit(layerId = '') {
+      const layer = layerId ? getLayer(layerId) : selectedLayer();
+      if (!layer || layer.type !== 'design') return;
+      if (_designObjectEdit) {
+        toastError('Finish the current embedded-design edit first.');
+        return;
+      }
+      _designObjectEdit = {
+        hostPayload: currentEditableDesignPayload(),
+        layerId: layer.id,
+        layerName: layer.name || designObjectTitle(layer.design?.payload)
+      };
+      try {
+        loadProjectFromText(JSON.stringify(layer.design?.payload || {}));
+      } catch (err) {
+        _designObjectEdit = null;
+        toastError(`Could not open embedded design: ${err?.message || err}`);
+        return;
+      }
+      paintDesignObjectBanner();
+      toastSuccess('Editing embedded design object. Use Done editing object to write it back.');
+    }
+
+    function finishDesignObjectEdit(saveChanges) {
+      if (!_designObjectEdit) return;
+      const edit = _designObjectEdit;
+      const updatedPayload = saveChanges ? currentEditableDesignPayload() : null;
+      try {
+        loadProjectFromText(JSON.stringify(edit.hostPayload));
+      } catch (err) {
+        toastError(`Could not return to parent design: ${err?.message || err}`);
+        return;
+      }
+      _designObjectEdit = null;
+      const layer = getLayer(edit.layerId);
+      if (saveChanges && layer && layer.type === 'design') {
+        pushHistory('update design object');
+        layer.design = { mode: normalizeTemplateMode(updatedPayload), payload: clonePayload(updatedPayload) };
+        layer.name = updatedPayload?.meta?.title || edit.layerName || layer.name;
+        state.selectedLayerId = layer.id;
+        render();
+        toastSuccess('Embedded design object updated.');
+      } else {
+        toastSuccess('Returned to parent design.');
+      }
+      paintDesignObjectBanner();
+    }
+
+    function paintDesignObjectBanner() {
+      const banner = $('designObjectBanner');
+      const title = $('designObjectTitle');
+      if (!banner) return;
+      if (_designObjectEdit) {
+        if (title) title.textContent = _designObjectEdit.layerName || 'Design object';
+        banner.style.display = 'flex';
+      } else {
+        banner.style.display = 'none';
+        if (title) title.textContent = '';
+      }
+    }
+
     function addTextLayer(targetOverride = '') {
       const target = targetOverride || $('layerTarget')?.value || 'page';
       const bounds = targetBounds(target);
@@ -9234,6 +9530,8 @@
           renderQrIntoElement(el, layer);
         } else if (layer.type === 'pixelart') {
           renderPixelArtIntoElement(el, layer);
+        } else if (layer.type === 'design') {
+          renderDesignObjectIntoElement(el, layer);
         } else {
           const text = document.createElement('div');
           text.className = 'textLayer';
@@ -9259,6 +9557,11 @@
           el.addEventListener('dblclick', (event) => {
             event.stopPropagation();
             openPixelEditor(layer.id);
+          });
+        } else if (layer.type === 'design') {
+          el.addEventListener('dblclick', (event) => {
+            event.stopPropagation();
+            beginDesignObjectEdit(layer.id);
           });
         }
         el.addEventListener('click', (event) => {
@@ -9379,8 +9682,16 @@
         addQrBtn.type = 'button';
         addQrBtn.textContent = 'Add QR';
         addQrBtn.addEventListener('click', () => addQrLayer('designer-disc'));
+        const importDesignFileBtn = document.createElement('button');
+        importDesignFileBtn.type = 'button';
+        importDesignFileBtn.textContent = 'Import design file';
+        importDesignFileBtn.addEventListener('click', () => openDesignLayerFileImport('designer-disc'));
+        const importDesignNostrBtn = document.createElement('button');
+        importDesignNostrBtn.type = 'button';
+        importDesignNostrBtn.textContent = 'Import from Nostr';
+        importDesignNostrBtn.addEventListener('click', () => openDesignLayerNostrSearch('designer-disc'));
         // Text + shape adds live in the left tool palette now.
-        buttonRow.append(addImageBtn, addColorBtn, addQrBtn);
+        buttonRow.append(addImageBtn, addColorBtn, addQrBtn, importDesignFileBtn, importDesignNostrBtn);
 
         actions.append(urlRow, buttonRow);
         panel.appendChild(actions);
@@ -9456,8 +9767,16 @@
         addQrBtn.type = 'button';
         addQrBtn.textContent = 'Add QR';
         addQrBtn.addEventListener('click', () => addQrLayer(targetDef.key));
+        const importDesignFileBtn = document.createElement('button');
+        importDesignFileBtn.type = 'button';
+        importDesignFileBtn.textContent = 'Import design file';
+        importDesignFileBtn.addEventListener('click', () => openDesignLayerFileImport(targetDef.key));
+        const importDesignNostrBtn = document.createElement('button');
+        importDesignNostrBtn.type = 'button';
+        importDesignNostrBtn.textContent = 'Import from Nostr';
+        importDesignNostrBtn.addEventListener('click', () => openDesignLayerNostrSearch(targetDef.key));
         // Text + shape adds live in the left tool palette now.
-        buttonRow.append(addImageBtn, addColorBtn, addQrBtn);
+        buttonRow.append(addImageBtn, addColorBtn, addQrBtn, importDesignFileBtn, importDesignNostrBtn);
 
         actions.append(urlRow, buttonRow);
         panel.appendChild(actions);
@@ -11088,6 +11407,8 @@
       if (layer && layer.type === 'qr') syncQrLayerInputs(layer);
       const pixelPanel = $('pixelLayerControls');
       if (pixelPanel) pixelPanel.style.display = layer && layer.type === 'pixelart' ? 'block' : 'none';
+      const designPanel = $('designLayerControls');
+      if (designPanel) designPanel.style.display = layer && layer.type === 'design' ? 'block' : 'none';
       if (layer) syncLayerClipInputs(layer);
       const layerNameRow = $('layerName');
       const layerNameLabel = layerNameRow?.previousElementSibling;
@@ -14884,6 +15205,7 @@
       }
       rows.forEach(row => {
         wall.appendChild(buildFeedCard(row, () => {
+          if (tryDesignLayerImportRow(row)) return;
           if (tryDeckImportRow(row)) return;
           if (row.mode === 'disc-design') {
             const slotTarget = state._discImportTargetSlot;
@@ -14933,6 +15255,7 @@
     // Card factory used by both the initial render and the streaming-update diff.
     function buildFeedCardForRow(row) {
       const card = buildFeedCard(row, () => {
+        if (tryDesignLayerImportRow(row)) return;
         if (tryDeckImportRow(row)) return;
         if (row.mode === 'disc-design') {
           const slotTarget = state._discImportTargetSlot;
@@ -15304,6 +15627,7 @@
 
     function forkRowIntoEditor(row) {
       if (!row?.payload) return;
+      if (tryDesignLayerImportRow(row)) return;
       if (tryDeckImportRow(row)) return;
       if (row.mode === 'disc-design') {
         const slotTarget = state._discImportTargetSlot;
@@ -15751,6 +16075,8 @@
           renderQrIntoElement(el, layer);
         } else if (layer.type === 'pixelart') {
           renderPixelArtIntoElement(el, layer);
+        } else if (layer.type === 'design') {
+          renderDesignObjectIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -15963,6 +16289,8 @@
           renderQrIntoElement(el, layer);
         } else if (layer.type === 'pixelart') {
           renderPixelArtIntoElement(el, layer);
+        } else if (layer.type === 'design') {
+          renderDesignObjectIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -16046,6 +16374,8 @@
           renderQrIntoElement(el, layer);
         } else if (layer.type === 'pixelart') {
           renderPixelArtIntoElement(el, layer);
+        } else if (layer.type === 'design') {
+          renderDesignObjectIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -16286,6 +16616,8 @@
           renderQrIntoElement(el, layer);
         } else if (layer.type === 'pixelart') {
           renderPixelArtIntoElement(el, layer);
+        } else if (layer.type === 'design') {
+          renderDesignObjectIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -16450,6 +16782,8 @@
           renderQrIntoElement(el, layer);
         } else if (layer.type === 'pixelart') {
           renderPixelArtIntoElement(el, layer);
+        } else if (layer.type === 'design') {
+          renderDesignObjectIntoElement(el, layer);
         } else if (layer.type === 'image' && layer.src) {
           const img = document.createElement('img');
           img.src = layer.src;
@@ -16478,6 +16812,7 @@
       out.innerHTML = rows.length ? '' : '<div class="hint">No templates found.</div>';
       rows.slice(0, 40).forEach(row => {
         out.appendChild(buildResultCard(row, () => {
+          if (tryDesignLayerImportRow(row)) return;
           if (tryDeckImportRow(row)) return;
           if (row.mode === 'disc-design') {
             const slotTarget = state._discImportTargetSlot;
@@ -17346,6 +17681,14 @@
         const l = selectedLayer();
         if (l && l.type === 'pixelart') openPixelEditor(l.id);
       });
+      $('editDesignLayerBtn')?.addEventListener('click', () => {
+        const l = selectedLayer();
+        if (l && l.type === 'design') beginDesignObjectEdit(l.id);
+      });
+      $('replaceDesignLayerBtn')?.addEventListener('click', replaceSelectedDesignLayerFromFile);
+      $('designLayerFile')?.addEventListener('change', handleDesignLayerFileImport);
+      $('designObjectDoneBtn')?.addEventListener('click', () => finishDesignObjectEdit(true));
+      $('designObjectCancelBtn')?.addEventListener('click', () => finishDesignObjectEdit(false));
       $('pixelEditorDoneBtn')?.addEventListener('click', () => closePixelEditor(true));
       $('pixelUndoBtn')?.addEventListener('click', pixelUndo);
       $('pixelZoomIn')?.addEventListener('click', () => pixelStepZoom(1));
@@ -17588,7 +17931,7 @@
       $("designerCategoryField").addEventListener("change", (e)=>{pushHistory(`change category to ${e.target.value || 'Uncategorized'}`); state.meta.category=e.target.value; syncIdentifierVisibility(); render();});
       $("designerLanguageField").addEventListener("change", (e)=>{pushHistory('change language'); state.meta.language=e.target.value; render();});
 
-      $("nostrClose").addEventListener("click", () => { closeNostrPreview(); $("nostrModal").classList.remove("open"); _feedCache.softModRevealed.clear(); state._deckImportMode = false; });
+      $("nostrClose").addEventListener("click", () => { closeNostrPreview(); $("nostrModal").classList.remove("open"); _feedCache.softModRevealed.clear(); state._deckImportMode = false; state._designLayerImportTarget = ''; state._designLayerReplaceId = ''; });
       $("nostrRefreshBtn").addEventListener("click", async () => {
         const btn = $("nostrRefreshBtn");
         const original = btn.textContent;

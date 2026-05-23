@@ -5,11 +5,6 @@ Running list of deferred work. Detailed specs for the larger items live in
 
 ## Adam's working list
 
-- **Smart-object design imports.** Add a way to import another design from
-  Nostr or from a saved file into any current design as an editable layer /
-  element, similar to Photoshop Smart Objects. Existing related pattern: the
-  two-disc print layout already has per-disc "Load from file" and "Search
-  Nostr" import flows for Disc 1 / Disc 2 images.
 - **Layer groups and multi-select transforms.** Add layer groups, group
   naming, selecting multiple layers / objects at once, and moving / scaling
   grouped or multi-selected objects together.
