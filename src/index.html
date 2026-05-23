@@ -2094,6 +2094,7 @@
     #designObjectBanner button { font-size:.78rem; padding:4px 10px; height:26px; box-sizing:border-box; flex-shrink:0; display:inline-flex; align-items:center; }
     .designObjectFrame { position:absolute; inset:0; overflow:hidden; background:transparent; pointer-events:none; }
     .designObjectFrame::after { content:''; position:absolute; inset:0; border:1px solid rgba(15,23,42,.12); pointer-events:none; }
+    .designObjectFitWrap > * { flex:0 0 auto; max-width:none; max-height:none; transform-origin:center center; margin:0!important; }
 
     .tipAmounts { display:grid; grid-template-columns:repeat(auto-fit,minmax(72px,1fr)); gap:8px; margin:0 0 14px; }
     .tipAmounts button { padding:10px 6px; font-size:.9rem; font-weight:600; cursor:pointer; border:1px solid var(--line); background:var(--bg); color:var(--ink); border-radius:8px; }
@@ -7651,6 +7652,7 @@
       const frame = document.createElement('div');
       frame.className = 'designObjectFrame';
       const fitWrap = document.createElement('div');
+      fitWrap.className = 'designObjectFitWrap';
       fitWrap.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none;display:flex;align-items:center;justify-content:center';
       frame.appendChild(fitWrap);
       try {
