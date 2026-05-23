@@ -1396,6 +1396,10 @@
       outline-offset: 2px;
     }
 
+    .freeLayer.multiSelected {
+      outline-style: dashed;
+    }
+
     /* Drag-resize handles on the selected layer — 4 corners + 4 edges. */
     .layerHandle {
       position: absolute;
@@ -1604,6 +1608,13 @@
       border-color: var(--accent);
       color: var(--accent);
       background: #eff6ff;
+    }
+
+    .layerItem.multiSelected {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(0,184,230,.08);
+      box-shadow: inset 3px 0 0 var(--accent);
     }
 
     .textTools {
@@ -1890,6 +1901,7 @@
     body.dark .feedTrustToggle select{background:#0b1220}
     body.nostr-logged-in .feedTrustToggle{display:flex}
     .layerLockTag{display:inline-block;font-size:.58rem;font-weight:800;letter-spacing:.06em;color:var(--muted);background:rgba(127,127,127,.15);border:1px solid var(--line);border-radius:3px;padding:0 4px;margin-right:6px;vertical-align:1px}
+    .layerGroupTag{display:inline-block;font-size:.58rem;font-weight:800;letter-spacing:.06em;color:var(--accent);background:rgba(0,184,230,.1);border:1px solid rgba(0,184,230,.25);border-radius:3px;padding:0 4px;margin-right:6px;vertical-align:1px}
     .feedTrustBadge{font-size:.62rem;background:rgba(0,184,230,.12);color:var(--accent);border:1px solid rgba(0,184,230,.25);border-radius:4px;padding:1px 5px;margin-left:5px;white-space:nowrap;flex-shrink:0}
     .feedCardZapBadge{font-size:.72rem;font-weight:600;color:#b45309;background:rgba(251,191,36,.18);border:1px solid rgba(251,191,36,.4);border-radius:10px;padding:2px 8px;margin-left:auto;white-space:nowrap}
     body.dark .feedCardZapBadge{color:#fbbf24;background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.3)}
@@ -2808,7 +2820,7 @@
         <div class="layerList" id="layerList"></div>
 
         <details id="layerControls">
-          <summary>Selected layer</summary>
+          <summary id="layerControlsSummary">Selected layer</summary>
 
           <label for="layerName">Name</label>
           <input id="layerName" type="text" />
@@ -3092,11 +3104,13 @@
             <button type="button" id="layerDuplicate">Duplicate</button>
             <button type="button" id="layerCopyBtn">Copy</button>
             <button type="button" id="layerCutBtn">Cut</button>
+            <button type="button" id="layerGroupBtn">Group</button>
+            <button type="button" id="layerUngroupBtn">Ungroup</button>
             <button type="button" class="danger" id="deleteLayer">Delete layer</button>
           </div>
         </details>
 
-        <p class="hint">Click a layer on the preview to select it. Drag selected image or text layers directly on the page. Text layers are editable in place.</p>
+        <p class="hint">Click a layer to select it. Shift/Ctrl/Cmd-click to select multiple layers, then drag any selected layer to move the set together. Text layers are editable in place.</p>
       </fieldset>
 
       <fieldset class="workflowStep designer-only" id="designerMetadataFieldset">
@@ -4216,7 +4230,9 @@
         tray: { src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 }
       },
       layers: [],
+      layerGroups: {},
       selectedLayerId: '',
+      selectedLayerIds: [],
       community: {
         relays: DEFAULT_NOSTR_RELAYS.join(', '),
         query: '',
@@ -4515,6 +4531,7 @@
         templateMode: 'disc-design',
         templateType: 'disc-design',
         discDesign: { ...design },
+        layerGroups: { ...ensureLayerGroups() },
         layers: layers.map(l => ({ ...l, target: 'designer-disc' })),
         discTemplate: { config: discTemplate },
         community: { relays: state.community.relays, query: state.community.query, kind: state.community.kind }
@@ -5509,8 +5526,8 @@
       'jewelInserts', 'jewelSpineLabels',
       'customArt',
       'discDesign',
-      'layers',
-      'selectedLayerId',
+      'layers', 'layerGroups',
+      'selectedLayerId', 'selectedLayerIds',
       'editingDTag', 'editingKind', 'editingEventId', 'editingTitle',
       'showGuides', 'showBleed', 'showCrops', 'printGuides', 'printCrops', 'zoom'
     ];
@@ -7411,30 +7428,31 @@
 
     function snapshotLayerForClipboard(layer) {
       // Strip identity / stack fields; keep visual/positional ones.
-      const { id, z, _generatedDiscLayer, _staleGenerated, target, ...rest } = layer;
+      const { id, z, groupId, _generatedDiscLayer, _staleGenerated, target, ...rest } = layer;
       return { ...rest };
     }
 
     function copySelectedLayerToClipboard() {
-      const layer = selectedLayer();
-      if (!layer) { toastError('No layer selected.'); return; }
-      _layerClipboard.items = [snapshotLayerForClipboard(layer)];
+      const layers = selectedLayers();
+      if (!layers.length) { toastError('No layer selected.'); return; }
+      _layerClipboard.items = layers.map(snapshotLayerForClipboard);
       _layerClipboard.fromLabel = modeLabelForClipboard();
       updateLayerClipboardUI();
-      toastSuccess('Copied layer.');
+      toastSuccess(layers.length === 1 ? 'Copied layer.' : `Copied ${layers.length} layers.`);
     }
 
     function cutSelectedLayerToClipboard() {
-      const layer = selectedLayer();
-      if (!layer) { toastError('No layer selected.'); return; }
-      pushHistory('cut layer');
-      _layerClipboard.items = [snapshotLayerForClipboard(layer)];
+      const layers = selectedLayers();
+      if (!layers.length) { toastError('No layer selected.'); return; }
+      pushHistory(layers.length === 1 ? 'cut layer' : 'cut selected layers');
+      _layerClipboard.items = layers.map(snapshotLayerForClipboard);
       _layerClipboard.fromLabel = modeLabelForClipboard();
-      state.layers = state.layers.filter(l => l.id !== layer.id);
-      state.selectedLayerId = '';
+      const selected = new Set(layers.map(l => l.id));
+      state.layers = state.layers.filter(l => !selected.has(l.id));
+      clearLayerSelection();
       updateLayerClipboardUI();
       render();
-      toastSuccess('Cut layer to clipboard.');
+      toastSuccess(layers.length === 1 ? 'Cut layer to clipboard.' : `Cut ${layers.length} layers to clipboard.`);
     }
 
     function copyAllLayersToClipboard() {
@@ -7456,6 +7474,7 @@
       const target = currentPasteTarget();
       const bounds = targetBounds(target);
       let newLast = null;
+      const newIds = [];
       for (const item of items) {
         const w = Math.max(0.1, Math.min(item.w || bounds.w * 0.7, bounds.w));
         const h = Math.max(0.1, Math.min(item.h || bounds.h * 0.7, bounds.h));
@@ -7467,8 +7486,9 @@
         const layer = { ...item, id: makeLayerId(), target, x, y, w, h, z: nextLayerZ() };
         state.layers.push(layer);
         newLast = layer;
+        newIds.push(layer.id);
       }
-      if (newLast) state.selectedLayerId = newLast.id;
+      if (newLast) setLayerSelection(newIds, newLast.id);
       render();
       toastSuccess(`Pasted ${items.length} layer${items.length === 1 ? '' : 's'} into ${modeLabelForClipboard()}.`);
     }
@@ -7538,7 +7558,7 @@
 
     function addLayer(layer) {
       state.layers.push(layer);
-      state.selectedLayerId = layer.id;
+      setLayerSelection([layer.id], layer.id);
       render();
     }
 
@@ -7817,7 +7837,7 @@
         pushHistory('update design object');
         layer.design = { mode: normalizeTemplateMode(updatedPayload), payload: clonePayload(updatedPayload) };
         layer.name = updatedPayload?.meta?.title || edit.layerName || layer.name;
-        state.selectedLayerId = layer.id;
+        setLayerSelection([layer.id], layer.id);
         render();
         toastSuccess('Embedded design object updated.');
       } else {
@@ -9494,8 +9514,10 @@
         if (layer.hidden) continue;
         if (state.appMode !== 'designer' && !isLayerForCurrentMode(layer)) continue;
 
+        const layerSelected = isLayerSelected(layer.id);
+        const multiSelected = layerSelected && selectedLayerIds().length > 1;
         const el = document.createElement('div');
-        el.className = `freeLayer${layer.id === state.selectedLayerId ? ' selected' : ''}`;
+        el.className = `freeLayer${layerSelected ? ' selected' : ''}${multiSelected ? ' multiSelected' : ''}`;
         el.dataset.layerId = layer.id;
         if (layer.clip && layer.clip.kind !== 'none' && resolveClipSourceShape(layer, state.layers)) {
           el.style.clipPath = `url(#${clipIdForLayer(layer)})`;
@@ -9569,7 +9591,8 @@
         }
         el.addEventListener('click', (event) => {
           event.stopPropagation();
-          state.selectedLayerId = layer.id;
+          if (el.dataset.dragMoved === '1') return;
+          selectLayerWithEvent(layer.id, event);
           if (event.target.closest('.textLayer')) {
             renderLayerList();
             syncLayerInputs();
@@ -9579,7 +9602,7 @@
         });
 
         // Drag-resize handles — only on the selected, unlocked layer.
-        if (layer.id === state.selectedLayerId && !layer.locked) {
+        if (layer.id === state.selectedLayerId && selectedLayerIds().length <= 1 && !layer.locked) {
           for (const dir of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
             const handle = document.createElement('div');
             handle.className = `layerHandle lh-${dir}`;
@@ -9601,15 +9624,18 @@
       row.className = `layerItemRow${layer.hidden ? ' layerHiddenRow' : ''}`;
       const item = document.createElement('button');
       item.type = 'button';
-      item.className = `layerItem${layer.id === state.selectedLayerId ? ' active' : ''}`;
+      const layerSelected = isLayerSelected(layer.id);
+      item.className = `layerItem${layer.id === state.selectedLayerId ? ' active' : ''}${layerSelected && selectedLayerIds().length > 1 ? ' multiSelected' : ''}`;
       const rawName = layer.type === 'text'
         ? (layerHtmlToPlainText(layer.html).split('\n')[0].trim() || layer.name || 'Text layer')
         : (layer.name || layer.type);
       const displayName = rawName.length > 32 ? rawName.slice(0, 29) + '...' : rawName;
       const lockTag = layer.locked ? '<span class="layerLockTag" title="Locked">LOCK</span>' : '';
-      item.innerHTML = `<span title="${escapeHtml(rawName)}">${lockTag}${escapeHtml(displayName)}</span><span>${escapeHtml(layer.type)}</span>`;
-      item.addEventListener('click', () => {
-        state.selectedLayerId = layer.id;
+      const groupName = layerGroupName(layer);
+      const groupTag = groupName ? `<span class="layerGroupTag" title="Group: ${escapeHtml(groupName)}">GRP</span>` : '';
+      item.innerHTML = `<span title="${escapeHtml(rawName)}">${lockTag}${groupTag}${escapeHtml(displayName)}</span><span>${escapeHtml(layer.type)}</span>`;
+      item.addEventListener('click', (event) => {
+        selectLayerWithEvent(layer.id, event);
         render();
       });
       const eye = document.createElement('button');
@@ -10975,6 +11001,87 @@
       return getLayer(state.selectedLayerId);
     }
 
+    function selectedLayerIds() {
+      const raw = Array.isArray(state.selectedLayerIds) ? state.selectedLayerIds : [];
+      const ids = [];
+      const seen = new Set();
+      for (const id of raw) {
+        if (!id || seen.has(id) || !getLayer(id)) continue;
+        ids.push(id);
+        seen.add(id);
+      }
+      if (state.selectedLayerId && !seen.has(state.selectedLayerId) && getLayer(state.selectedLayerId)) {
+        ids.push(state.selectedLayerId);
+      }
+      return ids;
+    }
+
+    function selectedLayers() {
+      return selectedLayerIds().map(getLayer).filter(Boolean);
+    }
+
+    function ensureLayerGroups() {
+      if (!state.layerGroups || typeof state.layerGroups !== 'object' || Array.isArray(state.layerGroups)) state.layerGroups = {};
+      return state.layerGroups;
+    }
+
+    function layerGroup(layer) {
+      if (!layer?.groupId) return null;
+      return ensureLayerGroups()[layer.groupId] || null;
+    }
+
+    function layerGroupName(layer) {
+      return layerGroup(layer)?.name || '';
+    }
+
+    function groupLayerIds(groupId) {
+      if (!groupId) return [];
+      return (state.layers || []).filter(l => {
+        if (l.groupId !== groupId || l.hidden || l._generatedDiscLayer) return false;
+        const isDesignerLayer = l.target === 'designer-disc';
+        if (state.appMode === 'designer') return isDesignerLayer;
+        if (isDesignerLayer) return false;
+        return isLayerForCurrentMode(l);
+      }).map(l => l.id);
+    }
+
+    function isLayerSelected(layerId) {
+      return selectedLayerIds().includes(layerId);
+    }
+
+    function setLayerSelection(ids, primaryId = '') {
+      const clean = [];
+      const seen = new Set();
+      for (const id of ids || []) {
+        if (!id || seen.has(id) || !getLayer(id)) continue;
+        clean.push(id);
+        seen.add(id);
+      }
+      const primary = primaryId && seen.has(primaryId) ? primaryId : (clean[clean.length - 1] || '');
+      state.selectedLayerIds = clean;
+      state.selectedLayerId = primary;
+    }
+
+    function selectLayerWithEvent(layerId, event) {
+      const additive = !!(event && (event.shiftKey || event.ctrlKey || event.metaKey));
+      if (!additive) {
+        const layer = getLayer(layerId);
+        const groupIds = layer?.groupId ? groupLayerIds(layer.groupId) : [];
+        setLayerSelection(groupIds.length ? groupIds : [layerId], layerId);
+        return;
+      }
+      const ids = selectedLayerIds();
+      if (ids.includes(layerId)) {
+        setLayerSelection(ids.filter(id => id !== layerId));
+      } else {
+        setLayerSelection([...ids, layerId], layerId);
+      }
+    }
+
+    function clearLayerSelection() {
+      setLayerSelection([]);
+    }
+
     function syncShapeLayerInputs(layer) {
       const kindIsSvg = layer?.shape?.kind === 'svg';
       renderSvgElementsList(layer);
@@ -11390,6 +11497,7 @@
 
     function syncLayerInputs() {
       const layer = selectedLayer();
+      const selectionCount = selectedLayerIds().length;
       const layerControlsEl = $('layerControls');
       if (layerControlsEl) {
         // Hide the whole "Selected layer" panel when nothing is selected so
@@ -11398,6 +11506,8 @@
         layerControlsEl.style.display = layer ? '' : 'none';
         layerControlsEl.open = Boolean(layer);
       }
+      const summary = $('layerControlsSummary');
+      if (summary) summary.textContent = selectionCount > 1 ? `${selectionCount} selected layers` : 'Selected layer';
       $('textLayerControls').style.display = layer && layer.type === 'text' ? 'block' : 'none';
       $('layerImageControls').style.display = layer && layer.type === 'image' ? 'block' : 'none';
       const colorPanel = $('colorLayerControls');
@@ -11434,6 +11544,10 @@
         const el = $(id);
         if (el) el.disabled = !layer;
       }
+      const groupBtn = $('layerGroupBtn');
+      if (groupBtn) groupBtn.disabled = selectionCount < 2;
+      const ungroupBtn = $('layerUngroupBtn');
+      if (ungroupBtn) ungroupBtn.disabled = !selectedLayers().some(l => !!l.groupId);
       const lockEl = $('layerLocked');
       if (lockEl) {
         lockEl.disabled = !layer;
@@ -11516,8 +11630,13 @@
       const el = event.currentTarget;
       const layer = getLayer(el.dataset.layerId);
       if (!layer) return;
-      if (layer.locked) { state.selectedLayerId = layer.id; render(); return; }
-      state.selectedLayerId = layer.id;
+      if (layer.locked) { setLayerSelection([layer.id], layer.id); render(); return; }
+      const additiveSelect = !!(event.shiftKey || event.ctrlKey || event.metaKey);
+      if (additiveSelect) {
+        if (!isLayerSelected(layer.id)) selectLayerWithEvent(layer.id, event);
+      } else if (!isLayerSelected(layer.id)) {
+        setLayerSelection([layer.id], layer.id);
+      }
 
       const textTarget = event.target.closest('.textLayer');
       if (textTarget && (document.activeElement === textTarget || event.detail > 1)) {
@@ -11533,8 +11652,9 @@
       const sheetRect = dragHost.getBoundingClientRect();
       const startX = event.clientX;
       const startY = event.clientY;
-      const originX = layer.x;
-      const originY = layer.y;
+      const dragLayers = selectedLayers().filter(l => !l.locked && (l.target === 'designer-disc') === isDesignerLayer);
+      if (!dragLayers.includes(layer)) dragLayers.push(layer);
+      const origins = dragLayers.map(l => ({ layer: l, x: Number(l.x) || 0, y: Number(l.y) || 0 }));
       let moved = false;
       let snapshotted = false;
       document.body.classList.add('dragging-layer');
@@ -11544,20 +11664,24 @@
         if (!snapshotted) {
           // Capture the pre-drag state on the first pointermove so a click
           // without movement doesn't pollute the undo stack.
-          pushHistory('move layer');
+          pushHistory(dragLayers.length > 1 ? 'move selected layers' : 'move layer');
           snapshotted = true;
         }
         moved = true;
         const dx = (moveEvent.clientX - startX) / sheetRect.width * (isDesignerLayer ? discTemplate.discD : sheetW());
         const dy = (moveEvent.clientY - startY) / sheetRect.height * (isDesignerLayer ? discTemplate.discD : sheetH());
-        layer.x = originX + dx;
-        layer.y = originY + dy;
-        if (isDesignerLayer) {
-          el.style.left = `${layer.x / discTemplate.discD * 100}%`;
-          el.style.top = `${layer.y / discTemplate.discD * 100}%`;
-        } else {
-          el.style.left = inches(layer.x);
-          el.style.top = inches(layer.y);
+        for (const origin of origins) {
+          origin.layer.x = origin.x + dx;
+          origin.layer.y = origin.y + dy;
+          const layerEl = document.querySelector(`.freeLayer[data-layer-id="${origin.layer.id}"]`);
+          if (!layerEl) continue;
+          if (isDesignerLayer) {
+            layerEl.style.left = `${origin.layer.x / discTemplate.discD * 100}%`;
+            layerEl.style.top = `${origin.layer.y / discTemplate.discD * 100}%`;
+          } else {
+            layerEl.style.left = inches(origin.layer.x);
+            layerEl.style.top = inches(origin.layer.y);
+          }
         }
         syncLayerInputs();
       };
@@ -11567,6 +11691,10 @@
         el.removeEventListener('pointermove', move);
         el.removeEventListener('pointerup', stop);
         el.removeEventListener('pointercancel', stop);
+        if (moved) {
+          el.dataset.dragMoved = '1';
+          setTimeout(() => { delete el.dataset.dragMoved; }, 0);
+        }
         localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify(state));
       };
 
@@ -11596,7 +11724,7 @@
       const el = handle.parentElement;
       const layer = getLayer(el?.dataset.layerId);
       if (!layer || layer.locked) return;
-      state.selectedLayerId = layer.id;
+      setLayerSelection([layer.id], layer.id);
 
       const isDesignerLayer = layer.target === 'designer-disc';
       const dragHost = isDesignerLayer ? $('designerDiscWrap') : $('sheet');
@@ -11706,6 +11834,7 @@
         meta: state.meta,
         ui: { zoom: state.zoom, showGuides: state.showGuides, showBleed: state.showBleed, showCrops: state.showCrops, printGuides: state.printGuides, printCrops: state.printCrops },
         coverTemplate: { preset: state.preset, templateType, panelW: state.panelW, trimH: state.trimH, spineW: state.spineW, bleed: state.bleed, safe: state.safe, artworkMode: state.artworkMode, slots: state.slots, combined: state.combined },
+        layerGroups: { ...ensureLayerGroups() },
         layers: nonGeneratedLayers().filter(l => {
           const target = String(l.target || '');
           return !target.startsWith('disc') && !target.startsWith('jewel');
@@ -11723,6 +11852,7 @@
         ui: { zoom: state.zoom },
         discMeta: state.discMeta,
         discTemplate: { templateType, config: discTemplate, discs: state.discs, spineLabels: state.discSpineLabels, meta: state.discMeta },
+        layerGroups: { ...ensureLayerGroups() },
         layers: nonGeneratedLayers().filter(l => String(l.target || '').startsWith('disc'))
       };
     }
@@ -11736,6 +11866,7 @@
         meta: state.meta,
         ui: { zoom: state.zoom, showGuides: state.showGuides, printGuides: state.printGuides },
         jewelTemplate: { templateType, preset: 'jewel8693', config: jewelTemplate, inserts: state.jewelInserts, spineLabels: state.jewelSpineLabels },
+        layerGroups: { ...ensureLayerGroups() },
         layers: nonGeneratedLayers().filter(l => String(l.target || '').startsWith('jewel'))
       };
     }
@@ -11758,6 +11889,7 @@
             background: ca.background || '#ffffff',
             notes: ca.notes || ''
           },
+          layerGroups: { ...ensureLayerGroups() },
           layers
         };
       }
@@ -11768,6 +11900,7 @@
         meta: state.meta,
         ui: { zoom: state.zoom, showGuides: state.showGuides },
         customArt: ca,
+        layerGroups: { ...ensureLayerGroups() },
         layers
       };
     }
@@ -11838,6 +11971,7 @@
         jewelTemplate: { templateType: templateTypeForMode('jewel'), preset: 'jewel8693', config: jewelTemplate, inserts: state.jewelInserts, spineLabels: state.jewelSpineLabels },
         customArt: { ...state.customArt },
         layers: nonGeneratedLayers(),
+        layerGroups: { ...ensureLayerGroups() },
         community: { relays: state.community.relays, query: state.community.query, kind: state.community.kind }
       };
     }
@@ -12400,8 +12534,9 @@
       if (!_isRestoring) pushHistory('close disc design');
       state.discDesign = { name: '', src: '', fit: 'cover', zoom: 1, x: 0, y: 0, rotate: 0 };
       state.layers = (state.layers || []).filter(l => l.target !== 'designer-disc');
+      state.layerGroups = {};
       state.meta = blankMeta();
-      state.selectedLayerId = '';
+      clearLayerSelection();
       exitEditMode();
       syncInputs();
       syncDesignerInputs();
@@ -12440,7 +12575,8 @@
       state.privateDTag = '';
       state.meta = blankMeta();
       state.layers = (state.layers || []).filter(l => l.target === 'designer-disc');
-      state.selectedLayerId = '';
+      state.layerGroups = {};
+      clearLayerSelection();
       exitEditMode();
       syncInputs();
       syncAllSlotInputs();
@@ -12798,7 +12934,9 @@
             }),
             ...migrateLegacyLayerTargets(parsed.layers, 'cover')
           ],
-          selectedLayerId: ''
+          layerGroups: { ...ensureLayerGroups(), ...(parsed.layerGroups || {}) },
+          selectedLayerId: '',
+          selectedLayerIds: []
         });
         syncInputs(); syncAllSlotInputs(); syncCombinedInputs(); render();
         return;
@@ -12818,7 +12956,9 @@
             ...state.layers.filter(l => !String(l.target || '').startsWith('disc')),
             ...migrateLegacyLayerTargets(parsed.layers, 'disc')
           ],
-          selectedLayerId: ''
+          layerGroups: { ...ensureLayerGroups(), ...(parsed.layerGroups || {}) },
+          selectedLayerId: '',
+          selectedLayerIds: []
         });
         normalizeDiscState();
         syncProjectMetaFromDiscMeta(true);
@@ -12840,7 +12980,9 @@
             ...state.layers.filter(l => !String(l.target || '').startsWith('jewel')),
             ...migrateLegacyLayerTargets(parsed.layers, 'jewel')
           ],
-          selectedLayerId: ''
+          layerGroups: { ...ensureLayerGroups(), ...(parsed.layerGroups || {}) },
+          selectedLayerId: '',
+          selectedLayerIds: []
         });
         normalizeJewelState();
         syncInputs(); syncAllJewelInputs(); render();
@@ -12884,7 +13026,9 @@
           },
           // Deck slides own their layers; clear any editor canvas layers.
           layers: state.layers.filter(l => l.target !== 'canvas'),
-          selectedLayerId: ''
+          layerGroups: { ...ensureLayerGroups(), ...(parsed.layerGroups || {}) },
+          selectedLayerId: '',
+          selectedLayerIds: []
         });
         syncInputs(); render();
         return;
@@ -12910,7 +13054,9 @@
             ...state.layers.filter(l => l.target !== 'canvas'),
             ...migrateLegacyLayerTargets(parsed.layers, 'customart')
           ],
-          selectedLayerId: ''
+          layerGroups: { ...ensureLayerGroups(), ...(parsed.layerGroups || {}) },
+          selectedLayerId: '',
+          selectedLayerIds: []
         });
         syncInputs(); render();
         return;
@@ -12961,7 +13107,9 @@
         jewelInserts: { ...state.jewelInserts, ...(source.jewelInserts || {}) },
         community: { ...state.community, ...(source.community || {}) },
         layers: migratedLayers,
-        selectedLayerId: ''
+        layerGroups: source.layerGroups || {},
+        selectedLayerId: '',
+        selectedLayerIds: []
       };
       Object.assign(state, next);
       normalizeDiscState();
@@ -17257,7 +17405,7 @@
         ...(s.layers || []).map(l => ({ ...l, target: 'canvas' }))
       ];
       state.templateMode = 'slide';
-      state.selectedLayerId = '';
+      clearLayerSelection();
       syncInputs();
       render();
     }
@@ -17370,7 +17518,7 @@
       deck.editingIndex = null;
       state.templateMode = 'deck';
       state.layers = state.layers.filter(l => l.target !== 'canvas');
-      state.selectedLayerId = '';
+      clearLayerSelection();
       syncInputs();
       render();
     }
@@ -18557,7 +18705,7 @@
       if (addTextLayerBtn) addTextLayerBtn.addEventListener('click', () => addTextLayer());
 
       $('sheet').addEventListener('click', () => {
-        state.selectedLayerId = '';
+        clearLayerSelection();
         render();
       });
 
@@ -18732,11 +18880,44 @@
       const duplicateBtn = $('layerDuplicate');
       if (duplicateBtn) duplicateBtn.addEventListener('click', duplicateSelectedLayer);
 
+      function groupSelectedLayers() {
+        const layers = selectedLayers();
+        if (layers.length < 2) { toastError('Select at least two layers to group.'); return; }
+        const name = (prompt('Group name', 'Layer group') || '').trim();
+        if (!name) return;
+        pushHistory('group layers');
+        const groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        ensureLayerGroups()[groupId] = { id: groupId, name };
+        for (const layer of layers) layer.groupId = groupId;
+        setLayerSelection(layers.map(l => l.id), layers[layers.length - 1].id);
+        render();
+        toastSuccess(`Grouped ${layers.length} layers.`);
+      }
+
+      function ungroupSelectedLayers() {
+        const layers = selectedLayers();
+        const groupIds = [...new Set(layers.map(l => l.groupId).filter(Boolean))];
+        if (!groupIds.length) { toastError('Select a grouped layer first.'); return; }
+        pushHistory('ungroup layers');
+        const groups = ensureLayerGroups();
+        for (const layer of state.layers || []) {
+          if (groupIds.includes(layer.groupId)) delete layer.groupId;
+        }
+        for (const groupId of groupIds) delete groups[groupId];
+        render();
+        toastSuccess(groupIds.length === 1 ? 'Ungrouped layer group.' : `Ungrouped ${groupIds.length} groups.`);
+      }
+
+      on('layerGroupBtn', 'click', groupSelectedLayers);
+      on('layerUngroupBtn', 'click', ungroupSelectedLayers);
+
       function deleteSelectedLayer() {
-        if (!state.selectedLayerId) return;
-        pushHistory('delete layer');
-        state.layers = state.layers.filter((layer) => layer.id !== state.selectedLayerId);
-        state.selectedLayerId = '';
+        const ids = selectedLayerIds();
+        if (!ids.length) return;
+        pushHistory(ids.length > 1 ? 'delete selected layers' : 'delete layer');
+        const selected = new Set(ids);
+        state.layers = state.layers.filter((layer) => !selected.has(layer.id));
+        clearLayerSelection();
         render();
       }
 
@@ -18780,7 +18961,9 @@
           jewelInserts: { ...state.jewelInserts, ...(parsed.jewelInserts || parsed.jewelTemplate?.inserts || {}) },
           community: { ...state.community, ...(parsed.community || {}) },
           layers: Array.isArray(parsed.layers) ? parsed.layers : [],
-          selectedLayerId: ''
+          layerGroups: parsed.layerGroups || {},
+          selectedLayerId: '',
+          selectedLayerIds: []
         });
         normalizeDiscState();
         normalizeJewelState();
