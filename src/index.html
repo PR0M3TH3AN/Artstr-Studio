@@ -2092,7 +2092,7 @@
     #designObjectBanner { background:rgba(96,165,250,.13); border-bottom-color:rgba(96,165,250,.45); color:#1d4ed8; }
     body.dark #designObjectBanner { background:rgba(96,165,250,.12); color:#93c5fd; }
     #designObjectBanner button { font-size:.78rem; padding:4px 10px; flex-shrink:0; }
-    .designObjectFrame { position:absolute; inset:0; overflow:hidden; background:#fff; pointer-events:none; }
+    .designObjectFrame { position:absolute; inset:0; overflow:hidden; background:transparent; pointer-events:none; }
     .designObjectFrame::after { content:''; position:absolute; inset:0; border:1px solid rgba(15,23,42,.12); pointer-events:none; }
 
     .tipAmounts { display:grid; grid-template-columns:repeat(auto-fit,minmax(72px,1fr)); gap:8px; margin:0 0 14px; }
@@ -7653,7 +7653,7 @@
       fitWrap.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none';
       frame.appendChild(fitWrap);
       try {
-        renderDesignPayloadPreview(fitWrap, layer.design?.payload || {}, { compact: true });
+        renderDesignPayloadPreview(fitWrap, layer.design?.payload || {}, { compact: true, transparentPixelArt: true });
         fitMiniPreview(fitWrap);
       } catch (err) {
         fitWrap.innerHTML = `<div class="hint" style="padding:8px;font-size:.72rem">Design preview unavailable.</div>`;
@@ -16705,6 +16705,7 @@
     // Preview a standalone pixel-art design — the grid rendered crisp.
     function renderPixelArtPreviewDOM(container, payload, opts = {}) {
       const compact = !!opts.compact;
+      const transparentBackground = !!opts.transparentPixelArt;
       const pa = (payload && payload.pixelArt) || {};
       const w = (pa.width | 0) || 32, h = (pa.height | 0) || 32;
       const naturalW = PREVIEW_BASE_PX;
@@ -16716,7 +16717,7 @@
         compact ? `height:${naturalH}px` : `aspect-ratio:${w} / ${h}`,
         compact ? 'margin:0;transform-origin:center center' : 'margin:0 auto',
         'overflow:hidden',
-        'background:repeating-conic-gradient(#e2e8f0 0% 25%, #f8fafc 0% 50%) 0 0 / 18px 18px'
+        transparentBackground ? 'background:transparent' : 'background:repeating-conic-gradient(#e2e8f0 0% 25%, #f8fafc 0% 50%) 0 0 / 18px 18px'
       ].join(';');
       try {
         const cv = renderPixelGridToCanvas(pa);
