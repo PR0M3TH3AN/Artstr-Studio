@@ -3,6 +3,36 @@
 Running list of deferred work. Detailed specs for the larger items live in
 `docs/`. Each entry notes scope and where the spec is (if any).
 
+## Adam's working list
+
+- **Smart-object design imports.** Add a way to import another design from
+  Nostr or from a saved file into any current design as an editable layer /
+  element, similar to Photoshop Smart Objects. Existing related pattern: the
+  two-disc print layout already has per-disc "Load from file" and "Search
+  Nostr" import flows for Disc 1 / Disc 2 images.
+- **Layer groups and multi-select transforms.** Add layer groups, group
+  naming, selecting multiple layers / objects at once, and moving / scaling
+  grouped or multi-selected objects together.
+- **Slide deck PDF export.** Add multi-slide PDF export for slide
+  presentations, producing one page per slide.
+- **Pixel editor image export.** Add JPEG, PNG, and GIF export from the pixel
+  editor.
+- **Pixel editor selection tools.** Add tools for selecting and moving
+  multiple pixels. Include selection shapes / modes, select-all-pixels-by-color,
+  and the ability to recolor or move the active selection.
+- **Pixel editor active color display.** Show the active color clearly in the
+  pixel editor toolbar or palette panel.
+- **Pixel editor layout expansion.** Enlarge the pixel editor so it uses the
+  empty outer gaps around the current editing area.
+- **Color picker fixes.** Fix the color picker, which currently does not work
+  on pixel or vector tools.
+- **Print / Save event ID wrapping.** In the Print / Save panel, make sure the
+  event id wraps instead of forcing the side panel into horizontal scrolling.
+- **Copy / paste transform consistency.** Audit Copy, Paste, Copy All, and
+  cross-target paste so copied objects keep consistent position and scale
+  relative to the other copied objects, without unexpected misalignment or
+  rescaling.
+
 ## QR code layer — remaining phases
 
 Phase A shipped (the `qr` layer type: data, error-correction level, quiet
