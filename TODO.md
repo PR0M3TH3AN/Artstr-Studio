@@ -15,13 +15,6 @@ Running list of deferred work. Detailed specs for the larger items live in
   grouped or multi-selected objects together.
 - **Slide deck PDF export.** Add multi-slide PDF export for slide
   presentations, producing one page per slide.
-- **Pixel editor image export.** Add JPEG, PNG, and GIF export from the pixel
-  editor.
-- **Pixel editor selection tools.** Add tools for selecting and moving
-  multiple pixels. Include selection shapes / modes, select-all-pixels-by-color,
-  and the ability to recolor or move the active selection.
-- **Pixel editor active color display.** Show the active color clearly in the
-  pixel editor toolbar or palette panel.
 - **Pixel editor layout expansion.** Enlarge the pixel editor so it uses the
   empty outer gaps around the current editing area.
 - **Color picker fixes.** Fix the color picker, which currently does not work
