@@ -9661,7 +9661,7 @@
       const groupTag = groupName ? `<span class="layerGroupTag" title="Group: ${escapeHtml(groupName)}">GRP</span>` : '';
       item.innerHTML = `<span title="${escapeHtml(rawName)}">${lockTag}${groupTag}${escapeHtml(displayName)}</span><span>${escapeHtml(layer.type)}</span>`;
       item.addEventListener('click', (event) => {
-        selectLayerWithEvent(layer.id, event);
+        selectLayerPanelEntry('layer', layer.id, event);
         render();
       });
       const eye = document.createElement('button');
@@ -9707,7 +9707,7 @@
       const name = group.name || 'Layer group';
       button.innerHTML = `<span class="layerGroupName" title="${escapeHtml(name)}">📁 ${escapeHtml(name)}</span><span class="layerGroupMeta">${layers.length} layer${layers.length === 1 ? '' : 's'}</span>`;
       button.addEventListener('click', (event) => {
-        selectLayerGroupWithEvent(groupId, event);
+        selectLayerPanelEntry('group', groupId, event);
         render();
       });
 
@@ -11178,6 +11178,80 @@
 
     function clearLayerSelection() {
       setLayerSelection([]);
+    }
+
+    let _layerPanelSelectionAnchor = null;
+
+    function layerPanelRowsFromOrderedLayers(orderedLayers) {
+      const rows = [];
+      const renderedGroups = new Set();
+      for (const layer of orderedLayers) {
+        if (layer.groupId) {
+          if (renderedGroups.has(layer.groupId)) continue;
+          const groupLayers = orderedLayers.filter(l => l.groupId === layer.groupId);
+          renderedGroups.add(layer.groupId);
+          rows.push({ key: `group:${layer.groupId}`, type: 'group', id: layer.groupId, layerIds: groupLayers.map(l => l.id) });
+          const group = ensureLayerGroups()[layer.groupId] || {};
+          if (!group.collapsed) {
+            for (const child of groupLayers) rows.push({ key: `layer:${child.id}`, type: 'layer', id: child.id, layerIds: [child.id] });
+          }
+        } else {
+          rows.push({ key: `layer:${layer.id}`, type: 'layer', id: layer.id, layerIds: [layer.id] });
+        }
+      }
+      return rows;
+    }
+
+    function visibleLayerPanelRows() {
+      if (state.appMode === 'designer') {
+        const listedLayers = (state.layers || [])
+          .filter(layer => layer.target === 'designer-disc' && !layer._generatedDiscLayer)
+          .sort((a, b) => (b.z || 0) - (a.z || 0));
+        return layerPanelRowsFromOrderedLayers(listedLayers);
+      }
+      const rows = [];
+      const targetLayers = (state.layers || []).filter(layer => layer.target !== 'designer-disc' && !layer._generatedDiscLayer);
+      for (const targetDef of templateLayerTargetsForMode()) {
+        const matchKeys = targetDef.matchKeys || [targetDef.key];
+        const ordered = targetLayers
+          .filter(layer => matchKeys.includes(layer.target))
+          .sort((a, b) => (b.z || 0) - (a.z || 0));
+        rows.push(...layerPanelRowsFromOrderedLayers(ordered));
+      }
+      return rows;
+    }
+
+    function selectLayerPanelEntry(kind, id, event) {
+      const key = `${kind}:${id}`;
+      const rows = visibleLayerPanelRows();
+      const row = rows.find(item => item.key === key);
+      if (!row) return;
+      const additive = !!(event && (event.ctrlKey || event.metaKey));
+      const range = !!(event && event.shiftKey);
+      if (range && _layerPanelSelectionAnchor) {
+        const a = rows.findIndex(item => item.key === _layerPanelSelectionAnchor.key);
+        const b = rows.findIndex(item => item.key === key);
+        if (a !== -1 && b !== -1) {
+          const [from, to] = a < b ? [a, b] : [b, a];
+          const rangeIds = rows.slice(from, to + 1).flatMap(item => item.layerIds);
+          const nextIds = additive ? [...selectedLayerIds(), ...rangeIds] : rangeIds;
+          setLayerSelection(nextIds, row.layerIds[row.layerIds.length - 1] || '');
+          return;
+        }
+      }
+      if (additive) {
+        const current = selectedLayerIds();
+        const allSelected = row.layerIds.every(layerId => current.includes(layerId));
+        if (allSelected) {
+          const remove = new Set(row.layerIds);
+          setLayerSelection(current.filter(layerId => !remove.has(layerId)));
+        } else {
+          setLayerSelection([...current, ...row.layerIds], row.layerIds[row.layerIds.length - 1] || '');
+        }
+      } else {
+        setLayerSelection(row.layerIds, row.layerIds[row.layerIds.length - 1] || '');
+      }
+      _layerPanelSelectionAnchor = { key };
     }
 
     let _pendingLayerGroupIds = [];
@@ -19309,7 +19383,7 @@
           if (k === 'enter' && _penDraft && _penDraft.tool === 'pen') { e.preventDefault(); finishPenPath(false); return; }
           if (!_penDraft) {
             if (k === 'delete' || k === 'backspace') {
-              if (state.selectedLayerId) { e.preventDefault(); deleteSelectedLayer(); }
+              if (selectedLayerIds().length) { e.preventDefault(); deleteSelectedLayer(); }
               return;
             }
             const layer = selectedLayer();
