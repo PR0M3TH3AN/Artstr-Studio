@@ -1587,6 +1587,10 @@
     }
     .layerItemRow { display:flex; align-items:stretch; gap:3px; }
     .layerItemRow .layerItem { flex:1; min-width:0; }
+    .layerItemRow[draggable="true"], .layerGroupBlock[draggable="true"] { cursor:grab; }
+    .layerItemRow.dragOverBefore, .layerGroupBlock.dragOverBefore { box-shadow:0 -2px 0 var(--accent); }
+    .layerItemRow.dragOverAfter, .layerGroupBlock.dragOverAfter { box-shadow:0 2px 0 var(--accent); }
+    .layerItemRow.draggingLayerRow, .layerGroupBlock.draggingLayerRow { opacity:.45; }
     .layerEyeToggle { flex:0 0 auto; width:30px; border:1px solid var(--line); border-radius:0; background:var(--panel); color:var(--ink); cursor:pointer; font-size:.8rem; line-height:1; }
     .layerEyeToggle:hover { background:rgba(127,127,127,.12); }
     .layerItemRow.layerHiddenRow .layerItem { opacity:.5; }
@@ -9650,9 +9654,10 @@
     }
 
     // A layer-list row: the selectable item button + a visibility eye toggle.
-    function makeLayerListRow(layer) {
+    function makeLayerListRow(layer, orderedLayers = []) {
       const row = document.createElement('div');
       row.className = `layerItemRow${layer.hidden ? ' layerHiddenRow' : ''}`;
+      setupLayerPanelDragHandle(row, `layer:${layer.id}`, orderedLayers);
       const item = document.createElement('button');
       item.type = 'button';
       const layerSelected = isLayerSelected(layer.id);
@@ -9684,7 +9689,7 @@
       return row;
     }
 
-    function makeLayerGroupListBlock(groupId, layers) {
+    function makeLayerGroupListBlock(groupId, layers, orderedLayers = []) {
       const group = ensureLayerGroups()[groupId] || { id: groupId, name: 'Layer group' };
       const selectedIds = selectedLayerIds();
       const layerIds = layers.map(l => l.id);
@@ -9692,6 +9697,7 @@
       const groupSelected = selectedCount === layerIds.length && layerIds.length > 0;
       const block = document.createElement('div');
       block.className = `layerGroupBlock${group.collapsed ? ' collapsed' : ''}`;
+      setupLayerPanelDragHandle(block, `group:${groupId}`, orderedLayers);
       const header = document.createElement('div');
       header.className = 'layerGroupHeader';
 
@@ -9733,9 +9739,9 @@
           if (renderedGroups.has(layer.groupId)) continue;
           const groupLayers = orderedLayers.filter(l => l.groupId === layer.groupId);
           renderedGroups.add(layer.groupId);
-          listWrap.appendChild(makeLayerGroupListBlock(layer.groupId, groupLayers));
+          listWrap.appendChild(makeLayerGroupListBlock(layer.groupId, groupLayers, orderedLayers));
         } else {
-          listWrap.appendChild(makeLayerListRow(layer));
+          listWrap.appendChild(makeLayerListRow(layer, orderedLayers));
         }
       }
     }
@@ -11186,6 +11192,7 @@
     }
 
     let _layerPanelSelectionAnchor = null;
+    let _layerPanelDrag = null;
 
     function layerPanelRowsFromOrderedLayers(orderedLayers) {
       const rows = [];
@@ -11257,6 +11264,89 @@
         setLayerSelection(row.layerIds, row.layerIds[row.layerIds.length - 1] || '');
       }
       _layerPanelSelectionAnchor = { key };
+    }
+
+    function layerPanelReorderRowsFromOrderedLayers(orderedLayers) {
+      const rows = [];
+      const renderedGroups = new Set();
+      for (const layer of orderedLayers) {
+        if (layer.groupId) {
+          if (renderedGroups.has(layer.groupId)) continue;
+          const groupLayers = orderedLayers.filter(l => l.groupId === layer.groupId);
+          renderedGroups.add(layer.groupId);
+          rows.push({ key: `group:${layer.groupId}`, layerIds: groupLayers.map(l => l.id) });
+        } else {
+          rows.push({ key: `layer:${layer.id}`, layerIds: [layer.id] });
+        }
+      }
+      return rows;
+    }
+
+    function clearLayerPanelDragOver() {
+      document.querySelectorAll('.dragOverBefore, .dragOverAfter').forEach((el) => {
+        el.classList.remove('dragOverBefore', 'dragOverAfter');
+      });
+    }
+
+    function reorderLayerPanelRows(rows, sourceKey, targetKey, placeAfter) {
+      const from = rows.findIndex(row => row.key === sourceKey);
+      const target = rows.findIndex(row => row.key === targetKey);
+      if (from === -1 || target === -1 || from === target) return false;
+      const next = rows.slice();
+      const [moved] = next.splice(from, 1);
+      let insertAt = next.findIndex(row => row.key === targetKey);
+      if (insertAt === -1) return false;
+      if (placeAfter) insertAt += 1;
+      next.splice(insertAt, 0, moved);
+
+      const flattenedTopDown = next.flatMap(row => row.layerIds);
+      const zById = new Map();
+      flattenedTopDown.slice().reverse().forEach((id, index) => zById.set(id, index + 1));
+      for (const layer of state.layers || []) {
+        if (zById.has(layer.id)) layer.z = zById.get(layer.id);
+      }
+      return true;
+    }
+
+    function setupLayerPanelDragHandle(el, rowKey, orderedLayers) {
+      const rows = layerPanelReorderRowsFromOrderedLayers(orderedLayers);
+      if (rows.length < 2) return;
+      el.draggable = true;
+      el.dataset.layerPanelRowKey = rowKey;
+      el.addEventListener('dragstart', (event) => {
+        _layerPanelDrag = { rowKey, rows };
+        el.classList.add('draggingLayerRow');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', rowKey);
+      });
+      el.addEventListener('dragend', () => {
+        _layerPanelDrag = null;
+        el.classList.remove('draggingLayerRow');
+        clearLayerPanelDragOver();
+      });
+      el.addEventListener('dragover', (event) => {
+        if (!_layerPanelDrag || _layerPanelDrag.rowKey === rowKey) return;
+        if (!_layerPanelDrag.rows.find(row => row.key === rowKey)) return;
+        event.preventDefault();
+        clearLayerPanelDragOver();
+        const rect = el.getBoundingClientRect();
+        const after = event.clientY > rect.top + rect.height / 2;
+        el.classList.add(after ? 'dragOverAfter' : 'dragOverBefore');
+        event.dataTransfer.dropEffect = 'move';
+      });
+      el.addEventListener('drop', (event) => {
+        if (!_layerPanelDrag || _layerPanelDrag.rowKey === rowKey) return;
+        event.preventDefault();
+        const rect = el.getBoundingClientRect();
+        const after = event.clientY > rect.top + rect.height / 2;
+        pushHistory('reorder layers');
+        const changed = reorderLayerPanelRows(_layerPanelDrag.rows, _layerPanelDrag.rowKey, rowKey, after);
+        _layerPanelDrag = null;
+        clearLayerPanelDragOver();
+        if (changed) {
+          render();
+        }
+      });
     }
 
     let _pendingLayerGroupIds = [];
@@ -19150,6 +19240,24 @@
         clearLayerSelection();
         render();
       }
+
+      document.addEventListener('keydown', (e) => {
+        if (isEditableFocus() || _penDraft) return;
+        const k = (e.key || '').toLowerCase();
+        const deleteKey = k === 'delete' || k === 'del' || k === 'backspace' || e.code === 'Delete' || e.code === 'Backspace';
+        const mod = e.ctrlKey || e.metaKey;
+        if (!mod && !e.altKey && deleteKey && selectedLayerIds().length) {
+          e.preventDefault();
+          e.stopPropagation();
+          deleteSelectedLayer();
+          return;
+        }
+        if (mod && !e.shiftKey && !e.altKey && k === 'g') {
+          e.preventDefault();
+          e.stopPropagation();
+          groupSelectedLayers();
+        }
+      }, true);
 
       // Sidebar panels start collapsed; click a panel's legend to toggle it.
       // (Selecting a layer also auto-opens the Layers panel — see render().)
