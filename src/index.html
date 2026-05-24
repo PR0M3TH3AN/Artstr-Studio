@@ -1617,6 +1617,18 @@
       box-shadow: inset 3px 0 0 var(--accent);
     }
 
+    .layerGroupBlock { margin:0 0 4px; border:1px solid var(--line); background:rgba(127,127,127,.04); }
+    .layerGroupHeader { display:flex; align-items:stretch; gap:3px; }
+    .layerGroupToggle { width:28px; flex:0 0 auto; border:0; border-right:1px solid var(--line); background:transparent; color:var(--muted); cursor:pointer; font-size:.78rem; }
+    .layerGroupToggle:hover { background:rgba(127,127,127,.1); color:var(--ink); }
+    .layerGroupButton { flex:1; min-width:0; border:0; background:transparent; color:var(--ink); display:flex; justify-content:space-between; gap:8px; align-items:center; padding:7px 10px; cursor:pointer; text-align:left; font-weight:700; }
+    .layerGroupButton.active { color:var(--accent); background:#eff6ff; }
+    .layerGroupButton.multiSelected { color:var(--accent); background:rgba(0,184,230,.08); box-shadow:inset 3px 0 0 var(--accent); }
+    .layerGroupName { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .layerGroupMeta { color:var(--muted); font-size:.74rem; flex:0 0 auto; font-weight:600; }
+    .layerGroupChildren { display:grid; gap:3px; padding:4px 4px 4px 18px; border-top:1px solid var(--line); }
+    .layerGroupBlock.collapsed .layerGroupChildren { display:none; }
+
     .textTools {
       display: flex;
       gap: 8px;
@@ -3849,6 +3861,20 @@
         <button type="button" id="closeProjectCancelBtn">Cancel</button>
         <button type="button" id="closeProjectDiscardBtn" class="danger">Close without saving</button>
         <button type="button" id="closeProjectSaveBtn" class="primary">Save and close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="layerGroupModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:380px">
+      <h2 style="font-size:1.05rem;margin:0 0 8px;font-family:inherit">Name layer group</h2>
+      <p class="hint" id="layerGroupModalHint" style="margin:0 0 12px"></p>
+      <label for="layerGroupNameInput" style="font-size:.82rem;font-weight:650">Group name</label>
+      <input id="layerGroupNameInput" type="text" style="margin:4px 0 12px" />
+      <p class="hint" id="layerGroupModalError" style="display:none;margin:0 0 10px;color:var(--warn);min-height:0"></p>
+      <div class="buttonRow" style="margin:0;justify-content:flex-end;flex-wrap:wrap;gap:8px">
+        <button type="button" id="layerGroupCancelBtn">Cancel</button>
+        <button type="button" id="layerGroupCreateBtn" class="primary">Create group</button>
       </div>
     </div>
   </div>
@@ -9653,6 +9679,62 @@
       return row;
     }
 
+    function makeLayerGroupListBlock(groupId, layers) {
+      const group = ensureLayerGroups()[groupId] || { id: groupId, name: 'Layer group' };
+      const selectedIds = selectedLayerIds();
+      const layerIds = layers.map(l => l.id);
+      const selectedCount = layerIds.filter(id => selectedIds.includes(id)).length;
+      const groupSelected = selectedCount === layerIds.length && layerIds.length > 0;
+      const block = document.createElement('div');
+      block.className = `layerGroupBlock${group.collapsed ? ' collapsed' : ''}`;
+      const header = document.createElement('div');
+      header.className = 'layerGroupHeader';
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'layerGroupToggle';
+      toggle.textContent = group.collapsed ? '▸' : '▾';
+      toggle.title = group.collapsed ? 'Show group layers' : 'Hide group layers';
+      toggle.addEventListener('click', (event) => {
+        event.stopPropagation();
+        group.collapsed = !group.collapsed;
+        renderLayerList();
+      });
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `layerGroupButton${groupSelected ? ' active' : ''}${selectedCount > 0 ? ' multiSelected' : ''}`;
+      const name = group.name || 'Layer group';
+      button.innerHTML = `<span class="layerGroupName" title="${escapeHtml(name)}">📁 ${escapeHtml(name)}</span><span class="layerGroupMeta">${layers.length} layer${layers.length === 1 ? '' : 's'}</span>`;
+      button.addEventListener('click', (event) => {
+        selectLayerGroupWithEvent(groupId, event);
+        render();
+      });
+
+      header.append(toggle, button);
+      block.appendChild(header);
+
+      const children = document.createElement('div');
+      children.className = 'layerGroupChildren';
+      for (const layer of layers) children.appendChild(makeLayerListRow(layer));
+      block.appendChild(children);
+      return block;
+    }
+
+    function appendLayerRowsWithGroups(listWrap, orderedLayers) {
+      const renderedGroups = new Set();
+      for (const layer of orderedLayers) {
+        if (layer.groupId) {
+          if (renderedGroups.has(layer.groupId)) continue;
+          const groupLayers = orderedLayers.filter(l => l.groupId === layer.groupId);
+          renderedGroups.add(layer.groupId);
+          listWrap.appendChild(makeLayerGroupListBlock(layer.groupId, groupLayers));
+        } else {
+          listWrap.appendChild(makeLayerListRow(layer));
+        }
+      }
+    }
+
     function renderLayerList() {
       const list = $('layerList');
       if (!list) return;
@@ -9734,9 +9816,7 @@
           listWrap.appendChild(empty);
         } else {
           const ordered = [...listedLayers].sort((a, b) => (b.z || 0) - (a.z || 0));
-          for (const layer of ordered) {
-            listWrap.appendChild(makeLayerListRow(layer));
-          }
+          appendLayerRowsWithGroups(listWrap, ordered);
         }
         panel.appendChild(listWrap);
         list.appendChild(panel);
@@ -9821,9 +9901,7 @@
           empty.textContent = 'No layers in this area yet.';
           listWrap.appendChild(empty);
         } else {
-          for (const layer of ordered) {
-            listWrap.appendChild(makeLayerListRow(layer));
-          }
+          appendLayerRowsWithGroups(listWrap, ordered);
         }
 
         panel.appendChild(listWrap);
@@ -11034,15 +11112,35 @@
       return layerGroup(layer)?.name || '';
     }
 
+    function visibleLayerForGroup(layer) {
+      if (!layer || layer.hidden || layer._generatedDiscLayer) return false;
+      const isDesignerLayer = layer.target === 'designer-disc';
+      if (state.appMode === 'designer') return isDesignerLayer;
+      if (isDesignerLayer) return false;
+      return isLayerForCurrentMode(layer);
+    }
+
     function groupLayerIds(groupId) {
       if (!groupId) return [];
-      return (state.layers || []).filter(l => {
-        if (l.groupId !== groupId || l.hidden || l._generatedDiscLayer) return false;
-        const isDesignerLayer = l.target === 'designer-disc';
-        if (state.appMode === 'designer') return isDesignerLayer;
-        if (isDesignerLayer) return false;
-        return isLayerForCurrentMode(l);
-      }).map(l => l.id);
+      return (state.layers || []).filter(l => l.groupId === groupId && visibleLayerForGroup(l)).map(l => l.id);
+    }
+
+    function selectLayerGroupWithEvent(groupId, event) {
+      const groupIds = groupLayerIds(groupId);
+      if (!groupIds.length) return;
+      const additive = !!(event && (event.shiftKey || event.ctrlKey || event.metaKey));
+      if (!additive) {
+        setLayerSelection(groupIds, groupIds[groupIds.length - 1]);
+        return;
+      }
+      const current = selectedLayerIds();
+      const allSelected = groupIds.every(id => current.includes(id));
+      if (allSelected) {
+        const remove = new Set(groupIds);
+        setLayerSelection(current.filter(id => !remove.has(id)));
+      } else {
+        setLayerSelection([...current, ...groupIds], groupIds[groupIds.length - 1]);
+      }
     }
 
     function isLayerSelected(layerId) {
@@ -11080,6 +11178,67 @@
 
     function clearLayerSelection() {
       setLayerSelection([]);
+    }
+
+    let _pendingLayerGroupIds = [];
+
+    function openLayerGroupModal() {
+      const layers = selectedLayers();
+      if (layers.length < 2) { toastError('Select at least two layers to group.'); return; }
+      _pendingLayerGroupIds = layers.map(l => l.id);
+      const modal = $('layerGroupModal');
+      const input = $('layerGroupNameInput');
+      const hint = $('layerGroupModalHint');
+      const err = $('layerGroupModalError');
+      if (hint) hint.textContent = `Create a folder group for ${layers.length} selected layers.`;
+      if (err) { err.style.display = 'none'; err.textContent = ''; }
+      if (input) input.value = 'Layer group';
+      if (modal) {
+        modal.style.display = 'flex';
+        modal.setAttribute('aria-hidden', 'false');
+        bringModalToFront(modal);
+      }
+      setTimeout(() => {
+        input?.focus();
+        input?.select();
+      }, 0);
+    }
+
+    function closeLayerGroupModal() {
+      const modal = $('layerGroupModal');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+      }
+      _pendingLayerGroupIds = [];
+    }
+
+    function confirmLayerGroupModal() {
+      const input = $('layerGroupNameInput');
+      const err = $('layerGroupModalError');
+      const name = (input?.value || '').trim();
+      if (!name) {
+        if (err) {
+          err.textContent = 'Enter a group name.';
+          err.style.display = '';
+        }
+        input?.focus();
+        return;
+      }
+      const layers = _pendingLayerGroupIds.map(getLayer).filter(Boolean);
+      if (layers.length < 2) {
+        closeLayerGroupModal();
+        toastError('Select at least two layers to group.');
+        return;
+      }
+      pushHistory('group layers');
+      const groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      ensureLayerGroups()[groupId] = { id: groupId, name, collapsed: false };
+      for (const layer of layers) layer.groupId = groupId;
+      setLayerSelection(layers.map(l => l.id), layers[layers.length - 1].id);
+      closeLayerGroupModal();
+      render();
+      toastSuccess(`Grouped ${layers.length} layers.`);
     }
 
     function syncShapeLayerInputs(layer) {
@@ -18881,17 +19040,7 @@
       if (duplicateBtn) duplicateBtn.addEventListener('click', duplicateSelectedLayer);
 
       function groupSelectedLayers() {
-        const layers = selectedLayers();
-        if (layers.length < 2) { toastError('Select at least two layers to group.'); return; }
-        const name = (prompt('Group name', 'Layer group') || '').trim();
-        if (!name) return;
-        pushHistory('group layers');
-        const groupId = `group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        ensureLayerGroups()[groupId] = { id: groupId, name };
-        for (const layer of layers) layer.groupId = groupId;
-        setLayerSelection(layers.map(l => l.id), layers[layers.length - 1].id);
-        render();
-        toastSuccess(`Grouped ${layers.length} layers.`);
+        openLayerGroupModal();
       }
 
       function ungroupSelectedLayers() {
@@ -19040,6 +19189,13 @@
       if (supportDevModalEl) supportDevModalEl.addEventListener('click', e => { if (e.target === supportDevModalEl) closeSupportDevModal(); });
       const closeProjectModalEl = $('closeProjectModal');
       if (closeProjectModalEl) closeProjectModalEl.addEventListener('click', e => { if (e.target === closeProjectModalEl) closeCloseProjectModal(); });
+      const layerGroupModalEl = $('layerGroupModal');
+      if (layerGroupModalEl) layerGroupModalEl.addEventListener('click', e => { if (e.target === layerGroupModalEl) closeLayerGroupModal(); });
+      on('layerGroupCancelBtn', 'click', closeLayerGroupModal);
+      on('layerGroupCreateBtn', 'click', confirmLayerGroupModal);
+      on('layerGroupNameInput', 'keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); confirmLayerGroupModal(); }
+      });
       on('profileCloseBtn', 'click', () => closeProfilePage());
       const profileModalEl = $('profileModal');
       if (profileModalEl) profileModalEl.addEventListener('click', e => { if (e.target === profileModalEl) closeProfilePage(); });
@@ -19197,6 +19353,8 @@
         if (profileM && profileM.getAttribute('aria-hidden') === 'false') { closeProfilePage(); return; }
         const reportM = $('reportModal');
         if (reportM && reportM.getAttribute('aria-hidden') === 'false') { closeReportModal(); return; }
+        const layerGroupM = $('layerGroupModal');
+        if (layerGroupM && layerGroupM.getAttribute('aria-hidden') === 'false') { closeLayerGroupModal(); return; }
         const closeProjM = $('closeProjectModal');
         if (closeProjM && closeProjM.getAttribute('aria-hidden') === 'false') { closeCloseProjectModal(); return; }
         const pdfM = $('pdfJpegModal');
