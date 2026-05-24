@@ -9637,6 +9637,10 @@
         el.addEventListener('click', (event) => {
           event.stopPropagation();
           if (el.dataset.dragMoved === '1') return;
+          if (el.dataset.skipClickSelection === '1') {
+            delete el.dataset.skipClickSelection;
+            return;
+          }
           selectLayerWithEvent(layer.id, event);
           if (event.target.closest('.textLayer')) {
             renderLayerList();
@@ -11243,17 +11247,20 @@
 
     function selectLayerWithEvent(layerId, event) {
       const additive = !!(event && (event.shiftKey || event.ctrlKey || event.metaKey));
+      const layer = getLayer(layerId);
+      const groupIds = layer?.groupId ? groupLayerIds(layer.groupId) : [];
+      const targetIds = groupIds.length ? groupIds : [layerId];
       if (!additive) {
-        const layer = getLayer(layerId);
-        const groupIds = layer?.groupId ? groupLayerIds(layer.groupId) : [];
-        setLayerSelection(groupIds.length ? groupIds : [layerId], layerId);
+        setLayerSelection(targetIds, layerId);
         return;
       }
       const ids = selectedLayerIds();
-      if (ids.includes(layerId)) {
-        setLayerSelection(ids.filter(id => id !== layerId));
+      const allSelected = targetIds.every(id => ids.includes(id));
+      if (allSelected) {
+        const remove = new Set(targetIds);
+        setLayerSelection(ids.filter(id => !remove.has(id)));
       } else {
-        setLayerSelection([...ids, layerId], layerId);
+        setLayerSelection([...ids, ...targetIds], layerId);
       }
     }
 
@@ -12033,8 +12040,15 @@
       if (!textTarget) blurEditableFocus();
       const additiveSelect = !!(event.shiftKey || event.ctrlKey || event.metaKey);
       if (additiveSelect) {
-        if (!isLayerSelected(layer.id)) selectLayerWithEvent(layer.id, event);
-      } else if (!isLayerSelected(layer.id)) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectLayerWithEvent(layer.id, event);
+        el.dataset.skipClickSelection = '1';
+        setTimeout(() => { delete el.dataset.skipClickSelection; }, 250);
+        render();
+        return;
+      }
+      if (!isLayerSelected(layer.id)) {
         setLayerSelection([layer.id], layer.id);
       }
 
@@ -12144,12 +12158,40 @@
       }
     }
 
+    function layerElementUnderSelectionBox(box, clientX, clientY) {
+      const oldPointerEvents = box.style.pointerEvents;
+      const oldVisibility = box.style.visibility;
+      box.style.pointerEvents = 'none';
+      box.style.visibility = 'hidden';
+      const el = document.elementFromPoint(clientX, clientY);
+      box.style.pointerEvents = oldPointerEvents;
+      box.style.visibility = oldVisibility;
+      return el?.closest?.('.freeLayer') || null;
+    }
+
     function startLayerSelectionDrag(event) {
       if (event.target.classList.contains('layerHandle')) return;
+      const box = event.currentTarget;
+      const layerEl = layerElementUnderSelectionBox(box, event.clientX, event.clientY);
+      const layer = layerEl ? getLayer(layerEl.dataset.layerId) : null;
+      const additiveSelect = !!(event.shiftKey || event.ctrlKey || event.metaKey);
+      if (additiveSelect && layer) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectLayerWithEvent(layer.id, event);
+        render();
+        return;
+      }
+      if (layer && !isLayerSelected(layer.id)) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectLayerWithEvent(layer.id, null);
+        render();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       blurEditableFocus();
-      const box = event.currentTarget;
       const isDesignerLayer = !!box.closest('#designerLayerOverlay');
       const layers = selectionTransformLayers(isDesignerLayer);
       if (layers.length <= 1) return;
