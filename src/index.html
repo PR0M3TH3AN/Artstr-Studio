@@ -1640,6 +1640,8 @@
     .layerGroupButton.multiSelected { color:var(--accent); background:rgba(0,184,230,.08); box-shadow:inset 3px 0 0 var(--accent); }
     .layerGroupName { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .layerGroupMeta { color:var(--muted); font-size:.74rem; flex:0 0 auto; font-weight:600; }
+    .layerGroupEyeToggle { flex:0 0 auto; width:30px; border:0; border-left:1px solid var(--line); background:transparent; color:var(--muted); cursor:pointer; font-size:.8rem; line-height:1; }
+    .layerGroupEyeToggle:hover { background:rgba(127,127,127,.1); color:var(--ink); }
     .layerGroupChildren { display:grid; gap:3px; padding:4px 4px 4px 18px; border-top:1px solid var(--line); }
     .layerGroupBlock.collapsed .layerGroupChildren { display:none; }
 
@@ -9771,7 +9773,20 @@
         render();
       });
 
-      header.append(toggle, button);
+      const eye = document.createElement('button');
+      eye.type = 'button';
+      eye.className = 'layerGroupEyeToggle';
+      const allHidden = layers.length > 0 && layers.every(l => l.hidden);
+      eye.textContent = allHidden ? '⊘' : '👁';
+      eye.title = allHidden ? 'Group hidden — click to show all' : 'Group visible — click to hide all';
+      eye.addEventListener('click', (event) => {
+        event.stopPropagation();
+        pushHistory(allHidden ? 'show layer group' : 'hide layer group');
+        for (const layer of layers) layer.hidden = !allHidden;
+        render();
+      });
+
+      header.append(toggle, button, eye);
       block.appendChild(header);
 
       const children = document.createElement('div');
@@ -11310,6 +11325,25 @@
       return rows;
     }
 
+    function layerPanelReorderSections() {
+      if (state.appMode === 'designer') {
+        const listedLayers = (state.layers || [])
+          .filter(layer => layer.target === 'designer-disc' && !layer._generatedDiscLayer)
+          .sort((a, b) => (b.z || 0) - (a.z || 0));
+        return [layerPanelReorderRowsFromOrderedLayers(listedLayers)];
+      }
+      const sections = [];
+      const targetLayers = (state.layers || []).filter(layer => layer.target !== 'designer-disc' && !layer._generatedDiscLayer);
+      for (const targetDef of templateLayerTargetsForMode()) {
+        const matchKeys = targetDef.matchKeys || [targetDef.key];
+        const ordered = targetLayers
+          .filter(layer => matchKeys.includes(layer.target))
+          .sort((a, b) => (b.z || 0) - (a.z || 0));
+        sections.push(layerPanelReorderRowsFromOrderedLayers(ordered));
+      }
+      return sections;
+    }
+
     function selectLayerPanelEntry(kind, id, event) {
       const key = `${kind}:${id}`;
       const rows = visibleLayerPanelRows();
@@ -11369,19 +11403,81 @@
       const from = rows.findIndex(row => row.key === sourceKey);
       const target = rows.findIndex(row => row.key === targetKey);
       if (from === -1 || target === -1 || from === target) return false;
+      const next = layerPanelRowsAfterMove(rows, sourceKey, targetKey, placeAfter);
+      if (!next) return false;
+      applyLayerPanelRowOrder(next);
+      return true;
+    }
+
+    function layerPanelRowsAfterMove(rows, sourceKey, targetKey, placeAfter) {
+      const from = rows.findIndex(row => row.key === sourceKey);
+      const target = rows.findIndex(row => row.key === targetKey);
+      if (from === -1 || target === -1 || from === target) return null;
       const next = rows.slice();
       const [moved] = next.splice(from, 1);
       let insertAt = next.findIndex(row => row.key === targetKey);
-      if (insertAt === -1) return false;
+      if (insertAt === -1) return null;
       if (placeAfter) insertAt += 1;
       next.splice(insertAt, 0, moved);
+      return next;
+    }
 
-      const flattenedTopDown = next.flatMap(row => row.layerIds);
+    function applyLayerPanelRowOrder(rows) {
+      const flattenedTopDown = rows.flatMap(row => row.layerIds);
       const zById = new Map();
       flattenedTopDown.slice().reverse().forEach((id, index) => zById.set(id, index + 1));
       for (const layer of state.layers || []) {
         if (zById.has(layer.id)) layer.z = zById.get(layer.id);
       }
+      updateLayerPanelZStyles();
+    }
+
+    function updateLayerPanelZStyles() {
+      for (const layer of state.layers || []) {
+        const el = document.querySelector(`.freeLayer[data-layer-id="${layer.id}"]`);
+        if (el) el.style.zIndex = layer.z || 1;
+      }
+    }
+
+    function arrangeSelectedLayerRows(action) {
+      const selected = new Set(selectedLayerIds());
+      if (!selected.size) return false;
+      const changedSections = [];
+      for (const rows of layerPanelReorderSections()) {
+        if (rows.length < 2) continue;
+        const rowSelected = row => row.layerIds.some(id => selected.has(id));
+        const before = rows.map(row => row.key).join('|');
+        let next = rows.slice();
+        if (action === 'front') {
+          next = [...next.filter(rowSelected), ...next.filter(row => !rowSelected(row))];
+        } else if (action === 'back') {
+          next = [...next.filter(row => !rowSelected(row)), ...next.filter(rowSelected)];
+        } else if (action === 'forward') {
+          for (let i = 1; i < next.length; i++) {
+            if (rowSelected(next[i]) && !rowSelected(next[i - 1])) {
+              [next[i - 1], next[i]] = [next[i], next[i - 1]];
+            }
+          }
+        } else if (action === 'backward') {
+          for (let i = next.length - 2; i >= 0; i--) {
+            if (rowSelected(next[i]) && !rowSelected(next[i + 1])) {
+              [next[i], next[i + 1]] = [next[i + 1], next[i]];
+            }
+          }
+        }
+        if (next.map(row => row.key).join('|') !== before) {
+          changedSections.push(next);
+        }
+      }
+      if (!changedSections.length) return false;
+      pushHistory(
+        action === 'front' ? 'bring layer to front' :
+        action === 'back' ? 'send layer to back' :
+        action === 'forward' ? 'bring layer forward' :
+        'send layer backward'
+      );
+      for (const rows of changedSections) applyLayerPanelRowOrder(rows);
+      render();
       return true;
     }
 
@@ -11391,7 +11487,7 @@
       el.draggable = true;
       el.dataset.layerPanelRowKey = rowKey;
       el.addEventListener('dragstart', (event) => {
-        _layerPanelDrag = { rowKey, rows };
+        _layerPanelDrag = { rowKey, rows, historyPushed: false, previewKey: '' };
         el.classList.add('draggingLayerRow');
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', rowKey);
@@ -11409,6 +11505,16 @@
         const rect = el.getBoundingClientRect();
         const after = event.clientY > rect.top + rect.height / 2;
         el.classList.add(after ? 'dragOverAfter' : 'dragOverBefore');
+        const previewKey = `${rowKey}:${after ? 'after' : 'before'}`;
+        if (_layerPanelDrag.previewKey !== previewKey) {
+          if (!_layerPanelDrag.historyPushed) {
+            pushHistory('reorder layers');
+            _layerPanelDrag.historyPushed = true;
+          }
+          const nextRows = layerPanelRowsAfterMove(_layerPanelDrag.rows, _layerPanelDrag.rowKey, rowKey, after);
+          if (nextRows) applyLayerPanelRowOrder(nextRows);
+          _layerPanelDrag.previewKey = previewKey;
+        }
         event.dataTransfer.dropEffect = 'move';
       });
       el.addEventListener('drop', (event) => {
@@ -11416,7 +11522,7 @@
         event.preventDefault();
         const rect = el.getBoundingClientRect();
         const after = event.clientY > rect.top + rect.height / 2;
-        pushHistory('reorder layers');
+        if (!_layerPanelDrag.historyPushed) pushHistory('reorder layers');
         const changed = reorderLayerPanelRows(_layerPanelDrag.rows, _layerPanelDrag.rowKey, rowKey, after);
         _layerPanelDrag = null;
         clearLayerPanelDragOver();
@@ -19444,21 +19550,7 @@
       });
 
       function moveLayerStep(direction) {
-        const layer = selectedLayer();
-        if (!layer) return;
-        const curZ = layer.z || 0;
-        const peers = state.layers
-          .filter(l => l !== layer && l.target === layer.target && !l._generatedDiscLayer)
-          .sort((a, b) => (a.z || 0) - (b.z || 0));
-        const swap = direction === 'forward'
-          ? peers.find(l => (l.z || 0) > curZ)
-          : [...peers].reverse().find(l => (l.z || 0) < curZ);
-        if (!swap) return;
-        pushHistory(direction === 'forward' ? 'move layer forward' : 'move layer back');
-        const swapZ = swap.z || 0;
-        swap.z = curZ;
-        layer.z = swapZ;
-        render();
+        arrangeSelectedLayerRows(direction);
       }
 
       $('layerForward').addEventListener('click', () => moveLayerStep('forward'));
@@ -19530,6 +19622,18 @@
           e.preventDefault();
           e.stopPropagation();
           deleteSelectedLayer();
+          return;
+        }
+        if (mod && !e.altKey && (k === ']' || e.code === 'BracketRight')) {
+          e.preventDefault();
+          e.stopPropagation();
+          arrangeSelectedLayerRows(e.shiftKey ? 'front' : 'forward');
+          return;
+        }
+        if (mod && !e.altKey && (k === '[' || e.code === 'BracketLeft')) {
+          e.preventDefault();
+          e.stopPropagation();
+          arrangeSelectedLayerRows(e.shiftKey ? 'back' : 'backward');
           return;
         }
         if (mod && !e.shiftKey && !e.altKey && k === 'g') {
