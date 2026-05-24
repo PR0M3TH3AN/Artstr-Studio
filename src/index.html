@@ -5659,6 +5659,11 @@
       return false;
     }
 
+    function blurEditableFocus() {
+      if (!isEditableFocus()) return;
+      document.activeElement.blur();
+    }
+
     // ---- Pen / pencil drawing tools (docs/PEN_TOOL_FEATURE.md) ----
     //
     // editorTool is UI state — NOT design state, not in undo, not saved.
@@ -11864,6 +11869,8 @@
       const layer = getLayer(el.dataset.layerId);
       if (!layer) return;
       if (layer.locked) { setLayerSelection([layer.id], layer.id); render(); return; }
+      const textTarget = event.target.closest('.textLayer');
+      if (!textTarget) blurEditableFocus();
       const additiveSelect = !!(event.shiftKey || event.ctrlKey || event.metaKey);
       if (additiveSelect) {
         if (!isLayerSelected(layer.id)) selectLayerWithEvent(layer.id, event);
@@ -11871,7 +11878,6 @@
         setLayerSelection([layer.id], layer.id);
       }
 
-      const textTarget = event.target.closest('.textLayer');
       if (textTarget && (document.activeElement === textTarget || event.detail > 1)) {
         renderLayerList();
         syncLayerInputs();
@@ -11952,6 +11958,7 @@
     function startLayerResize(event) {
       event.preventDefault();
       event.stopPropagation();
+      blurEditableFocus();
       const handle = event.currentTarget;
       const dir = handle.dataset.handle;
       const el = handle.parentElement;
