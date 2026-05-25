@@ -785,6 +785,31 @@
       cursor: crosshair; touch-action: none;
     }
     #pixelHueCanvas { margin-top: 6px; height: 14px; }
+
+    /* PNG export dropdown in the pixel editor toolbar */
+    .pixelExportWrap { position: relative; }
+    .pixelExportMenu {
+      position: absolute; right: 0; top: calc(100% + 6px); z-index: 20;
+      min-width: 260px; padding: 10px;
+      background: var(--panel, #fff); color: var(--ink);
+      border: 1px solid var(--line); border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(15,23,42,.18);
+      flex-direction: column; gap: 8px;
+      display: none;
+    }
+    .pixelExportMenu.open { display: flex; }
+    .pixelExportRow { display: flex; align-items: center; gap: 8px; }
+    .pixelExportLabel { font-size: .76rem; color: #64748b; flex: 0 0 auto; }
+    .pixelExportScales { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; flex: 1; }
+    .pixelExportScaleBtn {
+      flex: 1; border: 1px solid var(--line); background: #fff; color: var(--ink);
+      border-radius: 6px; padding: 4px 0; font-size: .82rem; cursor: pointer;
+    }
+    .pixelExportScaleBtn:hover { background: #f1f5f9; }
+    .pixelExportScaleBtn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .pixelExportToggle { display: flex; align-items: center; gap: 6px; font-size: .8rem; cursor: pointer; }
+    body.dark .pixelExportScaleBtn { background: var(--panel); }
+    body.dark .pixelExportScaleBtn:hover { background: #1e293b; }
     .pixelPickerPreview {
       flex: 0 0 auto; width: 32px; height: 32px;
       border: 1px solid var(--line); border-radius: 4px; background: #e43b44;
@@ -3415,6 +3440,25 @@
             <button type="button" id="pixelZoomIn" class="pixelBarBtn" title="Zoom in">+</button>
             <span class="pixelBarSpacer"></span>
             <span id="pixelEditorDims" class="pixelBarInfo"></span>
+            <div class="pixelExportWrap">
+              <button type="button" id="pixelExportPngBtn" class="pixelBarBtn" aria-haspopup="true" aria-expanded="false">Export PNG ▾</button>
+              <div id="pixelExportMenu" class="pixelExportMenu">
+                <div class="pixelExportRow">
+                  <span class="pixelExportLabel">Scale</span>
+                  <div class="pixelExportScales" id="pixelExportScales">
+                    <button type="button" data-scale="1" class="pixelExportScaleBtn">1×</button>
+                    <button type="button" data-scale="2" class="pixelExportScaleBtn">2×</button>
+                    <button type="button" data-scale="4" class="pixelExportScaleBtn active">4×</button>
+                    <button type="button" data-scale="8" class="pixelExportScaleBtn">8×</button>
+                    <button type="button" data-scale="16" class="pixelExportScaleBtn">16×</button>
+                    <button type="button" data-scale="32" class="pixelExportScaleBtn">32×</button>
+                  </div>
+                </div>
+                <label class="pixelExportToggle"><input type="checkbox" id="pixelExportTransparent" checked /> Transparent background</label>
+                <label class="pixelExportToggle"><input type="checkbox" id="pixelExportGrid" /> Include grid lines</label>
+                <button type="button" id="pixelExportDownloadBtn" class="pixelBarBtn primary">Download</button>
+              </div>
+            </div>
             <button type="button" id="pixelEditorDoneBtn" class="primary">Done</button>
           </div>
           <div class="pixelEditorMain">
@@ -8447,6 +8491,101 @@
         cv.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges;pointer-events:none';
         el.appendChild(cv);
       } catch (e) {}
+    }
+
+    // ---- PNG export ---------------------------------------------------
+    // Persistent options for the Export PNG dropdown.
+    const _pixelExportOpts = { scale: 4, transparent: true, grid: false };
+
+    // Build a PNG blob from a pixelArt object at the requested scale.
+    function exportPixelArtToPngBlob(pixelArt, options = {}) {
+      const scale = Math.max(1, options.scale | 0 || 4);
+      const transparent = options.transparent !== false;
+      const includeGrid = !!options.includeGrid;
+      const w = Math.max(1, (pixelArt && pixelArt.width | 0) || 1);
+      const h = Math.max(1, (pixelArt && pixelArt.height | 0) || 1);
+      const cv = document.createElement('canvas');
+      cv.width = w * scale;
+      cv.height = h * scale;
+      const ctx = cv.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      if (!transparent) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, cv.width, cv.height);
+      }
+      const native = renderPixelGridToCanvas(pixelArt);
+      ctx.drawImage(native, 0, 0, cv.width, cv.height);
+      if (includeGrid && scale >= 2) {
+        ctx.strokeStyle = 'rgba(0,0,0,.4)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x = 0; x <= w; x++) {
+          ctx.moveTo(x * scale + 0.5, 0);
+          ctx.lineTo(x * scale + 0.5, cv.height);
+        }
+        for (let y = 0; y <= h; y++) {
+          ctx.moveTo(0, y * scale + 0.5);
+          ctx.lineTo(cv.width, y * scale + 0.5);
+        }
+        ctx.stroke();
+      }
+      return new Promise((resolve, reject) => {
+        cv.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('PNG export failed.'));
+        }, 'image/png');
+      });
+    }
+
+    function pixelExportFilename(pa, scale) {
+      const base = (state.meta?.title || '').trim().replace(/[^a-z0-9_-]+/gi, '_').slice(0, 40) || 'pixel_art';
+      return `${base}_${pa.width}x${pa.height}_${scale}x.png`;
+    }
+
+    // Build a pixelArt object representing the editor's *current* state —
+    // works for both the layer-edit and standalone modes.
+    function pixelExportCurrentPixelArt() {
+      if (_pixelEdit) {
+        return {
+          width: _pixelEdit.w, height: _pixelEdit.h,
+          palette: _pixelEdit.palette.slice(),
+          frames: [{ id: 'f1', pixels: encodePixelRLE(_pixelEdit.indices) }]
+        };
+      }
+      return state.pixelArt || null;
+    }
+
+    async function pixelExportDownload() {
+      const pa = pixelExportCurrentPixelArt();
+      if (!pa) { toastError('No pixel art to export.'); return; }
+      try {
+        const blob = await exportPixelArtToPngBlob(pa, {
+          scale: _pixelExportOpts.scale,
+          transparent: _pixelExportOpts.transparent,
+          includeGrid: _pixelExportOpts.grid
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = pixelExportFilename(pa, _pixelExportOpts.scale);
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toastSuccess(`Exported PNG at ${_pixelExportOpts.scale}× (${pa.width * _pixelExportOpts.scale}×${pa.height * _pixelExportOpts.scale} px)`);
+      } catch (err) {
+        toastError(err?.message || 'PNG export failed.');
+      }
+    }
+
+    function pixelExportMenuToggle(forceOpen) {
+      const menu = document.getElementById('pixelExportMenu');
+      const btn = document.getElementById('pixelExportPngBtn');
+      if (!menu || !btn) return;
+      const isOpen = menu.classList.contains('open');
+      const willOpen = forceOpen !== undefined ? forceOpen : !isOpen;
+      menu.classList.toggle('open', willOpen);
+      btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
     }
 
     // Draw a pixel-art layer onto an export canvas (ctx centred on the layer).
@@ -18991,6 +19130,56 @@
         _pickFromScreenRow.style.display = '';
         _pickFromScreenBtn.addEventListener('click', () => pickColorFromScreenCapture().catch(() => {}));
         $('pixelPickStopBtn')?.addEventListener('click', stopScreenShareStream);
+      }
+
+      // ---- PNG export dropdown ----
+      const _pixelExportBtn = $('pixelExportPngBtn');
+      const _pixelExportMenu = $('pixelExportMenu');
+      if (_pixelExportBtn && _pixelExportMenu) {
+        _pixelExportBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          pixelExportMenuToggle();
+        });
+        // Click or pointerdown outside both close the menu. pointerdown
+        // catches drag starts on the pixel canvas, where click doesn't
+        // fire — so e.g. starting to paint immediately dismisses the menu.
+        const _maybeCloseExport = (e) => {
+          if (!_pixelExportMenu.classList.contains('open')) return;
+          if (_pixelExportMenu.contains(e.target) || _pixelExportBtn.contains(e.target)) return;
+          pixelExportMenuToggle(false);
+        };
+        document.addEventListener('click', _maybeCloseExport);
+        document.addEventListener('pointerdown', _maybeCloseExport, true);
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && _pixelExportMenu.classList.contains('open')) {
+            pixelExportMenuToggle(false);
+          }
+        });
+        // Closing the pixel editor or switching tools also hides the menu.
+        $('pixelEditorDoneBtn')?.addEventListener('click', () => pixelExportMenuToggle(false));
+        document.querySelectorAll('.pixelToolBtn').forEach((b) => {
+          b.addEventListener('click', () => pixelExportMenuToggle(false));
+        });
+        // Scale buttons.
+        $('pixelExportScales')?.addEventListener('click', (e) => {
+          const btn = e.target.closest('.pixelExportScaleBtn');
+          if (!btn) return;
+          const scale = Number(btn.dataset.scale) || 4;
+          _pixelExportOpts.scale = scale;
+          document.querySelectorAll('.pixelExportScaleBtn').forEach((b) => {
+            b.classList.toggle('active', Number(b.dataset.scale) === scale);
+          });
+        });
+        $('pixelExportTransparent')?.addEventListener('change', (e) => {
+          _pixelExportOpts.transparent = !!e.target.checked;
+        });
+        $('pixelExportGrid')?.addEventListener('change', (e) => {
+          _pixelExportOpts.grid = !!e.target.checked;
+        });
+        $('pixelExportDownloadBtn')?.addEventListener('click', async () => {
+          await pixelExportDownload();
+          pixelExportMenuToggle(false);
+        });
       }
       document.querySelectorAll('.pixelToolBtn').forEach((btn) => {
         btn.addEventListener('click', () => {
