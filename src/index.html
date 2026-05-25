@@ -719,8 +719,14 @@
     body.pixel-editing #pixelEditorView,
     body.template-pixelart #pixelEditorView {
       display: flex; flex-direction: column; width: 100%;
-      min-height: calc(100vh - 160px);
+      height: 100%; min-height: 0;
     }
+    /* Cut the outer paddings so the pixel editor reaches the sidebar
+       and screen edges — no wasted gap top / right / bottom. */
+    body.pixel-editing .previewShell,
+    body.template-pixelart .previewShell { padding: 0; }
+    body.pixel-editing .pixelEditorCanvasWrap,
+    body.template-pixelart .pixelEditorCanvasWrap { padding: 12px; }
     body.pixel-editing #sheetWrap, body.template-pixelart #sheetWrap,
     body.pixel-editing #discDesignerView, body.template-pixelart #discDesignerView,
     body.pixel-editing #deckSorterView, body.template-pixelart #deckSorterView,
@@ -772,8 +778,48 @@
       background-size: 8px 8px;
     }
     .pixelSwatch.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,184,230,.35); }
-    .pixelPaletteEdit { display: flex; gap: 6px; margin-top: 10px; }
+    .pixelCustomPicker { margin: 10px 0 0; }
+    #pixelSvCanvas, #pixelHueCanvas {
+      display: block; width: 100%; height: auto;
+      border: 1px solid var(--line); border-radius: 4px;
+      cursor: crosshair; touch-action: none;
+    }
+    #pixelHueCanvas { margin-top: 6px; height: 14px; }
+    .pixelPickerPreview {
+      flex: 0 0 auto; width: 32px; height: 32px;
+      border: 1px solid var(--line); border-radius: 4px; background: #e43b44;
+    }
+    .screenPickerOverlay {
+      position: fixed; inset: 0; z-index: 100000;
+      background: rgba(8,10,16,.94);
+      display: flex; align-items: center; justify-content: center; padding: 24px;
+    }
+    .screenPickerStage {
+      max-width: 100%; max-height: 100%;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .screenPickerCanvas {
+      max-width: 100%; max-height: calc(100vh - 90px);
+      cursor: crosshair; image-rendering: pixelated; image-rendering: crisp-edges;
+      background: #111; box-shadow: 0 8px 32px rgba(0,0,0,.5);
+    }
+    .screenPickerHint {
+      position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+      background: rgba(11,13,18,.92); color: #fff;
+      font-size: .85rem; font-weight: 600; letter-spacing: .02em;
+      padding: 8px 16px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.15);
+    }
+    .pixelPaletteEdit { display: flex; gap: 6px; margin-top: 10px; align-items: stretch; }
     .pixelPaletteEdit input[type=color] { flex: 0 0 auto; width: 38px; height: 32px; padding: 0; }
+    .pixelPaletteEdit input[type=text] {
+      flex: 1 1 auto; min-width: 0; width: 100%;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: .78rem; padding: 0 6px; box-sizing: border-box;
+      border: 1px solid var(--line); border-radius: 6px; background: var(--bg, #fff); color: var(--ink);
+    }
+    .pixelPaletteEdit input[type=text]:focus { outline: none; border-color: var(--accent); }
+    .pixelPaletteEdit input[type=text].invalid { border-color: #dc2626; }
     body.dark .pixelToolBtn, body.dark .pixelBarBtn { background: var(--panel); }
     body.dark .pixelToolBtn:hover, body.dark .pixelBarBtn:hover { background: #1e293b; }
 
@@ -3378,11 +3424,21 @@
             <div class="pixelPalettePanel">
               <div class="pixelPaletteLabel">Palette</div>
               <div id="pixelPaletteSwatches" class="pixelPaletteSwatches"></div>
-              <div class="pixelPaletteEdit">
-                <input type="color" id="pixelColorPicker" value="#e43b44" />
-                <button type="button" id="pixelAddColorBtn" class="pixelBarBtn">+ Add</button>
+              <div class="pixelPaletteLabel" style="margin-top:14px">Pick a colour</div>
+              <div class="pixelCustomPicker">
+                <canvas id="pixelSvCanvas" width="160" height="100" title="Drag here to choose saturation and brightness" aria-label="Saturation / brightness picker"></canvas>
+                <canvas id="pixelHueCanvas" width="160" height="14" title="Drag here to choose hue" aria-label="Hue picker"></canvas>
               </div>
-              <p class="hint" style="font-size:.72rem;margin:8px 0 0">Click a swatch to paint with it. Pick a colour and Add to extend the palette.</p>
+              <div class="pixelPaletteEdit">
+                <span id="pixelPickerPreview" class="pixelPickerPreview" aria-label="Current pick"></span>
+                <input type="text" id="pixelColorHex" value="#e43b44" maxlength="7" spellcheck="false" autocomplete="off" placeholder="#rrggbb" aria-label="Hex colour" />
+                <button type="button" id="pixelAddColorBtn" class="pixelBarBtn primary">+ Add</button>
+              </div>
+              <div class="pixelPaletteEdit" id="pixelPickFromScreenRow" style="display:none;margin-top:6px">
+                <button type="button" id="pixelPickFromScreenBtn" class="pixelBarBtn" style="flex:1">🎯 Pick from screen</button>
+                <button type="button" id="pixelPickStopBtn" class="pixelBarBtn" style="display:none" title="Stop sharing the screen with Artstr">Stop</button>
+              </div>
+              <p class="hint" style="font-size:.72rem;margin:8px 0 0"><b>Drag on the gradient square + rainbow strip above</b> to pick a colour, then click <b>+ Add</b> to push it into the palette. The ⊙ eyedropper tool in the toolbar samples colours already on your sprite.</p>
             </div>
           </div>
         </div>
@@ -8090,6 +8146,256 @@
       return typeof hex === 'string' && hex.length === 9 && hex.slice(7).toLowerCase() === '00';
     }
 
+    // ---- In-app HSV colour picker -------------------------------------
+    // Pure sRGB math + canvas. Bypasses the OS <input type="color"> popup
+    // and the EyeDropper API entirely, so Brave / Chromium's eyedropper
+    // bugs (R = NaN, multiply-tinted sampling) can't affect what's added.
+    const _pixelPicker = { h: 0, s: 1, v: 1 };
+
+    function pixelHsvToRgb(h, s, v) {
+      h = ((h % 360) + 360) % 360;
+      const c = v * s;
+      const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+      const m = v - c;
+      let r = 0, g = 0, b = 0;
+      if (h < 60) { r = c; g = x; }
+      else if (h < 120) { r = x; g = c; }
+      else if (h < 180) { g = c; b = x; }
+      else if (h < 240) { g = x; b = c; }
+      else if (h < 300) { r = x; b = c; }
+      else { r = c; b = x; }
+      return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+    }
+    function pixelRgbToHex(r, g, b) {
+      const h2 = (n) => n.toString(16).padStart(2, '0');
+      return '#' + h2(r) + h2(g) + h2(b);
+    }
+    function pixelHexToHsv(hex) {
+      if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return null;
+      const r = parseInt(hex.slice(1, 3), 16) / 255;
+      const g = parseInt(hex.slice(3, 5), 16) / 255;
+      const b = parseInt(hex.slice(5, 7), 16) / 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      const d = max - min;
+      const v = max;
+      const s = max === 0 ? 0 : d / max;
+      let h = 0;
+      if (d !== 0) {
+        if (max === r) h = ((g - b) / d) % 6;
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h *= 60;
+        if (h < 0) h += 360;
+      }
+      return { h, s, v };
+    }
+
+    function pixelRenderHueStrip() {
+      const cv = document.getElementById('pixelHueCanvas');
+      if (!cv) return;
+      const ctx = cv.getContext('2d');
+      const w = cv.width, ht = cv.height;
+      for (let x = 0; x < w; x++) {
+        const [r, g, b] = pixelHsvToRgb((x / w) * 360, 1, 1);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(x, 0, 1, ht);
+      }
+      const mx = Math.max(0, Math.min(w - 1, Math.floor(_pixelPicker.h / 360 * w)));
+      ctx.lineWidth = 2; ctx.strokeStyle = '#fff';
+      ctx.strokeRect(mx - 1, 0.5, 2, ht - 1);
+      ctx.lineWidth = 1; ctx.strokeStyle = '#000';
+      ctx.strokeRect(mx - 1.5, 0.5, 3, ht - 1);
+    }
+    function pixelRenderSvSquare() {
+      const cv = document.getElementById('pixelSvCanvas');
+      if (!cv) return;
+      const ctx = cv.getContext('2d');
+      const w = cv.width, h = cv.height;
+      const img = ctx.createImageData(w, h);
+      const hue = _pixelPicker.h;
+      for (let y = 0; y < h; y++) {
+        const v = 1 - y / (h - 1);
+        for (let x = 0; x < w; x++) {
+          const s = x / (w - 1);
+          const [r, g, b] = pixelHsvToRgb(hue, s, v);
+          const i = (y * w + x) * 4;
+          img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+      const mx = Math.max(0, Math.min(w - 1, Math.floor(_pixelPicker.s * (w - 1))));
+      const my = Math.max(0, Math.min(h - 1, Math.floor((1 - _pixelPicker.v) * (h - 1))));
+      ctx.lineWidth = 2; ctx.strokeStyle = '#fff';
+      ctx.beginPath(); ctx.arc(mx, my, 5, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 1; ctx.strokeStyle = '#000';
+      ctx.beginPath(); ctx.arc(mx, my, 6.5, 0, Math.PI * 2); ctx.stroke();
+    }
+    // Push the picker's current HSV out to the hex field + OS picker swatch
+    // (kept in sync purely for display; never read back from on OS quirks).
+    function pixelPickerCommit() {
+      const [r, g, b] = pixelHsvToRgb(_pixelPicker.h, _pixelPicker.s, _pixelPicker.v);
+      const hex = pixelRgbToHex(r, g, b);
+      const hexEl = document.getElementById('pixelColorHex');
+      if (hexEl && document.activeElement !== hexEl) {
+        hexEl.value = hex;
+        hexEl.classList.remove('invalid');
+      }
+      const pickEl = document.getElementById('pixelColorPicker');
+      if (pickEl) pickEl.value = hex;
+      const previewEl = document.getElementById('pixelPickerPreview');
+      if (previewEl) previewEl.style.backgroundColor = `rgb(${r},${g},${b})`;
+    }
+    // Persistent screen-share for the screen eyedropper. Granted once per
+    // pixel-edit session — every subsequent pick grabs a fresh frame from
+    // the existing stream, no new permission dialog. Brave / Chrome won't
+    // let us "remember" the choice across sessions (no API for that), but
+    // within one session this means a single grant.
+    let _screenShareStream = null;
+    let _screenShareTrack = null;
+
+    function _pixelPickStreamLive() {
+      return !!(_screenShareTrack && _screenShareTrack.readyState === 'live');
+    }
+    function _updatePixelPickStopBtn() {
+      const stopBtn = document.getElementById('pixelPickStopBtn');
+      if (stopBtn) stopBtn.style.display = _pixelPickStreamLive() ? '' : 'none';
+    }
+    function stopScreenShareStream() {
+      if (_screenShareTrack) { try { _screenShareTrack.stop(); } catch (_) {} }
+      _screenShareTrack = null;
+      _screenShareStream = null;
+      _updatePixelPickStopBtn();
+    }
+    async function _getOrCreateScreenShareStream() {
+      if (_pixelPickStreamLive()) return _screenShareStream;
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      _screenShareStream = stream;
+      _screenShareTrack = stream.getVideoTracks()[0];
+      // User clicked "Stop sharing" in Brave's own UI — clear our refs.
+      _screenShareTrack.addEventListener('ended', () => {
+        _screenShareTrack = null;
+        _screenShareStream = null;
+        _updatePixelPickStopBtn();
+      });
+      _updatePixelPickStopBtn();
+      return stream;
+    }
+
+    // Pick a colour from anywhere on screen via the Screen Capture API.
+    // We grab a single frame (reusing the existing share if there is one),
+    // show it in our own overlay, and the user clicks a pixel — bypassing
+    // OS-level eyedroppers entirely.
+    async function pickColorFromScreenCapture() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        toastError('Screen capture isn’t available in this browser.');
+        return;
+      }
+      let stream = null;
+      try {
+        stream = await _getOrCreateScreenShareStream();
+      } catch (err) {
+        // User dismissed the share picker — nothing to do.
+        return;
+      }
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = true;
+      try {
+        await new Promise((resolve, reject) => {
+          video.onloadedmetadata = resolve;
+          video.onerror = reject;
+        });
+        await video.play();
+        // Give the next real frame a chance to arrive.
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const trackSettings = _screenShareTrack ? _screenShareTrack.getSettings() : {};
+        const w = video.videoWidth || trackSettings.width || 1920;
+        const h = video.videoHeight || trackSettings.height || 1080;
+        const snap = document.createElement('canvas');
+        snap.width = w; snap.height = h;
+        snap.getContext('2d').drawImage(video, 0, 0, w, h);
+        video.srcObject = null;
+        openScreenPickerOverlay(snap);
+      } catch (err) {
+        toastError('Could not capture screen.');
+      }
+    }
+
+    function openScreenPickerOverlay(snapCanvas) {
+      const overlay = document.createElement('div');
+      overlay.className = 'screenPickerOverlay';
+      const stage = document.createElement('div');
+      stage.className = 'screenPickerStage';
+      const display = document.createElement('canvas');
+      display.width = snapCanvas.width;
+      display.height = snapCanvas.height;
+      display.className = 'screenPickerCanvas';
+      const dctx = display.getContext('2d');
+      dctx.drawImage(snapCanvas, 0, 0);
+      stage.appendChild(display);
+      overlay.appendChild(stage);
+      const hint = document.createElement('div');
+      hint.className = 'screenPickerHint';
+      hint.textContent = 'Click any pixel to pick its colour · Esc to cancel';
+      overlay.appendChild(hint);
+      const close = () => {
+        document.removeEventListener('keydown', onKey, true);
+        overlay.remove();
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+      };
+      document.addEventListener('keydown', onKey, true);
+      display.addEventListener('click', (e) => {
+        const r = display.getBoundingClientRect();
+        const px = Math.max(0, Math.min(display.width - 1, Math.floor((e.clientX - r.left) / r.width * display.width)));
+        const py = Math.max(0, Math.min(display.height - 1, Math.floor((e.clientY - r.top) / r.height * display.height)));
+        try {
+          const data = snapCanvas.getContext('2d').getImageData(px, py, 1, 1).data;
+          const hex = pixelRgbToHex(data[0], data[1], data[2]);
+          if (pixelPickerSyncFromHex(hex)) {
+            try { pixelRenderHueStrip(); } catch (_) {}
+            try { pixelRenderSvSquare(); } catch (_) {}
+          }
+          pixelPickerCommit();
+          close();
+        } catch (err) {
+          toastError('Could not read that pixel — try again.');
+        }
+      });
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+      document.body.appendChild(overlay);
+    }
+
+    // Update the picker's HSV state from a hex string (no rerendering of
+    // canvases — caller decides when to re-render).
+    function pixelPickerSyncFromHex(hex) {
+      const hsv = pixelHexToHsv(hex);
+      if (!hsv) return false;
+      _pixelPicker.h = hsv.h;
+      _pixelPicker.s = hsv.s;
+      _pixelPicker.v = hsv.v;
+      return true;
+    }
+
+    // Parse a `#rrggbb` or `#rrggbbaa` hex to an explicit `rgba(...)` string.
+    // Avoids browser/webview quirks where 8-digit hex in fillStyle / CSS
+    // backgroundColor is silently dropped — which made painted cells render
+    // transparent and "show as the checkerboard / lighter / white".
+    function pixelHexToRgba(hex) {
+      if (typeof hex !== 'string' || hex[0] !== '#') return 'rgba(0,0,0,0)';
+      const m = hex.length >= 7 ? hex : '';
+      if (!m) return 'rgba(0,0,0,0)';
+      const r = parseInt(m.slice(1, 3), 16);
+      const g = parseInt(m.slice(3, 5), 16);
+      const b = parseInt(m.slice(5, 7), 16);
+      const a = m.length >= 9 ? parseInt(m.slice(7, 9), 16) / 255 : 1;
+      if ([r, g, b].some(Number.isNaN)) return 'rgba(0,0,0,0)';
+      return `rgba(${r},${g},${b},${a})`;
+    }
+
     // RLE: pixels is an array of [paletteIndex, runLength], row-major.
     function decodePixelRLE(frame, w, h) {
       const total = w * h;
@@ -8127,7 +8433,7 @@
       for (let i = 0; i < idx.length; i++) {
         const hex = pal[idx[i]];
         if (!hex || pixelHexTransparent(hex)) continue;
-        ctx.fillStyle = hex;
+        ctx.fillStyle = pixelHexToRgba(hex);
         ctx.fillRect(i % w, (i / w) | 0, 1, 1);
       }
       return cv;
@@ -8182,8 +8488,8 @@
       requestAnimationFrame(() => {
         if (!_pixelEdit) return;
         const wrap = $('pixelEditorCanvasWrap');
-        const availW = (wrap?.clientWidth || 640) - 60;
-        const availH = (wrap?.clientHeight || 420) - 60;
+        const availW = (wrap?.clientWidth || 640) - 28;
+        const availH = (wrap?.clientHeight || 420) - 28;
         let z = PIXEL_ZOOMS[0];
         for (const cand of PIXEL_ZOOMS) {
           if (cand * w <= availW && cand * h <= availH) z = cand;
@@ -8235,7 +8541,7 @@
       for (let i = 0; i < indices.length; i++) {
         const hex = palette[indices[i]];
         if (!hex || pixelHexTransparent(hex)) continue;
-        ctx.fillStyle = hex;
+        ctx.fillStyle = pixelHexToRgba(hex);
         ctx.fillRect((i % w) * zoom, ((i / w) | 0) * zoom, zoom, zoom);
       }
       if (gridOn && zoom >= 5) {
@@ -8258,7 +8564,7 @@
         sw.type = 'button';
         sw.className = 'pixelSwatch' + (i === _pixelEdit.current ? ' active' : '');
         if (pixelHexTransparent(hex)) sw.classList.add('pixelSwatchTransparent');
-        else sw.style.backgroundColor = hex;
+        else sw.style.backgroundColor = pixelHexToRgba(hex);
         sw.title = i === 0 ? 'Transparent' : hex;
         sw.addEventListener('click', () => { _pixelEdit.current = i; renderPixelPalette(); });
         wrap.appendChild(sw);
@@ -8411,6 +8717,9 @@
       _pixelEditActive = false;
       _pixelEdit = null;
       document.body.classList.remove('pixel-editing');
+      // Drop any live screen-share stream when the pixel editor closes —
+      // the user gets a fresh permission dialog next time they enter it.
+      stopScreenShareStream();
     }
 
     // Standalone Pixel Art mode: the #pixelEditorView is the whole canvas
@@ -8441,7 +8750,7 @@
       requestAnimationFrame(() => {
         if (!_pixelEdit || !_pixelEdit.standalone) return;
         const wrap = $('pixelEditorCanvasWrap');
-        const aw = (wrap?.clientWidth || 640) - 60, ah = (wrap?.clientHeight || 420) - 60;
+        const aw = (wrap?.clientWidth || 640) - 28, ah = (wrap?.clientHeight || 420) - 28;
         let z = PIXEL_ZOOMS[0];
         for (const c of PIXEL_ZOOMS) { if (c * w <= aw && c * h <= ah) z = c; }
         _pixelEdit.zoom = z;
@@ -18596,13 +18905,93 @@
       });
       $('pixelMirrorX')?.addEventListener('change', (e) => { if (_pixelEdit) _pixelEdit.mirrorX = e.target.checked; });
       $('pixelMirrorY')?.addEventListener('change', (e) => { if (_pixelEdit) _pixelEdit.mirrorY = e.target.checked; });
+      // Sync the OS picker <-> hex text input <-> in-app HSV picker. The
+      // in-app picker (Sat/Val square + Hue strip) is the reliable input
+      // path; the other two are kept in sync purely for display / typing.
+      const _pixelHexEl = $('pixelColorHex');
+      const _pixelPickEl = $('pixelColorPicker');
+      const _setPixelInvalid = (bad) => { if (_pixelHexEl) _pixelHexEl.classList.toggle('invalid', !!bad); };
+      _pixelPickEl?.addEventListener('input', (e) => {
+        const v = e.target.value;
+        if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+          if (_pixelHexEl) { _pixelHexEl.value = v.toLowerCase(); _setPixelInvalid(false); }
+          if (pixelPickerSyncFromHex(v)) { pixelRenderHueStrip(); pixelRenderSvSquare(); }
+        }
+      });
+      _pixelHexEl?.addEventListener('input', (e) => {
+        let v = (e.target.value || '').trim();
+        if (v && v[0] !== '#') v = '#' + v;
+        if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+          _setPixelInvalid(false);
+          if (_pixelPickEl) _pixelPickEl.value = v.toLowerCase();
+          if (pixelPickerSyncFromHex(v)) { pixelRenderHueStrip(); pixelRenderSvSquare(); }
+        } else {
+          _setPixelInvalid(true);
+        }
+      });
+
+      // In-app HSV colour picker — Sat/Val square + Hue strip.
+      const _svEl = $('pixelSvCanvas');
+      const _hueEl = $('pixelHueCanvas');
+      if (_svEl && _hueEl) {
+        let _svDown = false, _hueDown = false;
+        const handleSv = (e) => {
+          const r = _svEl.getBoundingClientRect();
+          if (!r.width || !r.height) return;
+          _pixelPicker.s = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+          _pixelPicker.v = Math.max(0, Math.min(1, 1 - (e.clientY - r.top) / r.height));
+          // Commit first so the hex / preview swatch update even if the
+          // canvas re-render throws (Brave / wide-gamut canvas quirks).
+          pixelPickerCommit();
+          try { pixelRenderSvSquare(); } catch (err) { console.warn('pixelRenderSvSquare:', err); }
+        };
+        const handleHue = (e) => {
+          const r = _hueEl.getBoundingClientRect();
+          if (!r.width) return;
+          _pixelPicker.h = Math.max(0, Math.min(360, (e.clientX - r.left) / r.width * 360));
+          pixelPickerCommit();
+          try { pixelRenderSvSquare(); } catch (err) { console.warn('pixelRenderSvSquare:', err); }
+          try { pixelRenderHueStrip(); } catch (err) { console.warn('pixelRenderHueStrip:', err); }
+        };
+        _svEl.addEventListener('pointerdown', (e) => { _svDown = true; e.preventDefault(); try { _svEl.setPointerCapture(e.pointerId); } catch (_) {} handleSv(e); });
+        _svEl.addEventListener('pointermove', (e) => { if (_svDown) handleSv(e); });
+        _svEl.addEventListener('pointerup', () => { _svDown = false; });
+        _svEl.addEventListener('pointercancel', () => { _svDown = false; });
+        _hueEl.addEventListener('pointerdown', (e) => { _hueDown = true; e.preventDefault(); try { _hueEl.setPointerCapture(e.pointerId); } catch (_) {} handleHue(e); });
+        _hueEl.addEventListener('pointermove', (e) => { if (_hueDown) handleHue(e); });
+        _hueEl.addEventListener('pointerup', () => { _hueDown = false; });
+        _hueEl.addEventListener('pointercancel', () => { _hueDown = false; });
+        // Initial paint — sync from the hex field's default value.
+        if (_pixelHexEl) pixelPickerSyncFromHex(_pixelHexEl.value || '#e43b44');
+        pixelRenderHueStrip();
+        pixelRenderSvSquare();
+      }
       $('pixelAddColorBtn')?.addEventListener('click', () => {
         if (!_pixelEdit) return;
-        const hex = (($('pixelColorPicker')?.value) || '#000000').toLowerCase() + 'ff';
-        _pixelEdit.palette.push(hex);
+        // Prefer the hex text field (user-typed); fall back to the picker.
+        let raw = (_pixelHexEl?.value || '').trim();
+        if (raw && raw[0] !== '#') raw = '#' + raw;
+        if (!/^#[0-9a-fA-F]{6}$/.test(raw)) {
+          const fb = (_pixelPickEl?.value || '').trim();
+          raw = /^#[0-9a-fA-F]{6}$/.test(fb) ? fb : '#000000';
+        }
+        _pixelEdit.palette.push(raw.toLowerCase() + 'ff');
         _pixelEdit.current = _pixelEdit.palette.length - 1;
         renderPixelPalette();
+        renderPixelGrid();
       });
+      // Screen eyedropper — uses the Screen Capture API to take one
+      // screenshot we display in our own overlay, where the user clicks
+      // any pixel. Sidesteps both the <input type="color"> popup
+      // eyedropper and the standalone EyeDropper API, which are both
+      // bugged on some Chromium builds (R = NaN / always returns white).
+      const _pickFromScreenRow = $('pixelPickFromScreenRow');
+      const _pickFromScreenBtn = $('pixelPickFromScreenBtn');
+      if (_pickFromScreenRow && _pickFromScreenBtn && navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+        _pickFromScreenRow.style.display = '';
+        _pickFromScreenBtn.addEventListener('click', () => pickColorFromScreenCapture().catch(() => {}));
+        $('pixelPickStopBtn')?.addEventListener('click', stopScreenShareStream);
+      }
       document.querySelectorAll('.pixelToolBtn').forEach((btn) => {
         btn.addEventListener('click', () => {
           if (!_pixelEdit) return;
