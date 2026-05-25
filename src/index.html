@@ -3433,7 +3433,10 @@
               <button type="button" class="pixelToolBtn" data-ptool="rect" title="Rectangle (R)">□</button>
               <button type="button" class="pixelToolBtn" data-ptool="ellipse" title="Ellipse (O)">○</button>
             </div>
-            <button type="button" id="pixelUndoBtn" class="pixelBarBtn" title="Undo">↶</button>
+            <button type="button" class="pixelToolBtn" data-ptransform="flipH" title="Flip horizontal">⇄</button>
+            <button type="button" class="pixelToolBtn" data-ptransform="flipV" title="Flip vertical">⇅</button>
+            <button type="button" class="pixelToolBtn" data-ptransform="rotCCW" title="Rotate 90° left">↺</button>
+            <button type="button" class="pixelToolBtn" data-ptransform="rotCW" title="Rotate 90° right">↻</button>
             <span class="pixelBarDivider"></span>
             <label class="pixelBarToggle"><input type="checkbox" id="pixelGridToggle" checked /> Grid</label>
             <label class="pixelBarToggle"><input type="checkbox" id="pixelMirrorX" /> Mirror X</label>
@@ -5768,6 +5771,15 @@
     function updateUndoRedoUI() {
       const u = $('undoBtn');
       const r = $('redoBtn');
+      // While the pixel editor is open, the top-level Undo/Redo buttons drive
+      // the pixel editor's local undo/redo instead of the global design history.
+      if (_pixelEditActive && _pixelEdit) {
+        const canUndo = _pixelEdit.undo.length > 0;
+        const canRedo = _pixelEdit.redo.length > 0;
+        if (u) { u.disabled = !canUndo; u.title = canUndo ? 'Undo pixel edit (Ctrl+Z)' : 'Nothing to undo'; }
+        if (r) { r.disabled = !canRedo; r.title = canRedo ? 'Redo pixel edit (Ctrl+Shift+Z)' : 'Nothing to redo'; }
+        return;
+      }
       if (u) {
         u.disabled = _undoStack.length === 0;
         const last = _undoStack[_undoStack.length - 1];
@@ -8623,7 +8635,7 @@
         tool: 'pencil',
         zoom: 12,
         gridOn: true, mirrorX: false, mirrorY: false, shapeFill: false,
-        undo: [], last: null, shapeBackup: null, shapeStart: null
+        undo: [], redo: [], last: null, shapeBackup: null, shapeStart: null
       };
       _pixelEditActive = true;
       document.body.classList.add('pixel-editing');
@@ -8647,6 +8659,7 @@
       const dims = $('pixelEditorDims'); if (dims) dims.textContent = `${w} × ${h} px`;
       renderPixelPalette();
       renderPixelGrid();
+      updateUndoRedoUI();
     }
 
     function closePixelEditor(commit = true) {
@@ -8670,6 +8683,7 @@
       _pixelEdit = null;
       document.body.classList.remove('pixel-editing');
       render();
+      updateUndoRedoUI();
     }
 
     function renderPixelGrid() {
@@ -8730,16 +8744,43 @@
       return { x, y };
     }
 
+    let _pixelHistorySuppress = false;
+    function _pixelCloneState() {
+      return {
+        indices: _pixelEdit.indices.slice(),
+        w: _pixelEdit.w, h: _pixelEdit.h,
+      };
+    }
+    function _pixelRestoreState(s) {
+      _pixelEdit.indices = s.indices;
+      _pixelEdit.w = s.w;
+      _pixelEdit.h = s.h;
+      const dims = $('pixelEditorDims');
+      if (dims) dims.textContent = `${s.w} × ${s.h} px`;
+      renderPixelGrid();
+    }
     function pixelSnapshot() {
       if (!_pixelEdit) return;
-      _pixelEdit.undo.push(_pixelEdit.indices.slice());
+      _pixelEdit.undo.push(_pixelCloneState());
       if (_pixelEdit.undo.length > 40) _pixelEdit.undo.shift();
+      _pixelEdit.redo.length = 0;
+      updateUndoRedoUI();
     }
     function pixelUndo() {
       if (!_pixelEdit || !_pixelEdit.undo.length) return;
-      _pixelEdit.indices = _pixelEdit.undo.pop();
-      renderPixelGrid();
-      pixelCommitIfStandalone();
+      _pixelEdit.redo.push(_pixelCloneState());
+      _pixelRestoreState(_pixelEdit.undo.pop());
+      _pixelHistorySuppress = true;
+      try { pixelCommitIfStandalone(); } finally { _pixelHistorySuppress = false; }
+      updateUndoRedoUI();
+    }
+    function pixelRedo() {
+      if (!_pixelEdit || !_pixelEdit.redo.length) return;
+      _pixelEdit.undo.push(_pixelCloneState());
+      _pixelRestoreState(_pixelEdit.redo.pop());
+      _pixelHistorySuppress = true;
+      try { pixelCommitIfStandalone(); } finally { _pixelHistorySuppress = false; }
+      updateUndoRedoUI();
     }
 
     function pixelPaintCell(x, y, idx) {
@@ -8812,6 +8853,40 @@
       if (tool === 'line') pixelPaintLine(start.x, start.y, end.x, end.y, idx);
       else if (tool === 'rect') pixelDrawRect(start.x, start.y, end.x, end.y, idx, fill);
       else if (tool === 'ellipse') pixelDrawEllipse(start.x, start.y, end.x, end.y, idx, fill);
+    }
+
+    function pixelTransformOp(op) {
+      if (!_pixelEdit) return;
+      pixelSnapshot();
+      const { w, h, indices } = _pixelEdit;
+      if (op === 'flipH') {
+        const out = new Uint8Array(w * h);
+        for (let y = 0; y < h; y++)
+          for (let x = 0; x < w; x++) out[y * w + (w - 1 - x)] = indices[y * w + x];
+        _pixelEdit.indices = out;
+      } else if (op === 'flipV') {
+        const out = new Uint8Array(w * h);
+        for (let y = 0; y < h; y++)
+          for (let x = 0; x < w; x++) out[(h - 1 - y) * w + x] = indices[y * w + x];
+        _pixelEdit.indices = out;
+      } else if (op === 'rotCW' || op === 'rotCCW') {
+        const newW = h, newH = w;
+        const out = new Uint8Array(newW * newH);
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const nx = op === 'rotCW' ? h - 1 - y : y;
+            const ny = op === 'rotCW' ? x : w - 1 - x;
+            out[ny * newW + nx] = indices[y * w + x];
+          }
+        }
+        _pixelEdit.w = newW;
+        _pixelEdit.h = newH;
+        _pixelEdit.indices = out;
+        const dims = $('pixelEditorDims');
+        if (dims) dims.textContent = `${newW} × ${newH} px`;
+      }
+      renderPixelGrid();
+      pixelCommitIfStandalone();
     }
 
     function pixelFloodFill(x, y, idx) {
@@ -8901,6 +8976,11 @@
     // Commit the standalone pixel editor's working grid into state.pixelArt.
     function pixelCommitIfStandalone() {
       if (!_pixelEdit || !_pixelEdit.standalone) return;
+      if (!_pixelHistorySuppress) {
+        // Debounced: a rapid sequence of strokes collapses to one global
+        // history entry; the first call in the window captures pre-edit state.
+        pushHistoryDebounced('pixelEditStandalone', 'edit pixel art', 600);
+      }
       state.pixelArt = {
         width: _pixelEdit.w, height: _pixelEdit.h,
         palette: _pixelEdit.palette.slice(),
@@ -8929,6 +9009,7 @@
       // Drop any live screen-share stream when the pixel editor closes —
       // the user gets a fresh permission dialog next time they enter it.
       stopScreenShareStream();
+      updateUndoRedoUI();
     }
 
     // Standalone Pixel Art mode: the #pixelEditorView is the whole canvas
@@ -8946,7 +9027,7 @@
         indices: decodePixelRLE(frame, w, h), palette,
         current: Math.min(1, palette.length - 1),
         tool: 'pencil', zoom: 12, gridOn: true, mirrorX: false, mirrorY: false, shapeFill: false,
-        undo: [], last: null, shapeBackup: null, shapeStart: null
+        undo: [], redo: [], last: null, shapeBackup: null, shapeStart: null
       };
       _pixelEditActive = true;
       pixelSyncToolButtons();
@@ -8956,6 +9037,7 @@
       const dims = $('pixelEditorDims'); if (dims) dims.textContent = `${w} × ${h} px`;
       renderPixelPalette();
       renderPixelGrid();
+      updateUndoRedoUI();
       requestAnimationFrame(() => {
         if (!_pixelEdit || !_pixelEdit.standalone) return;
         const wrap = $('pixelEditorCanvasWrap');
@@ -13181,7 +13263,8 @@
 
     // A standalone pixel-art design — one grid, published as casewrap-pixelart.
     function pixelArtPayload() {
-      pixelCommitIfStandalone();
+      _pixelHistorySuppress = true;
+      try { pixelCommitIfStandalone(); } finally { _pixelHistorySuppress = false; }
       return {
         version: SCHEMA_VERSION,
         templateMode: 'pixelart',
@@ -19106,7 +19189,6 @@
       $('designObjectDoneBtn')?.addEventListener('click', () => finishDesignObjectEdit(true));
       $('designObjectCancelBtn')?.addEventListener('click', () => finishDesignObjectEdit(false));
       $('pixelEditorDoneBtn')?.addEventListener('click', () => closePixelEditor(true));
-      $('pixelUndoBtn')?.addEventListener('click', pixelUndo);
       $('pixelZoomIn')?.addEventListener('click', () => pixelStepZoom(1));
       $('pixelZoomOut')?.addEventListener('click', () => pixelStepZoom(-1));
       $('pixelGridToggle')?.addEventListener('change', (e) => {
@@ -19252,11 +19334,17 @@
           pixelExportMenuToggle(false);
         });
       }
-      document.querySelectorAll('.pixelToolBtn').forEach((btn) => {
+      document.querySelectorAll('.pixelToolBtn[data-ptool]').forEach((btn) => {
         btn.addEventListener('click', () => {
           if (!_pixelEdit) return;
           _pixelEdit.tool = btn.dataset.ptool;
           pixelSyncToolButtons();
+        });
+      });
+      document.querySelectorAll('.pixelToolBtn[data-ptransform]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          if (!_pixelEdit) return;
+          pixelTransformOp(btn.dataset.ptransform);
         });
       });
       const _pgc = $('pixelGridCanvas');
@@ -19291,7 +19379,8 @@
       document.addEventListener('keydown', (e) => {
         if (!_pixelEditActive) return;
         const k = (e.key || '').toLowerCase();
-        if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.stopPropagation(); pixelUndo(); }
+        if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.stopPropagation(); e.shiftKey ? pixelRedo() : pixelUndo(); }
+        else if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); e.stopPropagation(); pixelRedo(); }
         else if (k === 'escape' && _pixelEdit && !_pixelEdit.standalone) { e.preventDefault(); e.stopPropagation(); closePixelEditor(true); }
         else if (!e.ctrlKey && !e.metaKey && !isEditableFocus()) {
           const map = { p: 'pencil', e: 'eraser', f: 'fill', i: 'eyedropper', l: 'line', r: 'rect', o: 'ellipse' };
@@ -20462,8 +20551,8 @@
       });
 
       // ESC closes whichever overlay modal is on top.
-      on('undoBtn', 'click', undo);
-      on('redoBtn', 'click', redo);
+      on('undoBtn', 'click', () => { (_pixelEditActive && _pixelEdit) ? pixelUndo() : undo(); });
+      on('redoBtn', 'click', () => { (_pixelEditActive && _pixelEdit) ? pixelRedo() : redo(); });
 
       // Tool palette + tool option wiring.
       for (const t of EDITOR_TOOLS) {
