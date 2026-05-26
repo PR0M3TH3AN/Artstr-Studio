@@ -3558,6 +3558,14 @@
                 </div>
                 <label class="pixelExportToggle"><input type="checkbox" id="pixelExportTransparent" checked /> Transparent background</label>
                 <label class="pixelExportToggle"><input type="checkbox" id="pixelExportGrid" /> Include grid lines</label>
+                <label class="pixelExportToggle" title="Tile all frames into one PNG"><input type="checkbox" id="pixelExportSheet" /> Sprite sheet (all frames)</label>
+                <div class="pixelExportRow" id="pixelExportSheetLayoutRow" style="display:none">
+                  <span class="pixelExportLabel">Layout</span>
+                  <div class="pixelExportScales" id="pixelExportSheetLayout">
+                    <button type="button" data-layout="auto" class="pixelExportScaleBtn active">Grid</button>
+                    <button type="button" data-layout="horizontal" class="pixelExportScaleBtn">Row</button>
+                  </div>
+                </div>
                 <button type="button" id="pixelExportDownloadBtn" class="pixelBarBtn primary">Download</button>
               </div>
             </div>
@@ -8617,14 +8625,18 @@
       });
     }
 
-    // Decode a pixel grid to a native-size offscreen canvas.
-    function renderPixelGridToCanvas(pixelArt) {
+    // Decode a pixel grid to a native-size offscreen canvas. `frameIndex`
+    // selects which frame to render — defaults to 0 (the cover frame), which
+    // keeps every existing single-frame caller working unchanged.
+    function renderPixelGridToCanvas(pixelArt, frameIndex = 0) {
       const w = Math.max(1, (pixelArt && pixelArt.width | 0) || 1);
       const h = Math.max(1, (pixelArt && pixelArt.height | 0) || 1);
       const cv = document.createElement('canvas');
       cv.width = w; cv.height = h;
       const ctx = cv.getContext('2d');
-      const frame = (pixelArt && pixelArt.frames && pixelArt.frames[0]) || { pixels: [] };
+      const frames = (pixelArt && Array.isArray(pixelArt.frames) && pixelArt.frames.length) ? pixelArt.frames : [{ pixels: [] }];
+      const fi = Math.max(0, Math.min(frames.length - 1, frameIndex | 0));
+      const frame = frames[fi];
       const idx = decodePixelRLE(frame, w, h);
       const pal = (pixelArt && pixelArt.palette) || [];
       for (let i = 0; i < idx.length; i++) {
@@ -8648,35 +8660,55 @@
 
     // ---- PNG export ---------------------------------------------------
     // Persistent options for the Export PNG dropdown.
-    const _pixelExportOpts = { scale: 4, transparent: true, grid: false };
+    const _pixelExportOpts = { scale: 4, transparent: true, grid: false, sheet: false, sheetLayout: 'auto' };
 
     // Build a PNG blob from a pixelArt object at the requested scale.
+    // When `options.sheet` is set, ALL frames are tiled into one image —
+    // layout: 'horizontal' = single row, 'auto' = square-ish grid.
     function exportPixelArtToPngBlob(pixelArt, options = {}) {
       const scale = Math.max(1, options.scale | 0 || 4);
       const transparent = options.transparent !== false;
       const includeGrid = !!options.includeGrid;
+      const sheet = !!options.sheet;
       const w = Math.max(1, (pixelArt && pixelArt.width | 0) || 1);
       const h = Math.max(1, (pixelArt && pixelArt.height | 0) || 1);
+      const frameCount = sheet ? Math.max(1, (pixelArt?.frames?.length | 0) || 1) : 1;
+      // Compute the sheet layout. For sheet=false, cols=1, rows=1.
+      let cols = 1, rows = 1;
+      if (sheet && frameCount > 1) {
+        if (options.sheetLayout === 'horizontal') {
+          cols = frameCount; rows = 1;
+        } else {
+          // Auto / grid: square-ish — width-first columns.
+          cols = Math.ceil(Math.sqrt(frameCount));
+          rows = Math.ceil(frameCount / cols);
+        }
+      }
+      const sheetW = w * cols, sheetH = h * rows;
       const cv = document.createElement('canvas');
-      cv.width = w * scale;
-      cv.height = h * scale;
+      cv.width = sheetW * scale;
+      cv.height = sheetH * scale;
       const ctx = cv.getContext('2d');
       ctx.imageSmoothingEnabled = false;
       if (!transparent) {
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, cv.width, cv.height);
       }
-      const native = renderPixelGridToCanvas(pixelArt);
-      ctx.drawImage(native, 0, 0, cv.width, cv.height);
+      for (let i = 0; i < frameCount; i++) {
+        const cx = (i % cols) * w * scale;
+        const cy = ((i / cols) | 0) * h * scale;
+        const native = renderPixelGridToCanvas(pixelArt, i);
+        ctx.drawImage(native, cx, cy, w * scale, h * scale);
+      }
       if (includeGrid && scale >= 2) {
         ctx.strokeStyle = 'rgba(0,0,0,.4)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        for (let x = 0; x <= w; x++) {
+        for (let x = 0; x <= sheetW; x++) {
           ctx.moveTo(x * scale + 0.5, 0);
           ctx.lineTo(x * scale + 0.5, cv.height);
         }
-        for (let y = 0; y <= h; y++) {
+        for (let y = 0; y <= sheetH; y++) {
           ctx.moveTo(0, y * scale + 0.5);
           ctx.lineTo(cv.width, y * scale + 0.5);
         }
@@ -8690,9 +8722,11 @@
       });
     }
 
-    function pixelExportFilename(pa, scale) {
+    function pixelExportFilename(pa, scale, sheet) {
       const base = (state.meta?.title || '').trim().replace(/[^a-z0-9_-]+/gi, '_').slice(0, 40) || 'pixel_art';
-      return `${base}_${pa.width}x${pa.height}_${scale}x.png`;
+      const frames = sheet ? `_${(pa.frames?.length | 0) || 1}f` : '';
+      const sheetTag = sheet ? '_sheet' : '';
+      return `${base}_${pa.width}x${pa.height}${frames}_${scale}x${sheetTag}.png`;
     }
 
     // Build a pixelArt object representing the editor's *current* state —
@@ -8702,7 +8736,9 @@
         return {
           width: _pixelEdit.w, height: _pixelEdit.h,
           palette: _pixelEdit.palette.slice(),
-          frames: [{ id: 'f1', pixels: encodePixelRLE(_pixelEdit.indices) }]
+          frames: encodePixelArtFrames(_pixelEdit.frames),
+          fps: _pixelEdit.fps,
+          loop: _pixelEdit.loop,
         };
       }
       return state.pixelArt || null;
@@ -8711,16 +8747,19 @@
     async function pixelExportDownload() {
       const pa = pixelExportCurrentPixelArt();
       if (!pa) { toastError('No pixel art to export.'); return; }
+      const sheet = _pixelExportOpts.sheet && (pa.frames?.length | 0) > 1;
       try {
         const blob = await exportPixelArtToPngBlob(pa, {
           scale: _pixelExportOpts.scale,
           transparent: _pixelExportOpts.transparent,
-          includeGrid: _pixelExportOpts.grid
+          includeGrid: _pixelExportOpts.grid,
+          sheet,
+          sheetLayout: _pixelExportOpts.sheetLayout,
         });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = pixelExportFilename(pa, _pixelExportOpts.scale);
+        a.download = pixelExportFilename(pa, _pixelExportOpts.scale, sheet);
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -19958,6 +19997,20 @@
         });
         $('pixelExportGrid')?.addEventListener('change', (e) => {
           _pixelExportOpts.grid = !!e.target.checked;
+        });
+        $('pixelExportSheet')?.addEventListener('change', (e) => {
+          _pixelExportOpts.sheet = !!e.target.checked;
+          const row = $('pixelExportSheetLayoutRow');
+          if (row) row.style.display = _pixelExportOpts.sheet ? '' : 'none';
+        });
+        $('pixelExportSheetLayout')?.addEventListener('click', (e) => {
+          const btn = e.target.closest('.pixelExportScaleBtn');
+          if (!btn) return;
+          const layout = btn.dataset.layout || 'auto';
+          _pixelExportOpts.sheetLayout = layout;
+          document.querySelectorAll('#pixelExportSheetLayout .pixelExportScaleBtn').forEach((b) => {
+            b.classList.toggle('active', b.dataset.layout === layout);
+          });
         });
         $('pixelExportDownloadBtn')?.addEventListener('click', async () => {
           await pixelExportDownload();
