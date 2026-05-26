@@ -753,32 +753,57 @@
     .pixelBarSpacer { flex: 1; }
     .pixelBarInfo { font-size: .76rem; color: #64748b; }
     .pixelEditorMain { flex: 1; display: flex; min-height: 0; }
-    .pixelEditorCanvasColumn { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
     .pixelEditorCanvasWrap {
       flex: 1; overflow: auto; background: #2a2f3a;
       display: flex; align-items: center; justify-content: center; padding: 24px;
+      min-width: 0;
     }
+    /* Vertical frame strip on the left of the editor. Controls stay pinned;
+       the thumb list scrolls independently so the main canvas isn't pushed
+       around by the number of frames. */
     .pixelTimelineStrip {
-      flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
-      padding: 8px 12px; border-top: 1px solid var(--line);
-      background: var(--panel);
+      width: 84px; flex: 0 0 auto;
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 8px; box-sizing: border-box;
+      background: var(--panel); border-right: 1px solid var(--line);
+      overflow: hidden; min-height: 0;
     }
-    .pixelTimelineFrameOps { display: flex; gap: 4px; flex: 0 0 auto; }
+    .pixelTimelinePlayBtn { width: 100%; padding: 6px 0; font-size: 1rem; }
+    .pixelTimelineFps {
+      display: flex; flex-direction: column; gap: 2px;
+      font-size: .68rem; color: #64748b;
+    }
+    .pixelTimelineFps input {
+      width: 100%; padding: 3px 6px; border: 1px solid var(--line);
+      border-radius: 4px; font-family: inherit; font-size: .82rem;
+      box-sizing: border-box;
+    }
+    .pixelTimelineLoop {
+      display: flex; align-items: center; gap: 4px;
+      font-size: .72rem; cursor: pointer;
+    }
+    .pixelTimelineFrameOps {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px;
+    }
+    .pixelTimelineFrameOps .pixelBarBtn { padding: 4px 0; font-size: .95rem; }
+    #pixelPlayBtn.playing { background: var(--accent); color: #fff; border-color: var(--accent); }
+    body.pixel-playing #pixelGridCanvas { cursor: pointer; }
     .pixelTimelineFrames {
-      display: flex; gap: 4px; overflow-x: auto; flex: 1; min-width: 0;
-      padding: 2px;
+      display: flex; flex-direction: column; gap: 4px;
+      overflow-y: auto; flex: 1; min-height: 0;
+      padding-right: 2px; margin-top: 2px;
     }
     .pixelTimelineFrame {
-      flex: 0 0 auto; width: 44px; height: 44px; padding: 2px;
+      width: 100%; padding: 2px;
       border: 1px solid var(--line); border-radius: 4px;
       background: repeating-conic-gradient(#e2e8f0 0% 25%, #f8fafc 0% 50%) 0 0 / 8px 8px;
-      cursor: pointer; position: relative;
+      cursor: pointer; position: relative; box-sizing: border-box;
     }
     .pixelTimelineFrame.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
     .pixelTimelineFrame.dragging { opacity: .5; }
     .pixelTimelineFrame.drop-target { border-color: var(--accent); border-style: dashed; }
     .pixelTimelineFrame canvas {
-      width: 100%; height: 100%; display: block;
+      width: 100%; height: auto; display: block;
       image-rendering: pixelated; image-rendering: crisp-edges;
     }
     .pixelTimelineIndex {
@@ -3539,18 +3564,19 @@
             <button type="button" id="pixelEditorDoneBtn" class="primary">Done</button>
           </div>
           <div class="pixelEditorMain">
-            <div class="pixelEditorCanvasColumn">
-              <div class="pixelEditorCanvasWrap" id="pixelEditorCanvasWrap">
-                <canvas id="pixelGridCanvas"></canvas>
+            <div class="pixelTimelineStrip">
+              <button type="button" id="pixelPlayBtn" class="pixelBarBtn pixelTimelinePlayBtn" title="Play / stop (Space)">▶</button>
+              <label class="pixelTimelineFps">FPS <input type="number" id="pixelFpsInput" min="1" max="60" step="1" value="8" /></label>
+              <label class="pixelTimelineLoop"><input type="checkbox" id="pixelLoopToggle" checked /> Loop</label>
+              <div class="pixelTimelineFrameOps">
+                <button type="button" id="pixelFrameAddBtn" class="pixelBarBtn" title="Add blank frame">＋</button>
+                <button type="button" id="pixelFrameDupBtn" class="pixelBarBtn" title="Duplicate current frame">⎘</button>
+                <button type="button" id="pixelFrameDelBtn" class="pixelBarBtn" title="Delete current frame">−</button>
               </div>
-              <div class="pixelTimelineStrip">
-                <div class="pixelTimelineFrameOps">
-                  <button type="button" id="pixelFrameAddBtn" class="pixelBarBtn" title="Add blank frame">＋</button>
-                  <button type="button" id="pixelFrameDupBtn" class="pixelBarBtn" title="Duplicate current frame">⎘</button>
-                  <button type="button" id="pixelFrameDelBtn" class="pixelBarBtn" title="Delete current frame">−</button>
-                </div>
-                <div class="pixelTimelineFrames" id="pixelTimelineFrames"></div>
-              </div>
+              <div class="pixelTimelineFrames" id="pixelTimelineFrames"></div>
+            </div>
+            <div class="pixelEditorCanvasWrap" id="pixelEditorCanvasWrap">
+              <canvas id="pixelGridCanvas"></canvas>
             </div>
             <div class="pixelPalettePanel">
               <div class="pixelPaletteLabel">Palette</div>
@@ -8770,6 +8796,8 @@
       const mx = $('pixelMirrorX'); if (mx) mx.checked = false;
       const my = $('pixelMirrorY'); if (my) my.checked = false;
       const dims = $('pixelEditorDims'); if (dims) dims.textContent = `${w} × ${h} px`;
+      const fpsEl = $('pixelFpsInput'); if (fpsEl) fpsEl.value = _pixelEdit.fps;
+      const loopEl = $('pixelLoopToggle'); if (loopEl) loopEl.checked = _pixelEdit.loop;
       renderPixelPalette();
       renderPixelGrid();
       renderPixelTimeline();
@@ -8777,6 +8805,7 @@
     }
 
     function closePixelEditor(commit = true) {
+      if (_pixelPlayback.active) pixelPlaybackStop();
       if (!_pixelEditActive) return;
       if (commit && _pixelEdit) {
         if (_pixelEdit.standalone) {
@@ -8802,11 +8831,12 @@
       updateUndoRedoUI();
     }
 
-    function renderPixelGrid() {
+    function renderPixelGrid(overrideIndices) {
       if (!_pixelEdit) return;
       const cv = $('pixelGridCanvas');
       if (!cv) return;
-      const { w, h, zoom, indices, palette, gridOn } = _pixelEdit;
+      const { w, h, zoom, palette, gridOn } = _pixelEdit;
+      const indices = overrideIndices || _pixelEdit.indices;
       cv.width = w * zoom;
       cv.height = h * zoom;
       const ctx = cv.getContext('2d');
@@ -9048,8 +9078,78 @@
       pixelCommitIfStandalone();
     }
 
+    // Playback state — one global instance; only ever active while
+    // _pixelEditActive is true.
+    let _pixelPlayback = { active: false, rafId: 0, frameAt: 0, lastTickMs: 0, accumMs: 0 };
+
+    function pixelPlaybackTick(ts) {
+      if (!_pixelPlayback.active || !_pixelEdit) return;
+      const dt = _pixelPlayback.lastTickMs ? (ts - _pixelPlayback.lastTickMs) : 0;
+      _pixelPlayback.lastTickMs = ts;
+      _pixelPlayback.accumMs += dt;
+      const fps = Math.max(1, Math.min(60, _pixelEdit.fps | 0));
+      const msPerFrame = 1000 / fps;
+      const n = _pixelEdit.frames.length;
+      while (_pixelPlayback.accumMs >= msPerFrame) {
+        _pixelPlayback.accumMs -= msPerFrame;
+        const next = _pixelPlayback.frameAt + 1;
+        if (next >= n) {
+          if (_pixelEdit.loop) {
+            _pixelPlayback.frameAt = 0;
+          } else {
+            // Finish on the last frame, then stop.
+            _pixelPlayback.frameAt = n - 1;
+            renderPixelGrid(_pixelEdit.frames[_pixelPlayback.frameAt].indices);
+            pixelPlaybackStop();
+            return;
+          }
+        } else {
+          _pixelPlayback.frameAt = next;
+        }
+      }
+      renderPixelGrid(_pixelEdit.frames[_pixelPlayback.frameAt].indices);
+      _pixelPlayback.rafId = requestAnimationFrame(pixelPlaybackTick);
+    }
+
+    function pixelPlaybackStart() {
+      if (!_pixelEdit || _pixelEdit.frames.length < 2) {
+        toastError && toastError('Need at least 2 frames to play.');
+        return;
+      }
+      if (_pixelPlayback.active) return;
+      _pixelPlayback.active = true;
+      _pixelPlayback.frameAt = _pixelEdit.currentFrame;
+      _pixelPlayback.lastTickMs = 0;
+      _pixelPlayback.accumMs = 0;
+      document.body.classList.add('pixel-playing');
+      const btn = $('pixelPlayBtn');
+      if (btn) { btn.classList.add('playing'); btn.textContent = '■'; btn.title = 'Stop (Space)'; }
+      _pixelPlayback.rafId = requestAnimationFrame(pixelPlaybackTick);
+    }
+
+    function pixelPlaybackStop() {
+      if (!_pixelPlayback.active) return;
+      _pixelPlayback.active = false;
+      if (_pixelPlayback.rafId) cancelAnimationFrame(_pixelPlayback.rafId);
+      _pixelPlayback.rafId = 0;
+      document.body.classList.remove('pixel-playing');
+      const btn = $('pixelPlayBtn');
+      if (btn) { btn.classList.remove('playing'); btn.textContent = '▶'; btn.title = 'Play (Space)'; }
+      // Restore main canvas to the editing frame.
+      renderPixelGrid();
+    }
+
+    function pixelPlaybackToggle() {
+      if (_pixelPlayback.active) pixelPlaybackStop();
+      else pixelPlaybackStart();
+    }
+
     function pixelSetCurrentFrame(i) {
       if (!_pixelEdit || !_pixelEdit.frames.length) return;
+      // Any explicit frame switch stops playback so the user is in editing
+      // mode on the new frame — otherwise playback would keep rendering
+      // override frames while currentFrame quietly shifted underneath.
+      if (_pixelPlayback.active) pixelPlaybackStop();
       const ni = Math.max(0, Math.min(_pixelEdit.frames.length - 1, i | 0));
       _pixelEdit.currentFrame = ni;
       _pixelEdit.indices = _pixelEdit.frames[ni].indices;
@@ -9379,6 +9479,7 @@
     // Commit whatever pixel editor is open (layer or standalone) and close it.
     function pixelEditTearDown() {
       if (!_pixelEditActive || !_pixelEdit) return;
+      if (_pixelPlayback.active) pixelPlaybackStop();
       if (_pixelEdit.standalone) {
         pixelCommitIfStandalone();
       } else {
@@ -9429,6 +9530,8 @@
       const mx = $('pixelMirrorX'); if (mx) mx.checked = false;
       const my = $('pixelMirrorY'); if (my) my.checked = false;
       const dims = $('pixelEditorDims'); if (dims) dims.textContent = `${w} × ${h} px`;
+      const fpsEl = $('pixelFpsInput'); if (fpsEl) fpsEl.value = _pixelEdit.fps;
+      const loopEl = $('pixelLoopToggle'); if (loopEl) loopEl.checked = _pixelEdit.loop;
       renderPixelPalette();
       renderPixelGrid();
       renderPixelTimeline();
@@ -19633,7 +19736,19 @@
       $('pixelMirrorX')?.addEventListener('change', (e) => { if (_pixelEdit) _pixelEdit.mirrorX = e.target.checked; });
       $('pixelMirrorY')?.addEventListener('change', (e) => { if (_pixelEdit) _pixelEdit.mirrorY = e.target.checked; });
       $('pixelShapeFill')?.addEventListener('change', (e) => { if (_pixelEdit) _pixelEdit.shapeFill = e.target.checked; });
-      // ---- Frame timeline wiring ----
+      // ---- Frame timeline + playback wiring ----
+      $('pixelPlayBtn')?.addEventListener('click', () => pixelPlaybackToggle());
+      $('pixelFpsInput')?.addEventListener('input', (e) => {
+        if (!_pixelEdit) return;
+        const v = Math.max(1, Math.min(60, Number(e.target.value) | 0 || 8));
+        _pixelEdit.fps = v;
+        pixelCommitIfStandalone();
+      });
+      $('pixelLoopToggle')?.addEventListener('change', (e) => {
+        if (!_pixelEdit) return;
+        _pixelEdit.loop = !!e.target.checked;
+        pixelCommitIfStandalone();
+      });
       $('pixelFrameAddBtn')?.addEventListener('click', () => pixelFrameAdd());
       $('pixelFrameDupBtn')?.addEventListener('click', () => pixelFrameDuplicate());
       $('pixelFrameDelBtn')?.addEventListener('click', () => pixelFrameDelete());
@@ -19874,6 +19989,8 @@
         let _painting = false;
         _pgc.addEventListener('pointerdown', (e) => {
           if (!_pixelEditActive) return;
+          // Clicking the canvas during playback stops it (resumes editing).
+          if (_pixelPlayback.active) { e.preventDefault(); pixelPlaybackStop(); return; }
           const cell = pixelCellFromEvent(e);
           if (!cell) return;
           e.preventDefault();
@@ -19908,9 +20025,16 @@
         else if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); e.stopPropagation(); pixelRedo(); }
         else if (k === 'escape' && _pixelEdit && !_pixelEdit.standalone) { e.preventDefault(); e.stopPropagation(); closePixelEditor(true); }
         else if (!e.ctrlKey && !e.metaKey && !isEditableFocus()) {
+          if (k === ' ' || k === 'spacebar') {
+            if (!_pixelEdit) return;
+            e.preventDefault(); e.stopPropagation();
+            pixelPlaybackToggle();
+            return;
+          }
           if (k === 'arrowleft' || k === 'arrowright') {
             if (!_pixelEdit || _pixelEdit.frames.length <= 1) return;
             e.preventDefault(); e.stopPropagation();
+            if (_pixelPlayback.active) pixelPlaybackStop();
             const n = _pixelEdit.frames.length;
             const delta = k === 'arrowleft' ? -1 : 1;
             // Wrap around so holding the key cycles through the animation.
@@ -19918,7 +20042,12 @@
             return;
           }
           const map = { p: 'pencil', e: 'eraser', f: 'fill', i: 'eyedropper', l: 'line', r: 'rect', o: 'ellipse' };
-          if (map[k]) { e.preventDefault(); e.stopPropagation(); _pixelEdit.tool = map[k]; pixelSyncToolButtons(); }
+          if (map[k]) {
+            e.preventDefault(); e.stopPropagation();
+            if (_pixelPlayback.active) pixelPlaybackStop();
+            _pixelEdit.tool = map[k];
+            pixelSyncToolButtons();
+          }
         }
       }, true);
 
