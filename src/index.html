@@ -753,9 +753,38 @@
     .pixelBarSpacer { flex: 1; }
     .pixelBarInfo { font-size: .76rem; color: #64748b; }
     .pixelEditorMain { flex: 1; display: flex; min-height: 0; }
+    .pixelEditorCanvasColumn { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
     .pixelEditorCanvasWrap {
       flex: 1; overflow: auto; background: #2a2f3a;
       display: flex; align-items: center; justify-content: center; padding: 24px;
+    }
+    .pixelTimelineStrip {
+      flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; border-top: 1px solid var(--line);
+      background: var(--panel);
+    }
+    .pixelTimelineFrameOps { display: flex; gap: 4px; flex: 0 0 auto; }
+    .pixelTimelineFrames {
+      display: flex; gap: 4px; overflow-x: auto; flex: 1; min-width: 0;
+      padding: 2px;
+    }
+    .pixelTimelineFrame {
+      flex: 0 0 auto; width: 44px; height: 44px; padding: 2px;
+      border: 1px solid var(--line); border-radius: 4px;
+      background: repeating-conic-gradient(#e2e8f0 0% 25%, #f8fafc 0% 50%) 0 0 / 8px 8px;
+      cursor: pointer; position: relative;
+    }
+    .pixelTimelineFrame.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .pixelTimelineFrame.dragging { opacity: .5; }
+    .pixelTimelineFrame.drop-target { border-color: var(--accent); border-style: dashed; }
+    .pixelTimelineFrame canvas {
+      width: 100%; height: 100%; display: block;
+      image-rendering: pixelated; image-rendering: crisp-edges;
+    }
+    .pixelTimelineIndex {
+      position: absolute; top: 1px; left: 3px; font-size: .58rem;
+      color: #334155; background: rgba(255,255,255,.7); padding: 0 3px;
+      border-radius: 3px; pointer-events: none; line-height: 1.2;
     }
     #pixelGridCanvas {
       image-rendering: pixelated; image-rendering: crisp-edges;
@@ -3510,8 +3539,18 @@
             <button type="button" id="pixelEditorDoneBtn" class="primary">Done</button>
           </div>
           <div class="pixelEditorMain">
-            <div class="pixelEditorCanvasWrap" id="pixelEditorCanvasWrap">
-              <canvas id="pixelGridCanvas"></canvas>
+            <div class="pixelEditorCanvasColumn">
+              <div class="pixelEditorCanvasWrap" id="pixelEditorCanvasWrap">
+                <canvas id="pixelGridCanvas"></canvas>
+              </div>
+              <div class="pixelTimelineStrip">
+                <div class="pixelTimelineFrameOps">
+                  <button type="button" id="pixelFrameAddBtn" class="pixelBarBtn" title="Add blank frame">＋</button>
+                  <button type="button" id="pixelFrameDupBtn" class="pixelBarBtn" title="Duplicate current frame">⎘</button>
+                  <button type="button" id="pixelFrameDelBtn" class="pixelBarBtn" title="Delete current frame">−</button>
+                </div>
+                <div class="pixelTimelineFrames" id="pixelTimelineFrames"></div>
+              </div>
             </div>
             <div class="pixelPalettePanel">
               <div class="pixelPaletteLabel">Palette</div>
@@ -8529,6 +8568,28 @@
       return runs;
     }
 
+    // Decode every frame in a pixelArt blob into editor-side in-memory state.
+    // Always returns at least one frame so the editor never has to special-case
+    // an empty animation.
+    function decodePixelArtFrames(pa, w, h) {
+      const src = (pa && Array.isArray(pa.frames) && pa.frames.length) ? pa.frames : [{ id: 'f1', pixels: [] }];
+      return src.map((f, i) => ({
+        id: f.id || ('f' + (i + 1)),
+        durationMs: Math.max(20, (f.durationMs | 0) || 0) || 120,
+        indices: decodePixelRLE(f, w, h),
+      }));
+    }
+
+    // Encode the editor's in-memory frames back to JSON-shaped frame records.
+    // Drops default-only fields to keep the published payload tight.
+    function encodePixelArtFrames(frames) {
+      return frames.map((f, i) => {
+        const out = { id: f.id || ('f' + (i + 1)), pixels: encodePixelRLE(f.indices) };
+        if (f.durationMs && f.durationMs !== 120) out.durationMs = f.durationMs;
+        return out;
+      });
+    }
+
     // Decode a pixel grid to a native-size offscreen canvas.
     function renderPixelGridToCanvas(pixelArt) {
       const w = Math.max(1, (pixelArt && pixelArt.width | 0) || 1);
@@ -8674,11 +8735,14 @@
       if (!layer || layer.type !== 'pixelart') return;
       const pa = layer.pixelArt || defaultPixelArt();
       const w = (pa.width | 0) || 32, h = (pa.height | 0) || 32;
-      const frame = (pa.frames && pa.frames[0]) || { pixels: [] };
       const palette = (pa.palette && pa.palette.length) ? pa.palette.slice() : DEFAULT_PIXEL_PALETTE.slice();
+      const frames = decodePixelArtFrames(pa, w, h);
       _pixelEdit = {
         layerId, w, h,
-        indices: decodePixelRLE(frame, w, h),
+        frames, currentFrame: 0,
+        indices: frames[0].indices,
+        fps: Math.max(1, Math.min(60, (pa.fps | 0) || 8)),
+        loop: pa.loop !== false,
         palette,
         current: Math.min(1, palette.length - 1),
         tool: 'pencil',
@@ -8708,6 +8772,7 @@
       const dims = $('pixelEditorDims'); if (dims) dims.textContent = `${w} × ${h} px`;
       renderPixelPalette();
       renderPixelGrid();
+      renderPixelTimeline();
       updateUndoRedoUI();
     }
 
@@ -8723,7 +8788,9 @@
             layer.pixelArt = {
               width: _pixelEdit.w, height: _pixelEdit.h,
               palette: _pixelEdit.palette.slice(),
-              frames: [{ id: 'f1', pixels: encodePixelRLE(_pixelEdit.indices) }]
+              frames: encodePixelArtFrames(_pixelEdit.frames),
+              fps: _pixelEdit.fps,
+              loop: _pixelEdit.loop,
             };
           }
         }
@@ -8796,17 +8863,23 @@
     let _pixelHistorySuppress = false;
     function _pixelCloneState() {
       return {
-        indices: _pixelEdit.indices.slice(),
+        frames: _pixelEdit.frames.map(f => ({
+          id: f.id, durationMs: f.durationMs, indices: f.indices.slice(),
+        })),
+        currentFrame: _pixelEdit.currentFrame,
         w: _pixelEdit.w, h: _pixelEdit.h,
       };
     }
     function _pixelRestoreState(s) {
-      _pixelEdit.indices = s.indices;
+      _pixelEdit.frames = s.frames;
+      _pixelEdit.currentFrame = Math.max(0, Math.min(s.frames.length - 1, s.currentFrame | 0));
+      _pixelEdit.indices = _pixelEdit.frames[_pixelEdit.currentFrame].indices;
       _pixelEdit.w = s.w;
       _pixelEdit.h = s.h;
       const dims = $('pixelEditorDims');
       if (dims) dims.textContent = `${s.w} × ${s.h} px`;
       renderPixelGrid();
+      renderPixelTimeline();
     }
     function pixelSnapshot() {
       if (!_pixelEdit) return;
@@ -8907,34 +8980,45 @@
     function pixelTransformOp(op) {
       if (!_pixelEdit) return;
       pixelSnapshot();
-      const { w, h, indices } = _pixelEdit;
-      if (op === 'flipH') {
-        const out = new Uint8Array(w * h);
-        for (let y = 0; y < h; y++)
-          for (let x = 0; x < w; x++) out[y * w + (w - 1 - x)] = indices[y * w + x];
-        _pixelEdit.indices = out;
-      } else if (op === 'flipV') {
-        const out = new Uint8Array(w * h);
-        for (let y = 0; y < h; y++)
-          for (let x = 0; x < w; x++) out[(h - 1 - y) * w + x] = indices[y * w + x];
-        _pixelEdit.indices = out;
-      } else if (op === 'rotCW' || op === 'rotCCW') {
+      const { w, h } = _pixelEdit;
+      // Transforms apply to every frame so the animation stays coherent;
+      // a rotate that only touched the current frame would mismatch dims
+      // across frames.
+      const transformOne = (src) => {
+        if (op === 'flipH') {
+          const out = new Uint8Array(w * h);
+          for (let y = 0; y < h; y++)
+            for (let x = 0; x < w; x++) out[y * w + (w - 1 - x)] = src[y * w + x];
+          return out;
+        }
+        if (op === 'flipV') {
+          const out = new Uint8Array(w * h);
+          for (let y = 0; y < h; y++)
+            for (let x = 0; x < w; x++) out[(h - 1 - y) * w + x] = src[y * w + x];
+          return out;
+        }
+        // rotCW / rotCCW
         const newW = h, newH = w;
         const out = new Uint8Array(newW * newH);
         for (let y = 0; y < h; y++) {
           for (let x = 0; x < w; x++) {
             const nx = op === 'rotCW' ? h - 1 - y : y;
             const ny = op === 'rotCW' ? x : w - 1 - x;
-            out[ny * newW + nx] = indices[y * w + x];
+            out[ny * newW + nx] = src[y * w + x];
           }
         }
-        _pixelEdit.w = newW;
-        _pixelEdit.h = newH;
-        _pixelEdit.indices = out;
+        return out;
+      };
+      for (const f of _pixelEdit.frames) f.indices = transformOne(f.indices);
+      if (op === 'rotCW' || op === 'rotCCW') {
+        _pixelEdit.w = h;
+        _pixelEdit.h = w;
         const dims = $('pixelEditorDims');
-        if (dims) dims.textContent = `${newW} × ${newH} px`;
+        if (dims) dims.textContent = `${h} × ${w} px`;
       }
+      _pixelEdit.indices = _pixelEdit.frames[_pixelEdit.currentFrame].indices;
       renderPixelGrid();
+      renderPixelTimeline();
       pixelCommitIfStandalone();
     }
 
@@ -8944,20 +9028,127 @@
       newH = Math.max(4, Math.min(128, newH | 0));
       if (newW === _pixelEdit.w && newH === _pixelEdit.h) return;
       pixelSnapshot();
-      const { w, h, indices } = _pixelEdit;
-      // Zero-initialized Uint8Array = palette index 0 = transparent by convention.
-      const out = new Uint8Array(newW * newH);
+      const w = _pixelEdit.w, h = _pixelEdit.h;
       const cw = Math.min(w, newW);
       const ch = Math.min(h, newH);
-      for (let y = 0; y < ch; y++)
-        for (let x = 0; x < cw; x++) out[y * newW + x] = indices[y * w + x];
+      // Resize every frame — zero-initialized Uint8Array = palette index 0 = transparent.
+      for (const f of _pixelEdit.frames) {
+        const out = new Uint8Array(newW * newH);
+        for (let y = 0; y < ch; y++)
+          for (let x = 0; x < cw; x++) out[y * newW + x] = f.indices[y * w + x];
+        f.indices = out;
+      }
       _pixelEdit.w = newW;
       _pixelEdit.h = newH;
-      _pixelEdit.indices = out;
+      _pixelEdit.indices = _pixelEdit.frames[_pixelEdit.currentFrame].indices;
       const dims = $('pixelEditorDims');
       if (dims) dims.textContent = `${newW} × ${newH} px`;
       renderPixelGrid();
+      renderPixelTimeline();
       pixelCommitIfStandalone();
+    }
+
+    function pixelSetCurrentFrame(i) {
+      if (!_pixelEdit || !_pixelEdit.frames.length) return;
+      const ni = Math.max(0, Math.min(_pixelEdit.frames.length - 1, i | 0));
+      _pixelEdit.currentFrame = ni;
+      _pixelEdit.indices = _pixelEdit.frames[ni].indices;
+      _pixelEdit.last = null;
+      _pixelEdit.shapeBackup = null;
+      _pixelEdit.shapeStart = null;
+      renderPixelGrid();
+      renderPixelTimeline();
+    }
+
+    function _pixelNewFrameId() {
+      return 'f' + Math.random().toString(36).slice(2, 8);
+    }
+
+    function pixelFrameAdd() {
+      if (!_pixelEdit) return;
+      pixelSnapshot();
+      const at = _pixelEdit.currentFrame + 1;
+      _pixelEdit.frames.splice(at, 0, {
+        id: _pixelNewFrameId(),
+        durationMs: 120,
+        indices: new Uint8Array(_pixelEdit.w * _pixelEdit.h),
+      });
+      pixelSetCurrentFrame(at);
+      pixelCommitIfStandalone();
+    }
+
+    function pixelFrameDuplicate() {
+      if (!_pixelEdit) return;
+      const src = _pixelEdit.frames[_pixelEdit.currentFrame];
+      if (!src) return;
+      pixelSnapshot();
+      const at = _pixelEdit.currentFrame + 1;
+      _pixelEdit.frames.splice(at, 0, {
+        id: _pixelNewFrameId(),
+        durationMs: src.durationMs,
+        indices: src.indices.slice(),
+      });
+      pixelSetCurrentFrame(at);
+      pixelCommitIfStandalone();
+    }
+
+    function pixelFrameDelete() {
+      if (!_pixelEdit) return;
+      if (_pixelEdit.frames.length <= 1) return;
+      pixelSnapshot();
+      const i = _pixelEdit.currentFrame;
+      _pixelEdit.frames.splice(i, 1);
+      pixelSetCurrentFrame(Math.min(i, _pixelEdit.frames.length - 1));
+      pixelCommitIfStandalone();
+    }
+
+    function pixelFrameMove(from, to) {
+      if (!_pixelEdit) return;
+      const n = _pixelEdit.frames.length;
+      if (from < 0 || from >= n || to < 0 || to >= n || from === to) return;
+      pixelSnapshot();
+      const [f] = _pixelEdit.frames.splice(from, 1);
+      _pixelEdit.frames.splice(to, 0, f);
+      let cur = _pixelEdit.currentFrame;
+      if (cur === from) cur = to;
+      else if (from < cur && cur <= to) cur--;
+      else if (to <= cur && cur < from) cur++;
+      pixelSetCurrentFrame(cur);
+      pixelCommitIfStandalone();
+    }
+
+    // Render the frame strip below the canvas. Each frame is a tiny
+    // pixel-accurate thumbnail of its own indices.
+    function renderPixelTimeline() {
+      const host = $('pixelTimelineFrames');
+      if (!host || !_pixelEdit) return;
+      host.innerHTML = '';
+      const { w, h, frames, currentFrame, palette } = _pixelEdit;
+      // Thumb canvas is rendered at native cell size, then CSS scales it
+      // up with image-rendering: pixelated.
+      frames.forEach((f, i) => {
+        const slot = document.createElement('div');
+        slot.className = 'pixelTimelineFrame' + (i === currentFrame ? ' active' : '');
+        slot.draggable = true;
+        slot.dataset.idx = String(i);
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d');
+        for (let p = 0; p < f.indices.length; p++) {
+          const hex = palette[f.indices[p]];
+          if (!hex || pixelHexTransparent(hex)) continue;
+          ctx.fillStyle = pixelHexToRgba(hex);
+          ctx.fillRect(p % w, (p / w) | 0, 1, 1);
+        }
+        slot.appendChild(cv);
+        const idxBadge = document.createElement('span');
+        idxBadge.className = 'pixelTimelineIndex';
+        idxBadge.textContent = String(i + 1);
+        slot.appendChild(idxBadge);
+        host.appendChild(slot);
+      });
+      const delBtn = $('pixelFrameDelBtn');
+      if (delBtn) delBtn.disabled = frames.length <= 1;
     }
 
     function pixelResizeMenuToggle(forceOpen) {
@@ -9068,11 +9259,17 @@
       const palette = (Array.isArray(pa.palette) && pa.palette.length)
         ? pa.palette.slice(0, 64).map(c => (typeof c === 'string' ? c : '#00000000'))
         : DEFAULT_PIXEL_PALETTE.slice();
-      const srcFrame = (Array.isArray(pa.frames) && pa.frames[0]) ? pa.frames[0] : { pixels: [] };
-      // decode then re-encode so we own the buffer and catch corrupt RLE runs.
-      const indices = decodePixelRLE(srcFrame, w, h);
-      const pixels = encodePixelRLE(indices);
-      return { width: w, height: h, palette, frames: [{ id: 'f1', pixels }] };
+      // decode then re-encode every frame so we own the buffers and catch
+      // corrupt RLE runs. Cap at 32 frames as a defensive ceiling.
+      const srcFrames = (Array.isArray(pa.frames) && pa.frames.length) ? pa.frames.slice(0, 32) : [{ pixels: [] }];
+      const frames = srcFrames.map((f, i) => ({
+        id: f.id || ('f' + (i + 1)),
+        pixels: encodePixelRLE(decodePixelRLE(f, w, h)),
+      }));
+      const out = { width: w, height: h, palette, frames };
+      if (pa.fps) out.fps = Math.max(1, Math.min(60, pa.fps | 0));
+      if (pa.loop === false) out.loop = false;
+      return out;
     }
 
     function importPixelArtAsLayer(payload, targetOverride = '') {
@@ -9173,7 +9370,9 @@
       state.pixelArt = {
         width: _pixelEdit.w, height: _pixelEdit.h,
         palette: _pixelEdit.palette.slice(),
-        frames: [{ id: 'f1', pixels: encodePixelRLE(_pixelEdit.indices) }]
+        frames: encodePixelArtFrames(_pixelEdit.frames),
+        fps: _pixelEdit.fps,
+        loop: _pixelEdit.loop,
       };
     }
 
@@ -9188,7 +9387,9 @@
           layer.pixelArt = {
             width: _pixelEdit.w, height: _pixelEdit.h,
             palette: _pixelEdit.palette.slice(),
-            frames: [{ id: 'f1', pixels: encodePixelRLE(_pixelEdit.indices) }]
+            frames: encodePixelArtFrames(_pixelEdit.frames),
+            fps: _pixelEdit.fps,
+            loop: _pixelEdit.loop,
           };
         }
       }
@@ -9209,11 +9410,15 @@
       if (!state.pixelArt) state.pixelArt = defaultPixelArt(32, 32);
       const pa = state.pixelArt;
       const w = (pa.width | 0) || 32, h = (pa.height | 0) || 32;
-      const frame = (pa.frames && pa.frames[0]) || { pixels: [] };
       const palette = (pa.palette && pa.palette.length) ? pa.palette.slice() : DEFAULT_PIXEL_PALETTE.slice();
+      const frames = decodePixelArtFrames(pa, w, h);
       _pixelEdit = {
         standalone: true, layerId: null, w, h,
-        indices: decodePixelRLE(frame, w, h), palette,
+        frames, currentFrame: 0,
+        indices: frames[0].indices,
+        fps: Math.max(1, Math.min(60, (pa.fps | 0) || 8)),
+        loop: pa.loop !== false,
+        palette,
         current: Math.min(1, palette.length - 1),
         tool: 'pencil', zoom: 12, gridOn: true, mirrorX: false, mirrorY: false, shapeFill: false,
         undo: [], redo: [], last: null, shapeBackup: null, shapeStart: null
@@ -9226,6 +9431,7 @@
       const dims = $('pixelEditorDims'); if (dims) dims.textContent = `${w} × ${h} px`;
       renderPixelPalette();
       renderPixelGrid();
+      renderPixelTimeline();
       updateUndoRedoUI();
       requestAnimationFrame(() => {
         if (!_pixelEdit || !_pixelEdit.standalone) return;
@@ -19427,6 +19633,52 @@
       $('pixelMirrorX')?.addEventListener('change', (e) => { if (_pixelEdit) _pixelEdit.mirrorX = e.target.checked; });
       $('pixelMirrorY')?.addEventListener('change', (e) => { if (_pixelEdit) _pixelEdit.mirrorY = e.target.checked; });
       $('pixelShapeFill')?.addEventListener('change', (e) => { if (_pixelEdit) _pixelEdit.shapeFill = e.target.checked; });
+      // ---- Frame timeline wiring ----
+      $('pixelFrameAddBtn')?.addEventListener('click', () => pixelFrameAdd());
+      $('pixelFrameDupBtn')?.addEventListener('click', () => pixelFrameDuplicate());
+      $('pixelFrameDelBtn')?.addEventListener('click', () => pixelFrameDelete());
+      const _pixelFramesEl = $('pixelTimelineFrames');
+      if (_pixelFramesEl) {
+        _pixelFramesEl.addEventListener('click', (ev) => {
+          const slot = ev.target.closest('.pixelTimelineFrame');
+          if (!slot) return;
+          const idx = Number(slot.dataset.idx);
+          if (!Number.isFinite(idx)) return;
+          pixelSetCurrentFrame(idx);
+        });
+        // Drag-reorder: HTML5 drag/drop. Each .pixelTimelineFrame is draggable
+        // and we track the source index in a closure (dataTransfer can't be
+        // read on dragover, only on drop).
+        let _dragFromIdx = -1;
+        _pixelFramesEl.addEventListener('dragstart', (ev) => {
+          const slot = ev.target.closest('.pixelTimelineFrame');
+          if (!slot) return;
+          _dragFromIdx = Number(slot.dataset.idx);
+          slot.classList.add('dragging');
+          try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(_dragFromIdx)); } catch (e) {}
+        });
+        _pixelFramesEl.addEventListener('dragend', () => {
+          _pixelFramesEl.querySelectorAll('.dragging,.drop-target').forEach(el => {
+            el.classList.remove('dragging'); el.classList.remove('drop-target');
+          });
+          _dragFromIdx = -1;
+        });
+        _pixelFramesEl.addEventListener('dragover', (ev) => {
+          const slot = ev.target.closest('.pixelTimelineFrame');
+          if (!slot || _dragFromIdx < 0) return;
+          ev.preventDefault();
+          _pixelFramesEl.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+          slot.classList.add('drop-target');
+        });
+        _pixelFramesEl.addEventListener('drop', (ev) => {
+          const slot = ev.target.closest('.pixelTimelineFrame');
+          if (!slot || _dragFromIdx < 0) return;
+          ev.preventDefault();
+          const to = Number(slot.dataset.idx);
+          if (Number.isFinite(to) && to !== _dragFromIdx) pixelFrameMove(_dragFromIdx, to);
+          _dragFromIdx = -1;
+        });
+      }
       // Sync the OS picker <-> hex text input <-> in-app HSV picker. The
       // in-app picker (Sat/Val square + Hue strip) is the reliable input
       // path; the other two are kept in sync purely for display / typing.
@@ -19642,6 +19894,9 @@
             _pixelEdit.shapeStart = null;
           }
           pixelCommitIfStandalone();
+          // Refresh the timeline so the current frame's thumb reflects the
+          // stroke that just ended.
+          renderPixelTimeline();
         };
         _pgc.addEventListener('pointerup', _endPaint);
         _pgc.addEventListener('pointercancel', _endPaint);
@@ -19653,6 +19908,15 @@
         else if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); e.stopPropagation(); pixelRedo(); }
         else if (k === 'escape' && _pixelEdit && !_pixelEdit.standalone) { e.preventDefault(); e.stopPropagation(); closePixelEditor(true); }
         else if (!e.ctrlKey && !e.metaKey && !isEditableFocus()) {
+          if (k === 'arrowleft' || k === 'arrowright') {
+            if (!_pixelEdit || _pixelEdit.frames.length <= 1) return;
+            e.preventDefault(); e.stopPropagation();
+            const n = _pixelEdit.frames.length;
+            const delta = k === 'arrowleft' ? -1 : 1;
+            // Wrap around so holding the key cycles through the animation.
+            pixelSetCurrentFrame((_pixelEdit.currentFrame + delta + n) % n);
+            return;
+          }
           const map = { p: 'pencil', e: 'eraser', f: 'fill', i: 'eyedropper', l: 'line', r: 'rect', o: 'ellipse' };
           if (map[k]) { e.preventDefault(); e.stopPropagation(); _pixelEdit.tool = map[k]; pixelSyncToolButtons(); }
         }
