@@ -5,12 +5,8 @@ Running list of deferred work. Detailed specs for the larger items live in
 
 ## Adam's working list
 
-- **Slide deck PDF export.** Add multi-slide PDF export for slide
-  presentations, producing one page per slide.
-- **Copy / paste transform consistency.** Audit Copy, Paste, Copy All, and
-  cross-target paste so copied objects keep consistent position and scale
-  relative to the other copied objects, without unexpected misalignment or
-  rescaling.
+_(All of Adam's working-list items are currently shipped — see
+"Shipped (recent)" below. New items go here.)_
 
 ## QR code layer — remaining phases
 
@@ -88,6 +84,18 @@ Each has a full spec in `docs/`.
 
 ## Shipped (recent)
 
+- **Slide deck PDF export** — multi-page PDF, one page per slide. The
+  existing Print / Save PDF button is context-aware: in the Deck Builder
+  it builds a hidden print-only container with one page per slide (themed
+  via `composeSlideForDeck`, each page sized to the preview's native
+  dimensions so the slide fills the page exactly) and emits one PDF via
+  `window.print()`. Inside a single-slide editor, the button still prints
+  just that slide.
+- **Copy / paste transform consistency** — paste now computes a single
+  group bounding box across all clipboard items, applies one shared scale
+  (only shrinks, never enlarges) and one shared translation, so cross-
+  target paste keeps every layer's relative position and size to the
+  others intact.
 - **Pixel-editor colour picker** — ported the OS native `<input type="color">`
   over from the vector tools (same swatch styling; opens the OS picker with
   its built-in eyedropper on click). Removed the Screen-Capture-API screen-

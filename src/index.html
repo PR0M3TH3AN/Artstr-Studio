@@ -14562,6 +14562,80 @@
       return currentSaveStem();
     }
 
+    // Export the current deck as a multi-page PDF — one page per slide.
+    // Each slide is rendered via the same `renderCustomArtPreviewDOM` the
+    // Deck Builder thumbnails use (themed at render time, slide source is
+    // never mutated). The browser handles the actual PDF emission via its
+    // Save-as-PDF print path.
+    function exportDeckAsPdf() {
+      const deck = ensureDeck();
+      const slides = deck?.slides || [];
+      if (!slides.length) { toastError('No slides to export.'); return; }
+      // Match the print page to the preview's native size (PREVIEW_BASE_PX
+      // CSS pixels wide at the slide's aspect). At the browser's 96 dpi
+      // assumption, PREVIEW_BASE_PX = 720 → 7.5 inches wide, with height
+      // derived from the first slide's aspect ratio. Mixed-aspect decks
+      // still print on this page size — non-matching slides letterbox.
+      const firstSlide = slides[0].slide || {};
+      const wPx = Math.max(1, Number(firstSlide.width) || 1920);
+      const hPx = Math.max(1, Number(firstSlide.height) || 1080);
+      const pageWidthIn = PREVIEW_BASE_PX / 96;
+      const pageHeightIn = (PREVIEW_BASE_PX * hPx / wPx) / 96;
+      const fmt = (n) => Math.round(n * 1000) / 1000;
+      const container = document.createElement('div');
+      container.id = 'deckPrintContainer';
+      // The container is hidden from normal flow (taken out of the body
+      // visual layout) but stays in the DOM so print can find it.
+      container.style.cssText = 'position:fixed;left:-99999px;top:0;';
+      slides.forEach((entry, i) => {
+        const page = document.createElement('div');
+        page.className = 'deckPrintPage';
+        // Page break after each slide except the last — gives N pages for
+        // N slides without a trailing blank.
+        if (i < slides.length - 1) page.style.pageBreakAfter = 'always';
+        const composed = composeSlideForDeck(entry, deck.theme || {});
+        renderCustomArtPreviewDOM(page, composed);
+        container.appendChild(page);
+      });
+      document.body.appendChild(container);
+      const styleEl = document.createElement('style');
+      styleEl.id = 'deckPrintStyle';
+      styleEl.textContent = `
+        @media print {
+          @page { size: ${fmt(pageWidthIn)}in ${fmt(pageHeightIn)}in; margin: 0; }
+          body > *:not(#deckPrintContainer) { display: none !important; }
+          #deckPrintContainer { position: static !important; left: 0 !important; top: 0 !important; }
+          .deckPrintPage {
+            width: ${fmt(pageWidthIn)}in; height: ${fmt(pageHeightIn)}in;
+            display: flex; align-items: center; justify-content: center;
+            box-sizing: border-box; padding: 0; margin: 0;
+            background: #fff; overflow: hidden;
+          }
+          /* The preview wrapper inside each page — strip caps and borders so
+             the slide fills the page exactly. */
+          .deckPrintPage > div {
+            margin: 0 !important; border: 0 !important; box-shadow: none !important;
+          }
+        }
+      `;
+      document.head.appendChild(styleEl);
+      const previousTitle = document.title;
+      document.title = `${currentSaveStem() || 'deck'}_deck`;
+      const cleanup = () => {
+        document.title = previousTitle;
+        container.remove();
+        styleEl.remove();
+        window.removeEventListener('afterprint', cleanup);
+      };
+      window.addEventListener('afterprint', cleanup);
+      // One animation frame lets the preview DOM layout settle before the
+      // print snapshot is taken.
+      requestAnimationFrame(() => {
+        try { window.print(); }
+        catch (e) { cleanup(); toastError('Could not open the print dialog.'); }
+      });
+    }
+
     function printWithCurrentFilename() {
       const previousTitle = document.title;
       const nextTitle = currentPdfTitle();
@@ -21208,7 +21282,13 @@
       });
 
       $('printBtn').addEventListener('click', () => {
-        printWithCurrentFilename();
+        // In deck mode, the Print / Save PDF button is repurposed for the
+        // whole deck (one page per slide). When the user is editing a single
+        // slide, they get the normal single-page print of that slide.
+        const inDeckSorter = state.templateMode === 'deck'
+          && (state.deck?.editingIndex === null || state.deck?.editingIndex === undefined);
+        if (inDeckSorter) exportDeckAsPdf();
+        else printWithCurrentFilename();
       });
 
       // Preview modal event listeners
