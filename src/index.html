@@ -3546,6 +3546,13 @@
               <button type="button" id="pixelExportPngBtn" class="pixelBarBtn" aria-haspopup="true" aria-expanded="false">Export PNG ▾</button>
               <div id="pixelExportMenu" class="pixelExportMenu">
                 <div class="pixelExportRow">
+                  <span class="pixelExportLabel">Format</span>
+                  <div class="pixelExportScales" id="pixelExportFormat" style="grid-template-columns:repeat(2,1fr)">
+                    <button type="button" data-format="png" class="pixelExportScaleBtn active">PNG</button>
+                    <button type="button" data-format="gif" class="pixelExportScaleBtn">GIF</button>
+                  </div>
+                </div>
+                <div class="pixelExportRow">
                   <span class="pixelExportLabel">Scale</span>
                   <div class="pixelExportScales" id="pixelExportScales">
                     <button type="button" data-scale="1" class="pixelExportScaleBtn">1×</button>
@@ -8625,6 +8632,179 @@
       });
     }
 
+    // ----------------------------------------------------------------
+    // Minimal inline GIF89a animated-image encoder.
+    //
+    // Our pixel data is already palette-indexed — the perfect match for
+    // GIF, which is also palette-indexed (≤256 colours). The encoder takes
+    // an array of Uint8Array frames + the palette (#rrggbbaa hex) and
+    // returns a Uint8Array of the encoded GIF. No external dependency.
+    //
+    // Transparency: index 0 is the conventional transparent slot in our
+    // palette; we set GIF's transparent-color-index = 0 and the per-frame
+    // disposal method to "restore to background" so transparent pixels in
+    // one frame don't leak into the next.
+    // ----------------------------------------------------------------
+    function _gifWriteU16LE(bytes, v) {
+      bytes.push(v & 0xFF, (v >> 8) & 0xFF);
+    }
+    function _gifWriteString(bytes, s) {
+      for (let i = 0; i < s.length; i++) bytes.push(s.charCodeAt(i));
+    }
+
+    // Standard variable-bit-width LZW encode for GIF. Codes start at
+    // minCodeSize+1 bits and grow up to 12. clearCode / eoiCode follow the
+    // GIF89a convention. Returns Uint8Array of byte-packed codes.
+    function _gifLzwEncode(indices, minCodeSize) {
+      const clearCode = 1 << minCodeSize;
+      const eoiCode = clearCode + 1;
+      let codeSize = minCodeSize + 1;
+      let nextCode = eoiCode + 1;
+      const dict = new Map();
+      const out = [];
+      let bitBuf = 0, bitsInBuf = 0;
+      const writeCode = (code) => {
+        bitBuf |= code << bitsInBuf;
+        bitsInBuf += codeSize;
+        while (bitsInBuf >= 8) {
+          out.push(bitBuf & 0xFF);
+          bitBuf >>>= 8;
+          bitsInBuf -= 8;
+        }
+      };
+      writeCode(clearCode);
+      let buffer = '' + indices[0];
+      for (let i = 1; i < indices.length; i++) {
+        const k = '' + indices[i];
+        const combined = buffer + ',' + k;
+        if (dict.has(combined)) {
+          buffer = combined;
+        } else {
+          // Emit code for current buffer.
+          const code = buffer.indexOf(',') < 0 ? (+buffer) : dict.get(buffer);
+          writeCode(code);
+          if (nextCode < 4096) {
+            dict.set(combined, nextCode++);
+            if (nextCode > (1 << codeSize) && codeSize < 12) codeSize++;
+          } else {
+            // Dict full — emit clear and restart.
+            writeCode(clearCode);
+            dict.clear();
+            nextCode = eoiCode + 1;
+            codeSize = minCodeSize + 1;
+          }
+          buffer = k;
+        }
+      }
+      const finalCode = buffer.indexOf(',') < 0 ? (+buffer) : dict.get(buffer);
+      writeCode(finalCode);
+      writeCode(eoiCode);
+      if (bitsInBuf > 0) out.push(bitBuf & 0xFF);
+      return out;
+    }
+
+    // Encode a multi-frame animation as GIF89a. `frames` is an array of
+    // Uint8Array (length = w*h), `palette` is an array of #rrggbbaa hex,
+    // `delayCs` is per-frame delay in centiseconds (1/100s).
+    function encodePixelArtToGif(frames, palette, w, h, delayCs, loop = 0) {
+      const bytes = [];
+      _gifWriteString(bytes, 'GIF89a');
+      _gifWriteU16LE(bytes, w);
+      _gifWriteU16LE(bytes, h);
+      // Pick the smallest GIF colour-table size that fits the palette. GIF's
+      // colour-table-size field is 3 bits → 2^(size+1) entries.
+      let ctSize = 0;
+      while ((1 << (ctSize + 1)) < palette.length && ctSize < 7) ctSize++;
+      const numCT = 1 << (ctSize + 1);
+      // Packed: global CT present, color resolution = ctSize, sort = 0,
+      // CT size field = ctSize.
+      bytes.push(0x80 | (ctSize << 4) | ctSize);
+      bytes.push(0); // background color index
+      bytes.push(0); // pixel aspect ratio (square)
+      // Global colour table: GIF doesn't carry alpha. Transparent palette
+      // entries get RGB 0,0,0 (the transparent-index flag handles visibility).
+      for (let i = 0; i < numCT; i++) {
+        const hex = palette[i] || '#000000';
+        const r = parseInt(hex.slice(1, 3), 16) || 0;
+        const g = parseInt(hex.slice(3, 5), 16) || 0;
+        const b = parseInt(hex.slice(5, 7), 16) || 0;
+        bytes.push(r, g, b);
+      }
+      // NETSCAPE2.0 application extension — loop count (0 = infinite).
+      bytes.push(0x21, 0xFF, 0x0B);
+      _gifWriteString(bytes, 'NETSCAPE2.0');
+      bytes.push(0x03, 0x01);
+      _gifWriteU16LE(bytes, loop);
+      bytes.push(0x00);
+      // GIF LZW requires minCodeSize ≥ 2.
+      const minCodeSize = Math.max(2, ctSize + 1);
+      // Per-frame blocks.
+      for (const frame of frames) {
+        // Graphic Control Extension: disposal = 2 (restore to background),
+        // transparent colour index = 0 (matches our palette convention).
+        bytes.push(0x21, 0xF9, 0x04);
+        bytes.push(0x08 | 0x01); // disposal=2, transparent flag=1
+        _gifWriteU16LE(bytes, delayCs);
+        bytes.push(0); // transparent colour index
+        bytes.push(0); // block terminator
+        // Image Descriptor.
+        bytes.push(0x2C);
+        _gifWriteU16LE(bytes, 0);
+        _gifWriteU16LE(bytes, 0);
+        _gifWriteU16LE(bytes, w);
+        _gifWriteU16LE(bytes, h);
+        bytes.push(0); // no local CT, no interlace
+        // LZW.
+        bytes.push(minCodeSize);
+        const lzw = _gifLzwEncode(frame, minCodeSize);
+        // Write LZW data in sub-blocks of ≤255 bytes.
+        let off = 0;
+        while (off < lzw.length) {
+          const chunk = Math.min(255, lzw.length - off);
+          bytes.push(chunk);
+          for (let i = 0; i < chunk; i++) bytes.push(lzw[off + i]);
+          off += chunk;
+        }
+        bytes.push(0); // sub-block terminator
+      }
+      bytes.push(0x3B); // trailer
+      return new Uint8Array(bytes);
+    }
+
+    // Build a GIF blob from a pixelArt object at the requested scale. Frames
+    // are upscaled to (w*scale × h*scale) before encoding so each cell becomes
+    // a block of solid colour in the GIF — keeps the file palette-indexed.
+    function exportPixelArtToGifBlob(pixelArt, options = {}) {
+      const scale = Math.max(1, options.scale | 0 || 4);
+      const fps = Math.max(1, Math.min(60, options.fps | 0 || 8));
+      const loop = options.loop === false ? 1 : 0; // GIF loop count: 0 = infinite, 1 = play once
+      const w = Math.max(1, (pixelArt && pixelArt.width | 0) || 1);
+      const h = Math.max(1, (pixelArt && pixelArt.height | 0) || 1);
+      const palette = (Array.isArray(pixelArt?.palette) && pixelArt.palette.length) ? pixelArt.palette : ['#00000000'];
+      const srcFrames = (Array.isArray(pixelArt?.frames) && pixelArt.frames.length) ? pixelArt.frames : [{ pixels: [] }];
+      // Decode and upscale each frame to scaled grid dims.
+      const sw = w * scale, sh = h * scale;
+      const scaled = srcFrames.map((f) => {
+        const src = decodePixelRLE(f, w, h);
+        if (scale === 1) return src;
+        const out = new Uint8Array(sw * sh);
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const v = src[y * w + x];
+            const sy0 = y * scale, sx0 = x * scale;
+            for (let dy = 0; dy < scale; dy++) {
+              const rowOff = (sy0 + dy) * sw + sx0;
+              for (let dx = 0; dx < scale; dx++) out[rowOff + dx] = v;
+            }
+          }
+        }
+        return out;
+      });
+      const delayCs = Math.max(2, Math.round(100 / fps));
+      const data = encodePixelArtToGif(scaled, palette, sw, sh, delayCs, loop);
+      return new Blob([data], { type: 'image/gif' });
+    }
+
     // Decode a pixel grid to a native-size offscreen canvas. `frameIndex`
     // selects which frame to render — defaults to 0 (the cover frame), which
     // keeps every existing single-frame caller working unchanged.
@@ -8660,7 +8840,7 @@
 
     // ---- PNG export ---------------------------------------------------
     // Persistent options for the Export PNG dropdown.
-    const _pixelExportOpts = { scale: 4, transparent: true, grid: false, sheet: false, sheetLayout: 'auto' };
+    const _pixelExportOpts = { format: 'png', scale: 4, transparent: true, grid: false, sheet: false, sheetLayout: 'auto' };
 
     // Build a PNG blob from a pixelArt object at the requested scale.
     // When `options.sheet` is set, ALL frames are tiled into one image —
@@ -8722,11 +8902,11 @@
       });
     }
 
-    function pixelExportFilename(pa, scale, sheet) {
+    function pixelExportFilename(pa, scale, sheet, ext = 'png') {
       const base = (state.meta?.title || '').trim().replace(/[^a-z0-9_-]+/gi, '_').slice(0, 40) || 'pixel_art';
-      const frames = sheet ? `_${(pa.frames?.length | 0) || 1}f` : '';
+      const frames = (sheet || ext === 'gif') ? `_${(pa.frames?.length | 0) || 1}f` : '';
       const sheetTag = sheet ? '_sheet' : '';
-      return `${base}_${pa.width}x${pa.height}${frames}_${scale}x${sheetTag}.png`;
+      return `${base}_${pa.width}x${pa.height}${frames}_${scale}x${sheetTag}.${ext}`;
     }
 
     // Build a pixelArt object representing the editor's *current* state —
@@ -8747,19 +8927,33 @@
     async function pixelExportDownload() {
       const pa = pixelExportCurrentPixelArt();
       if (!pa) { toastError('No pixel art to export.'); return; }
-      const sheet = _pixelExportOpts.sheet && (pa.frames?.length | 0) > 1;
+      const format = _pixelExportOpts.format || 'png';
+      const sheet = format === 'png' && _pixelExportOpts.sheet && (pa.frames?.length | 0) > 1;
       try {
-        const blob = await exportPixelArtToPngBlob(pa, {
-          scale: _pixelExportOpts.scale,
-          transparent: _pixelExportOpts.transparent,
-          includeGrid: _pixelExportOpts.grid,
-          sheet,
-          sheetLayout: _pixelExportOpts.sheetLayout,
-        });
+        let blob;
+        if (format === 'gif') {
+          if ((pa.frames?.length | 0) < 2) {
+            toastError('Add at least 2 frames to export an animated GIF.');
+            return;
+          }
+          blob = exportPixelArtToGifBlob(pa, {
+            scale: _pixelExportOpts.scale,
+            fps: pa.fps || 8,
+            loop: pa.loop !== false,
+          });
+        } else {
+          blob = await exportPixelArtToPngBlob(pa, {
+            scale: _pixelExportOpts.scale,
+            transparent: _pixelExportOpts.transparent,
+            includeGrid: _pixelExportOpts.grid,
+            sheet,
+            sheetLayout: _pixelExportOpts.sheetLayout,
+          });
+        }
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = pixelExportFilename(pa, _pixelExportOpts.scale, sheet);
+        a.download = pixelExportFilename(pa, _pixelExportOpts.scale, sheet, format);
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -18769,6 +18963,10 @@
     }
 
     // Preview a standalone pixel-art design — the grid rendered crisp.
+    // Multi-frame designs animate at their stored fps with the loop setting
+    // honoured; the RAF loop self-stops when the canvas leaves the DOM
+    // (`cv.isConnected === false`), so closing the modal / swapping the
+    // preview panel / scrolling cards out of the list doesn't leak loops.
     function renderPixelArtPreviewDOM(container, payload, opts = {}) {
       const compact = !!opts.compact;
       const transparentBackground = !!opts.transparentPixelArt;
@@ -18786,9 +18984,50 @@
         transparentBackground ? 'background:transparent' : 'background:repeating-conic-gradient(#e2e8f0 0% 25%, #f8fafc 0% 50%) 0 0 / 18px 18px'
       ].join(';');
       try {
-        const cv = renderPixelGridToCanvas(pa);
-        cv.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges';
-        box.appendChild(cv);
+        const frames = (pa && Array.isArray(pa.frames)) ? pa.frames : [];
+        const animate = frames.length > 1;
+        if (animate) {
+          // Pre-render every frame to its own native-size canvas, then animate
+          // by blitting from the cached canvases onto the display canvas. Much
+          // cheaper than re-decoding RLE each tick.
+          const fps = Math.max(1, Math.min(60, pa.fps | 0 || 8));
+          const loop = pa.loop !== false;
+          const cached = frames.map((_, i) => renderPixelGridToCanvas(pa, i));
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges';
+          const ctx = cv.getContext('2d');
+          ctx.drawImage(cached[0], 0, 0);
+          let frameIdx = 0;
+          let lastTs = 0, acc = 0;
+          const tick = (ts) => {
+            if (!cv.isConnected) return; // self-stop when removed from DOM
+            const dt = lastTs ? (ts - lastTs) : 0;
+            lastTs = ts;
+            acc += dt;
+            const msPerFrame = 1000 / fps;
+            let ended = false;
+            while (acc >= msPerFrame) {
+              acc -= msPerFrame;
+              const next = frameIdx + 1;
+              if (next >= cached.length) {
+                if (loop) frameIdx = 0;
+                else { frameIdx = cached.length - 1; ended = true; break; }
+              } else {
+                frameIdx = next;
+              }
+            }
+            ctx.clearRect(0, 0, w, h);
+            ctx.drawImage(cached[frameIdx], 0, 0);
+            if (!ended) requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+          box.appendChild(cv);
+        } else {
+          const cv = renderPixelGridToCanvas(pa);
+          cv.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges';
+          box.appendChild(cv);
+        }
       } catch (e) {}
       container.appendChild(box);
     }
@@ -19991,6 +20230,27 @@
           document.querySelectorAll('.pixelExportScaleBtn').forEach((b) => {
             b.classList.toggle('active', Number(b.dataset.scale) === scale);
           });
+        });
+        // Format picker — switches the menu's "PNG-only" controls on/off and
+        // changes the encoder used by Download.
+        const _syncPixelExportFormat = () => {
+          const isGif = _pixelExportOpts.format === 'gif';
+          const tEl = $('pixelExportTransparent');
+          const gEl = $('pixelExportGrid');
+          const sEl = $('pixelExportSheet');
+          const layoutRow = $('pixelExportSheetLayoutRow');
+          [tEl, gEl, sEl].forEach(el => { if (el) el.parentElement.style.display = isGif ? 'none' : ''; });
+          if (layoutRow) layoutRow.style.display = (!isGif && _pixelExportOpts.sheet) ? '' : 'none';
+        };
+        $('pixelExportFormat')?.addEventListener('click', (e) => {
+          const btn = e.target.closest('.pixelExportScaleBtn');
+          if (!btn) return;
+          const fmt = btn.dataset.format || 'png';
+          _pixelExportOpts.format = fmt;
+          document.querySelectorAll('#pixelExportFormat .pixelExportScaleBtn').forEach((b) => {
+            b.classList.toggle('active', b.dataset.format === fmt);
+          });
+          _syncPixelExportFormat();
         });
         $('pixelExportTransparent')?.addEventListener('change', (e) => {
           _pixelExportOpts.transparent = !!e.target.checked;
