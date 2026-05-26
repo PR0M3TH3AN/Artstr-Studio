@@ -14624,10 +14624,15 @@
             background: #fff; overflow: hidden;
           }
           /* Scale the natively-PREVIEW_BASE_PX-wide preview up to the
-             slide's natural design dimensions. transform-origin: top left
-             keeps everything anchored at (0,0). */
+             slide's natural design dimensions. Explicit width / height are
+             required — the preview's own root uses width: min(100%, 720px),
+             which resolves against this container, so a missing width
+             collapses the whole thing to zero. transform-origin: top left
+             anchors the scale at (0,0). */
           .deckPrintInner {
             position: absolute; top: 0; left: 0;
+            width: ${PREVIEW_BASE_PX}px;
+            height: ${fmt(PREVIEW_BASE_PX * hPx / wPx)}px;
             transform: scale(${fmt(previewScale)});
             transform-origin: top left;
           }
