@@ -18,14 +18,11 @@ Running list of deferred work. Detailed specs for the larger items live in
 
 ## QR code layer — remaining phases
 
-Phase A shipped (the `qr` layer type: data, error-correction level, quiet
-zone, module / background colors, transparent background, renders on every
-surface + canvas export, JSON round-trip).
+Phases A and B shipped (the `qr` layer type: data, error-correction level,
+quiet zone, module / background colors, transparent background, renders
+on every surface + canvas export, JSON round-trip; plus "Insert npub" and
+"Insert share link" buttons under the QR data field).
 
-- **Phase B — convenience inserts.** "Insert npub" and "Insert share link"
-  buttons next to the QR data field. Insert npub fills the signed-in user's
-  `npub`; Insert share link fills the design's `naddr`/`nevent` once it's
-  been published. ~80 LoC.
 - **Phase C — visual polish.** Optional center logo overlay and rounded
   modules. Riskier: a logo eats into the error-correction budget, so it
   should nudge the ECC level up. Skippable.

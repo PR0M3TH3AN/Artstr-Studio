@@ -2256,6 +2256,8 @@
       border-radius: 6px; cursor: pointer; font-family: inherit;
     }
     .pixelToolMenu button:hover { background: rgba(127,127,127,.14); }
+    .qrInsertRow { display: flex; gap: 6px; margin: 6px 0 4px; }
+    .qrInsertBtn { flex: 1; font-size: .72rem; padding: 4px 6px; }
     .pixelizePreviewRow { display: flex; gap: 12px; margin: 0 0 10px; }
     .pixelizePreviewBox { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
     .pixelizePreviewLabel { font-size: .72rem; color: #64748b; font-weight: 600; }
@@ -3171,6 +3173,10 @@
           <div id="qrLayerControls" style="display:none">
             <label for="qrData">QR data (URL or text)</label>
             <textarea id="qrData" rows="2" placeholder="https://example.com" style="resize:vertical;width:100%"></textarea>
+            <div class="qrInsertRow">
+              <button type="button" id="qrInsertNpubBtn" class="qrInsertBtn" title="Insert your Nostr npub">Insert npub</button>
+              <button type="button" id="qrInsertShareBtn" class="qrInsertBtn" title="Insert this design's share link (publish first)">Insert share link</button>
+            </div>
             <div class="row">
               <div>
                 <label for="qrEcc">Error correction</label>
@@ -13449,6 +13455,47 @@
       render();
     }
 
+    // QR convenience inserts: drop the signed-in user's npub or this
+    // design's share link into the QR data field. Both write through
+    // updateQrField so undo / history / the live preview pick them up.
+    async function insertQrNpub() {
+      const pk = await getNostrPublicKey();
+      if (!pk) { toastError('Sign in with a Nostr extension to insert your npub.'); return; }
+      const np = encodeNpub(pk);
+      if (!np) { toastError('Could not encode npub.'); return; }
+      const ta = $('qrData');
+      if (ta) ta.value = np;
+      updateQrField('data', np);
+    }
+
+    async function insertQrShareLink() {
+      if (!state.editingDTag) {
+        toastError('Publish this design first, then come back to grab a share link.');
+        return;
+      }
+      const pk = await getNostrPublicKey();
+      if (!pk) { toastError('Sign in with a Nostr extension to build the share link.'); return; }
+      const kind = state.editingKind || 30078;
+      const dTag = state.editingDTag;
+      const topRelays = splitRelayList(state.community.relays).slice(0, 2);
+      // Replaceable events (kind 30000-39999) with a mode-prefixed d-tag get
+      // a stable naddr; otherwise fall back to nevent. Mirrors shareIdForRow's
+      // rule for the community-browser Copy-share-link button.
+      const dTagMatchesMode = /^(cover|disc|jewel|customart|disc-design|slide|deck|pixelart):/.test(dTag);
+      let id = '';
+      if (kind >= 30000 && kind < 40000 && dTagMatchesMode) {
+        id = encodeNaddr({ kind, pubkey: pk, dTag, relays: topRelays });
+      }
+      if (!id && state.editingEventId) {
+        id = encodeNevent({ eventId: state.editingEventId, author: pk, kind, relays: topRelays });
+      }
+      if (!id) { toastError('Could not build a share link for this design.'); return; }
+      const url = `${location.origin}/#/share/${id}`;
+      const ta = $('qrData');
+      if (ta) ta.value = url;
+      updateQrField('data', url);
+    }
+
     function updateShapeFillType(newType) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return;
@@ -21653,6 +21700,8 @@
       const colorFillEl = $('colorLayerFill');
       if (colorFillEl) colorFillEl.addEventListener('input', (event) => updateSelectedLayer('color', event.target.value));
       on('qrData', 'input', (event) => updateQrField('data', event.target.value));
+      on('qrInsertNpubBtn', 'click', insertQrNpub);
+      on('qrInsertShareBtn', 'click', insertQrShareLink);
       on('qrEcc', 'change', (event) => updateQrField('ecc', event.target.value));
       on('qrMargin', 'input', (event) => updateQrField('margin', Math.max(0, Math.min(20, Math.round(Number(event.target.value)) || 0))));
       on('qrFg', 'input', (event) => updateQrField('fg', event.target.value));
