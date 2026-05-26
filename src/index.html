@@ -90,9 +90,56 @@
 
     .app {
       display: grid;
-      grid-template-columns: minmax(340px, 420px) 1fr;
+      grid-template-columns: 380px 1fr;
       min-height: 100vh;
+      transition: grid-template-columns .22s ease;
     }
+    .app.sidebar-collapsed { grid-template-columns: 0 1fr; }
+    .app.sidebar-collapsed aside { visibility: hidden; }
+
+    /* Sidebar collapse tab — sits at the top, aligned with the logo, so it
+       doesn't sit on top of the vector or pixel editor toolbars in the
+       canvas area. Hard edges, manual bevel, classic chevron glyphs to
+       match the rest of the chunky aesthetic. */
+    .sidebarToggle {
+      position: fixed; top: 24px;
+      z-index: 50;
+      width: 18px; height: 44px;
+      left: 380px;
+      background: var(--panel);
+      color: #475569;
+      border: 1px solid var(--line);
+      border-left: none;
+      border-radius: 0 4px 4px 0;
+      /* Two-tone manual bevel for the old-school extruded-tab feel. */
+      box-shadow:
+        inset 0 1px 0 #fff,
+        inset 0 -1px 0 rgba(15,23,42,.18),
+        2px 0 0 rgba(15,23,42,.04);
+      cursor: pointer;
+      font: 700 14px/1 ui-monospace, Menlo, monospace;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0;
+      user-select: none;
+      transition: left .22s ease, background .12s ease, color .12s ease, transform .12s ease;
+    }
+    .sidebarToggle:hover { background: var(--accent); color: #fff; }
+    .sidebarToggle:active { transform: translateX(1px); }
+    .app.sidebar-collapsed .sidebarToggle { left: 0; }
+    /* When the sidebar is collapsed, the toggle tab sits at left:0 of the
+       canvas area; reserve a thin strip on the left of the editor toolbars
+       so their first button doesn't sit under the tab. */
+    .app.sidebar-collapsed .pixelEditorBar,
+    .app.sidebar-collapsed .canvasToolbar,
+    .app.sidebar-collapsed .toolPalette { padding-left: 26px; }
+    body.dark .sidebarToggle { color: #cbd5e1; }
+    body.dark .sidebarToggle {
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.08),
+        inset 0 -1px 0 rgba(0,0,0,.4),
+        2px 0 0 rgba(0,0,0,.2);
+    }
+    @media print { .sidebarToggle { display: none !important; } }
 
     aside {
       background: var(--panel);
@@ -2609,6 +2656,7 @@
   </div>
 
   <div class="app">
+    <button type="button" id="sidebarToggleBtn" class="sidebarToggle" aria-label="Collapse side panel" title="Collapse side panel">«</button>
     <aside>
       <div class="appTitle">
         <div class="appHeader">
@@ -20240,6 +20288,33 @@
         const btn = $(`mode-${layout}`);
         if (btn) btn.addEventListener('click', () => applyLayout(layout));
       }
+
+      // Sidebar collapse — persisted to localStorage so it stays where the
+      // user left it across sessions. The toggle is a fixed vertical tab
+      // glued to the seam between the sidebar and the canvas.
+      const _appEl = document.querySelector('.app');
+      const _sidebarBtn = $('sidebarToggleBtn');
+      const _syncSidebarBtn = () => {
+        if (!_sidebarBtn || !_appEl) return;
+        const collapsed = _appEl.classList.contains('sidebar-collapsed');
+        _sidebarBtn.textContent = collapsed ? '»' : '«';
+        _sidebarBtn.setAttribute('title', collapsed ? 'Expand side panel' : 'Collapse side panel');
+        _sidebarBtn.setAttribute('aria-label', collapsed ? 'Expand side panel' : 'Collapse side panel');
+      };
+      try {
+        if (localStorage.getItem('artstrSidebarCollapsed') === '1') {
+          _appEl?.classList.add('sidebar-collapsed');
+        }
+      } catch (e) {}
+      _syncSidebarBtn();
+      _sidebarBtn?.addEventListener('click', () => {
+        if (!_appEl) return;
+        _appEl.classList.toggle('sidebar-collapsed');
+        _syncSidebarBtn();
+        try {
+          localStorage.setItem('artstrSidebarCollapsed', _appEl.classList.contains('sidebar-collapsed') ? '1' : '0');
+        } catch (e) {}
+      });
 
       // ---- Deck Builder wiring ----
       $('deckAddSlideBtn')?.addEventListener('click', deckAddBlankSlide);
