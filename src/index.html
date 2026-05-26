@@ -917,7 +917,14 @@
     .pixelPickerPreview {
       flex: 0 0 auto; width: 32px; height: 32px;
       border: 1px solid var(--line); border-radius: 4px; background: #e43b44;
+      padding: 0; cursor: pointer;
     }
+    /* Strip the default chrome that browsers put around <input type="color">
+       so the element looks like the existing 32×32 swatch but still opens
+       the native OS picker (with its built-in eyedropper) on click. */
+    input.pixelPickerPreview::-webkit-color-swatch-wrapper { padding: 0; }
+    input.pixelPickerPreview::-webkit-color-swatch { border: 0; border-radius: 3px; }
+    input.pixelPickerPreview::-moz-color-swatch { border: 0; border-radius: 3px; }
     .screenPickerOverlay {
       position: fixed; inset: 0; z-index: 100000;
       background: rgba(8,10,16,.94);
@@ -3683,7 +3690,7 @@
                 <canvas id="pixelHueCanvas" width="160" height="14" title="Drag here to choose hue" aria-label="Hue picker"></canvas>
               </div>
               <div class="pixelPaletteEdit">
-                <span id="pixelPickerPreview" class="pixelPickerPreview" aria-label="Current pick"></span>
+                <input type="color" id="pixelColorPicker" class="pixelPickerPreview" title="Click to open the OS colour picker (eyedropper available inside)" value="#e43b44" aria-label="OS colour picker" />
                 <input type="text" id="pixelColorHex" value="#e43b44" maxlength="7" spellcheck="false" autocomplete="off" placeholder="#rrggbb" aria-label="Hex colour" />
                 <button type="button" id="pixelAddColorBtn" class="pixelBarBtn primary">+ Add</button>
               </div>
@@ -8547,8 +8554,6 @@
       }
       const pickEl = document.getElementById('pixelColorPicker');
       if (pickEl) pickEl.value = hex;
-      const previewEl = document.getElementById('pixelPickerPreview');
-      if (previewEl) previewEl.style.backgroundColor = `rgb(${r},${g},${b})`;
     }
     // Persistent screen-share for the screen eyedropper. Granted once per
     // pixel-edit session — every subsequent pick grabs a fresh frame from
