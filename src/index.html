@@ -2209,6 +2209,30 @@
       border-radius: 6px; cursor: pointer; font-family: inherit;
     }
     .pixelToolMenu button:hover { background: rgba(127,127,127,.14); }
+    .pixelizePreviewRow { display: flex; gap: 12px; margin: 0 0 10px; }
+    .pixelizePreviewBox { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .pixelizePreviewLabel { font-size: .72rem; color: #64748b; font-weight: 600; }
+    .pixelizePreviewArea {
+      width: 100%; aspect-ratio: 1;
+      background: repeating-conic-gradient(#e2e8f0 0% 25%, #f8fafc 0% 50%) 0 0 / 14px 14px;
+      border: 1px solid var(--line); border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .pixelizePreviewArea img, .pixelizePreviewArea canvas {
+      max-width: 100%; max-height: 100%; display: block;
+      image-rendering: pixelated; image-rendering: crisp-edges;
+    }
+    .pixelizeRow { display: flex; gap: 10px; align-items: center; margin: 0 0 8px; }
+    .pixelizeField {
+      display: flex; align-items: center; gap: 6px;
+      font-size: .82rem; flex: 1;
+    }
+    .pixelizeField input {
+      width: 60px; padding: 4px 6px;
+      border: 1px solid var(--line); border-radius: 6px;
+      font-family: inherit;
+    }
     .toolOptions {
       grid-area: options;
       display: flex;
@@ -3542,6 +3566,8 @@
                 <button type="button" id="pixelResizeApplyBtn" class="pixelBarBtn primary">Apply</button>
               </div>
             </div>
+            <button type="button" id="pixelEditorImageBtn" class="pixelBarBtn" title="Pixelize an image into this design">From image…</button>
+            <input id="pixelEditorImageFile" type="file" accept="image/*" hidden />
             <div class="pixelExportWrap">
               <button type="button" id="pixelExportPngBtn" class="pixelBarBtn" aria-haspopup="true" aria-expanded="false">Export PNG ▾</button>
               <div id="pixelExportMenu" class="pixelExportMenu">
@@ -3611,7 +3637,6 @@
                 <button type="button" id="pixelPickFromScreenBtn" class="pixelBarBtn" style="flex:1">🎯 Pick from screen</button>
                 <button type="button" id="pixelPickStopBtn" class="pixelBarBtn" style="display:none" title="Stop sharing the screen with Artstr">Stop</button>
               </div>
-              <p class="hint" style="font-size:.72rem;margin:8px 0 0"><b>Drag on the gradient square + rainbow strip above</b> to pick a colour, then click <b>+ Add</b> to push it into the palette. The ⊙ eyedropper tool in the toolbar samples colours already on your sprite.</p>
             </div>
           </div>
         </div>
@@ -4018,6 +4043,42 @@
       <div class="buttonRow" style="margin:0;justify-content:flex-end;flex-wrap:wrap;gap:8px">
         <button type="button" id="shapePathCancelBtn">Cancel</button>
         <button type="button" id="shapePathConfirmBtn" class="primary" disabled>Use this SVG</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="pixelizeModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:560px;position:relative">
+      <button type="button" id="pixelizeCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
+      <h2 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Pixelize image</h2>
+      <p class="hint" style="margin:0 0 12px">Downscale a picture to a pixel-art grid. Tweak the controls — the preview updates live.</p>
+      <div class="pixelizePreviewRow">
+        <div class="pixelizePreviewBox">
+          <div class="pixelizePreviewLabel">Source</div>
+          <div class="pixelizePreviewArea" id="pixelizeSourceWrap"></div>
+        </div>
+        <div class="pixelizePreviewBox">
+          <div class="pixelizePreviewLabel">Pixelized</div>
+          <div class="pixelizePreviewArea" id="pixelizeOutWrap"></div>
+        </div>
+      </div>
+      <div class="pixelizeRow">
+        <label class="pixelizeField">W <input type="number" id="pixelizeW" min="4" max="128" step="1" value="32" /></label>
+        <label class="pixelizeField">H <input type="number" id="pixelizeH" min="4" max="128" step="1" value="32" /></label>
+        <label class="pixelizeField">Colors <input type="number" id="pixelizeColors" min="2" max="64" step="1" value="16" /></label>
+      </div>
+      <div class="pixelizeRow">
+        <span class="pixelExportLabel" style="flex:0 0 auto">Fit</span>
+        <div class="pixelExportScales" id="pixelizeFitMode" style="grid-template-columns:repeat(3,1fr);flex:1">
+          <button type="button" data-fit="cover" class="pixelExportScaleBtn active">Cover</button>
+          <button type="button" data-fit="contain" class="pixelExportScaleBtn">Fit</button>
+          <button type="button" data-fit="stretch" class="pixelExportScaleBtn">Stretch</button>
+        </div>
+      </div>
+      <p class="hint" style="margin:8px 0 0;font-size:.72rem">Cover = fill the grid (crops edges). Fit = letterbox with transparent. Stretch = ignore aspect.</p>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button type="button" id="pixelizeCancelBtn">Cancel</button>
+        <button type="button" id="pixelizeAddBtn" class="primary">Add as layer</button>
       </div>
     </div>
   </div>
@@ -9607,6 +9668,237 @@
       };
       addLayer(layer);
       openPixelEditor(layer.id);
+    }
+
+    // ----------------------------------------------------------------
+    // Image → pixel-art conversion. Downscale an arbitrary image to a
+    // target grid, quantize its colours, and build a pixelArt blob ready
+    // for a new pixelart layer.
+    //
+    // Quantization uses median-cut: collect pixels, recursively split the
+    // bucket with the widest channel range until we have N buckets, then
+    // average each bucket. Good visual match for photos and vector art
+    // alike; classic and predictable.
+    // ----------------------------------------------------------------
+
+    // Median-cut palette quantization. `pixels` is a flat Uint8 buffer of
+    // RGBA samples; opaque pixels (alpha ≥ 128) feed the quantizer, anything
+    // below that becomes transparent in the output. Returns an array of
+    // #rrggbbff hex strings with index 0 reserved as transparent.
+    function _pixelMedianCut(rgbaPixels, n) {
+      const opaque = [];
+      for (let i = 0; i < rgbaPixels.length; i += 4) {
+        if (rgbaPixels[i + 3] >= 128) {
+          opaque.push([rgbaPixels[i], rgbaPixels[i + 1], rgbaPixels[i + 2]]);
+        }
+      }
+      const wantColours = Math.max(1, (n | 0) - 1); // reserve slot 0 for transparent
+      if (!opaque.length) return ['#00000000'];
+      let buckets = [opaque];
+      while (buckets.length < wantColours) {
+        // Pick the bucket with the widest single-channel range.
+        let bestIdx = -1, bestRange = -1, bestChan = 0;
+        for (let bi = 0; bi < buckets.length; bi++) {
+          const b = buckets[bi];
+          if (b.length < 2) continue;
+          for (let c = 0; c < 3; c++) {
+            let mn = 255, mx = 0;
+            for (const p of b) { if (p[c] < mn) mn = p[c]; if (p[c] > mx) mx = p[c]; }
+            const range = mx - mn;
+            if (range > bestRange) { bestRange = range; bestIdx = bi; bestChan = c; }
+          }
+        }
+        if (bestIdx < 0) break;
+        const b = buckets[bestIdx];
+        b.sort((a, b) => a[bestChan] - b[bestChan]);
+        const mid = b.length >> 1;
+        buckets.splice(bestIdx, 1, b.slice(0, mid), b.slice(mid));
+      }
+      const palette = ['#00000000'];
+      for (const b of buckets) {
+        let r = 0, g = 0, bb = 0;
+        for (const p of b) { r += p[0]; g += p[1]; bb += p[2]; }
+        const n = b.length || 1;
+        const toHex = (v) => Math.round(v / n).toString(16).padStart(2, '0');
+        palette.push('#' + toHex(r) + toHex(g) + toHex(bb) + 'ff');
+      }
+      return palette;
+    }
+
+    // Squared distance in RGB. Cheap enough — for a 128×128 grid with a
+    // 64-colour palette that's ~1M comparisons, which runs in tens of ms.
+    function _pixelNearestPaletteIdx(r, g, b, palette) {
+      let best = 1, bestD = Infinity;
+      // Skip palette[0] (transparent) — opaque pixels never map there.
+      for (let i = 1; i < palette.length; i++) {
+        const hex = palette[i];
+        const pr = parseInt(hex.slice(1, 3), 16);
+        const pg = parseInt(hex.slice(3, 5), 16);
+        const pb = parseInt(hex.slice(5, 7), 16);
+        const dr = r - pr, dg = g - pg, db = b - pb;
+        const d = dr * dr + dg * dg + db * db;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      return best;
+    }
+
+    // Build the downsampled RGBA buffer at the target grid, handling the
+    // three fit modes: cover (fill, crop edges), contain (letterbox, pad
+    // with transparent), stretch (ignore aspect). Uses an off-screen canvas
+    // and the browser's built-in nearest-neighbour scaler.
+    function _pixelDownsampleImage(img, w, h, fit) {
+      const out = document.createElement('canvas');
+      out.width = w; out.height = h;
+      const ctx = out.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0, 0, w, h);
+      const iw = img.naturalWidth || img.width;
+      const ih = img.naturalHeight || img.height;
+      if (!iw || !ih) return ctx.getImageData(0, 0, w, h);
+      let dx = 0, dy = 0, dw = w, dh = h;
+      let sx = 0, sy = 0, sw = iw, sh = ih;
+      if (fit === 'contain') {
+        const ratio = Math.min(w / iw, h / ih);
+        dw = Math.max(1, Math.round(iw * ratio));
+        dh = Math.max(1, Math.round(ih * ratio));
+        dx = ((w - dw) / 2) | 0;
+        dy = ((h - dh) / 2) | 0;
+      } else if (fit === 'cover') {
+        const ratio = Math.max(w / iw, h / ih);
+        const scaledW = iw * ratio;
+        const scaledH = ih * ratio;
+        sw = Math.round(w / ratio);
+        sh = Math.round(h / ratio);
+        sx = ((iw - sw) / 2) | 0;
+        sy = ((ih - sh) / 2) | 0;
+      }
+      // 'stretch' uses defaults: sx=0,sy=0,sw=iw,sh=ih,dx=0,dy=0,dw=w,dh=h
+      ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+      return ctx.getImageData(0, 0, w, h);
+    }
+
+    // Image → pixelArt blob. Downscale, quantize palette, map pixels.
+    function pixelizeImage(img, opts = {}) {
+      const w = Math.max(4, Math.min(128, opts.width | 0 || 32));
+      const h = Math.max(4, Math.min(128, opts.height | 0 || 32));
+      const nColours = Math.max(2, Math.min(64, opts.colors | 0 || 16));
+      const fit = (['cover', 'contain', 'stretch'].includes(opts.fit) ? opts.fit : 'cover');
+      const data = _pixelDownsampleImage(img, w, h, fit).data;
+      const palette = _pixelMedianCut(data, nColours);
+      const indices = new Uint8Array(w * h);
+      for (let i = 0, p = 0; p < data.length; i++, p += 4) {
+        if (data[p + 3] < 128) { indices[i] = 0; continue; }
+        indices[i] = _pixelNearestPaletteIdx(data[p], data[p + 1], data[p + 2], palette);
+      }
+      return {
+        width: w, height: h, palette,
+        frames: [{ id: 'f1', pixels: encodePixelRLE(indices) }],
+      };
+    }
+
+    // Render a pixelArt blob into a canvas suitable for the modal preview.
+    function _pixelizeRenderPreview(targetEl, pa) {
+      targetEl.innerHTML = '';
+      const cv = renderPixelGridToCanvas(pa);
+      // The preview area is square; the canvas's natural aspect is w/h, so
+      // we constrain to fit within the box without distorting non-square
+      // grids.
+      cv.style.cssText = 'max-width:100%;max-height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges';
+      targetEl.appendChild(cv);
+    }
+
+    // Modal state: a live source image + the user's chosen options.
+    let _pixelizeState = null;
+
+    function openPixelizeModal(img) {
+      // Default the grid to the editor's current dims so "Apply" lands as a
+      // drop-in replacement; users can still tweak the dim inputs.
+      const defW = _pixelEdit ? _pixelEdit.w : 32;
+      const defH = _pixelEdit ? _pixelEdit.h : 32;
+      _pixelizeState = {
+        img,
+        opts: { width: defW, height: defH, colors: 16, fit: 'cover' },
+        debounce: 0,
+      };
+      const modal = $('pixelizeModal');
+      if (!modal) return;
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+      // Show the source image.
+      const src = $('pixelizeSourceWrap');
+      if (src) { src.innerHTML = ''; src.appendChild(img.cloneNode()); }
+      $('pixelizeW').value = _pixelizeState.opts.width;
+      $('pixelizeH').value = _pixelizeState.opts.height;
+      $('pixelizeColors').value = _pixelizeState.opts.colors;
+      document.querySelectorAll('#pixelizeFitMode .pixelExportScaleBtn').forEach(b => {
+        b.classList.toggle('active', b.dataset.fit === _pixelizeState.opts.fit);
+      });
+      pixelizeUpdatePreview();
+    }
+
+    function closePixelizeModal() {
+      const modal = $('pixelizeModal');
+      if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+      _pixelizeState = null;
+    }
+
+    function pixelizeUpdatePreview() {
+      if (!_pixelizeState) return;
+      // Debounce to keep typing responsive — quantization can take ~50–100ms
+      // at the upper end (128×128 × 64 colours).
+      clearTimeout(_pixelizeState.debounce);
+      _pixelizeState.debounce = setTimeout(() => {
+        if (!_pixelizeState) return;
+        try {
+          const pa = pixelizeImage(_pixelizeState.img, _pixelizeState.opts);
+          _pixelizeState.previewPa = pa;
+          _pixelizeRenderPreview($('pixelizeOutWrap'), pa);
+        } catch (e) {
+          console.warn('pixelize preview:', e);
+        }
+      }, 60);
+    }
+
+    // Replace the open pixel editor's state (grid dims + palette + frames)
+    // with the pixelized image. One undo entry restores everything.
+    function pixelizeCommit() {
+      if (!_pixelizeState || !_pixelEdit) { closePixelizeModal(); return; }
+      const pa = pixelizeImage(_pixelizeState.img, _pixelizeState.opts);
+      pixelSnapshot();
+      _pixelEdit.w = pa.width;
+      _pixelEdit.h = pa.height;
+      _pixelEdit.palette = pa.palette.slice();
+      _pixelEdit.frames = decodePixelArtFrames(pa, pa.width, pa.height);
+      _pixelEdit.currentFrame = 0;
+      _pixelEdit.indices = _pixelEdit.frames[0].indices;
+      _pixelEdit.current = Math.min(1, _pixelEdit.palette.length - 1);
+      const dims = $('pixelEditorDims');
+      if (dims) dims.textContent = `${pa.width} × ${pa.height} px`;
+      renderPixelPalette();
+      renderPixelGrid();
+      renderPixelTimeline();
+      pixelCommitIfStandalone();
+      closePixelizeModal();
+      toastSuccess('Image pixelized.');
+    }
+
+    function pixelImportFromImage() {
+      $('pixelImportImage')?.click();
+    }
+
+    function handlePixelImageFile(e) {
+      const file = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => openPixelizeModal(img);
+        img.onerror = () => toastError('Could not read that image.');
+        img.src = reader.result;
+      };
+      reader.onerror = () => toastError('Could not read that file.');
+      reader.readAsDataURL(file);
     }
 
     // Sanitize an arbitrary `pixelArt` blob (from file or community payload)
@@ -20003,6 +20295,39 @@
         pixelImportFromFile();
       });
       $('pixelImportFile')?.addEventListener('change', handlePixelImportFile);
+      // Pixel-editor toolbar "From image…" — opens the picker, then the
+      // pixelize modal. Replaces the editor's current grid + palette + frames.
+      $('pixelEditorImageBtn')?.addEventListener('click', () => {
+        $('pixelEditorImageFile')?.click();
+      });
+      $('pixelEditorImageFile')?.addEventListener('change', handlePixelImageFile);
+      // ---- Pixelize modal wiring ----
+      const _onPixelizeOpt = (key, max = 128, min = 4) => (e) => {
+        if (!_pixelizeState) return;
+        const v = Math.max(min, Math.min(max, Number(e.target.value) | 0 || min));
+        _pixelizeState.opts[key] = v;
+        pixelizeUpdatePreview();
+      };
+      $('pixelizeW')?.addEventListener('input', _onPixelizeOpt('width', 128, 4));
+      $('pixelizeH')?.addEventListener('input', _onPixelizeOpt('height', 128, 4));
+      $('pixelizeColors')?.addEventListener('input', _onPixelizeOpt('colors', 64, 2));
+      $('pixelizeFitMode')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('.pixelExportScaleBtn');
+        if (!btn || !_pixelizeState) return;
+        const fit = btn.dataset.fit || 'cover';
+        _pixelizeState.opts.fit = fit;
+        document.querySelectorAll('#pixelizeFitMode .pixelExportScaleBtn').forEach(b => {
+          b.classList.toggle('active', b.dataset.fit === fit);
+        });
+        pixelizeUpdatePreview();
+      });
+      $('pixelizeCancelBtn')?.addEventListener('click', closePixelizeModal);
+      $('pixelizeCloseBtn')?.addEventListener('click', closePixelizeModal);
+      $('pixelizeAddBtn')?.addEventListener('click', pixelizeCommit);
+      // Click outside the inner modal closes.
+      $('pixelizeModal')?.addEventListener('click', (e) => {
+        if (e.target === $('pixelizeModal')) closePixelizeModal();
+      });
       // Outside-click and Escape dismiss the menu — mirrors the export-PNG
       // menu pattern.
       const _pixelToolMenuEl = $('pixelToolMenu');
