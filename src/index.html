@@ -1324,6 +1324,9 @@
     body.template-deck #exportFieldset,
     body.template-deck #layersFieldset,
     body.template-deck #printExportRow { display: none !important; }
+    /* Deck Builder gets a dedicated "Export deck as PDF" row in place of
+       the single-page print row. Hidden again while editing one slide. */
+    body.template-deck:not(.editing-deck-slide) #deckExportRow { display: flex !important; }
     /* Standalone Pixel Art: only Layout, Metadata and Print/Save apply. */
     body.template-pixelart #coverSizeFieldset,
     body.template-pixelart #coverArtworkFieldset,
@@ -2788,6 +2791,9 @@
         <div class="buttonRow" id="printExportRow">
           <button class="primary" id="printBtn">Print / Save PDF</button>
           <button id="exportJpegBtn">Export JPEG</button>
+        </div>
+        <div class="buttonRow" id="deckExportRow" style="display:none">
+          <button type="button" class="primary" id="deckExportPdfBtn">Export deck as PDF</button>
         </div>
         <div class="buttonRow">
           <button id="saveProjectBtn">Save project (JSON)</button>
@@ -21290,6 +21296,10 @@
         if (inDeckSorter) exportDeckAsPdf();
         else printWithCurrentFilename();
       });
+      // Deck Builder-specific button in the Print & Save panel — the
+      // single-page #printBtn is CSS-hidden in deck sorter view, so this
+      // is the discoverable entry point for the multi-page export.
+      $('deckExportPdfBtn')?.addEventListener('click', exportDeckAsPdf);
 
       // Preview modal event listeners
       $('previewSaveJsonBtn').addEventListener('click', () => {
