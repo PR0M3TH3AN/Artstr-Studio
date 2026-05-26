@@ -7,10 +7,6 @@ Running list of deferred work. Detailed specs for the larger items live in
 
 - **Slide deck PDF export.** Add multi-slide PDF export for slide
   presentations, producing one page per slide.
-- **Color picker fixes (vector tools).** The in-app HSV picker now works in
-  the pixel editor; verify the OS-native `<input type="color">` flow in the
-  vector tool panels (Pen / Shape / Text fill + stroke). If the same Brave
-  R=NaN bug bites there, port the in-app HSV picker over.
 - **Copy / paste transform consistency.** Audit Copy, Paste, Copy All, and
   cross-target paste so copied objects keep consistent position and scale
   relative to the other copied objects, without unexpected misalignment or
@@ -80,6 +76,13 @@ Each has a full spec in `docs/`.
   this would be the NWC path.)
 
 ## Shipped (recent)
+
+- **Pixel-editor colour picker** — ported the OS native `<input type="color">`
+  over from the vector tools (same swatch styling; opens the OS picker with
+  its built-in eyedropper on click). Removed the Screen-Capture-API screen-
+  eyedropper workaround (~170 lines of dead code). Palette swatches and
+  the in-canvas eyedropper tool now sync the picker too, so grabbing a
+  palette colour as the starting point for a tweaked variant just works.
 
 - **Pixel Art** — `docs/PIXEL_ART_FEATURE.md`. Phases A–D all shipped:
   embedded `pixelart` layer + standalone `casewrap-pixelart` design,

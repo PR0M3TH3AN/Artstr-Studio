@@ -7873,16 +7873,42 @@
       pushHistory(`paste ${items.length} layer${items.length === 1 ? '' : 's'}`);
       const target = currentPasteTarget();
       const bounds = targetBounds(target);
+      // Compute the bounding box over all clipboard items in source coords.
+      // Each item missing w/h falls back to a 70%-of-target default — same
+      // as the previous behaviour, applied uniformly so it can't desync
+      // items within the same paste.
+      const defW = bounds.w * 0.7, defH = bounds.h * 0.7;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const it of items) {
+        const w = typeof it.w === 'number' && it.w > 0 ? it.w : defW;
+        const h = typeof it.h === 'number' && it.h > 0 ? it.h : defH;
+        const x = typeof it.x === 'number' ? it.x : 0;
+        const y = typeof it.y === 'number' ? it.y : 0;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x + w > maxX) maxX = x + w;
+        if (y + h > maxY) maxY = y + h;
+      }
+      const srcW = Math.max(0.01, maxX - minX);
+      const srcH = Math.max(0.01, maxY - minY);
+      // Single scale factor — only shrinks (never enlarges) so a paste into
+      // a larger target keeps the items at their original size. Both axes
+      // share the same scale so the group's aspect ratio is preserved.
+      const scale = Math.min(1, bounds.w / srcW, bounds.h / srcH);
+      // Centre the (possibly scaled) bbox within the target.
+      const tx = bounds.x + (bounds.w - srcW * scale) / 2 - minX * scale;
+      const ty = bounds.y + (bounds.h - srcH * scale) / 2 - minY * scale;
       let newLast = null;
       const newIds = [];
       for (const item of items) {
-        const w = Math.max(0.1, Math.min(item.w || bounds.w * 0.7, bounds.w));
-        const h = Math.max(0.1, Math.min(item.h || bounds.h * 0.7, bounds.h));
-        let x = typeof item.x === 'number' ? item.x : bounds.x + (bounds.w - w) / 2;
-        let y = typeof item.y === 'number' ? item.y : bounds.y + (bounds.h - h) / 2;
-        // Clamp inside the target bounds so cross-sub-mode pastes don't land off-canvas.
-        if (x < bounds.x || x + w > bounds.x + bounds.w) x = bounds.x + (bounds.w - w) / 2;
-        if (y < bounds.y || y + h > bounds.y + bounds.h) y = bounds.y + (bounds.h - h) / 2;
+        const w0 = typeof item.w === 'number' && item.w > 0 ? item.w : defW;
+        const h0 = typeof item.h === 'number' && item.h > 0 ? item.h : defH;
+        const x0 = typeof item.x === 'number' ? item.x : 0;
+        const y0 = typeof item.y === 'number' ? item.y : 0;
+        const w = Math.max(0.01, w0 * scale);
+        const h = Math.max(0.01, h0 * scale);
+        const x = x0 * scale + tx;
+        const y = y0 * scale + ty;
         const layer = { ...item, id: makeLayerId(), target, x, y, w, h, z: nextLayerZ() };
         state.layers.push(layer);
         newLast = layer;
