@@ -19580,7 +19580,10 @@
       // the canvas aspect ratio. opts.renderWidth lets callers (the deck
       // PDF exporter) render at the slide's natural pixel dims instead, so
       // text and layer sizes scale up coherently without a transform.
-      const renderWidth = Math.max(1, opts.renderWidth | 0) || PREVIEW_BASE_PX;
+      // (Bare `|| PREVIEW_BASE_PX` — coercing first with `| 0` would make
+      // `undefined` resolve to 0, which then truthy-falls-through to 1 via
+      // `Math.max(1, …)` and broke every thumbnail at 1px wide.)
+      const renderWidth = (opts.renderWidth | 0) > 0 ? (opts.renderWidth | 0) : PREVIEW_BASE_PX;
       const naturalW = renderWidth;
       const naturalH = renderWidth * hIn / wIn;
 
