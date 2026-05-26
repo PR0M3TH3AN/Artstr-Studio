@@ -925,27 +925,6 @@
     input.pixelPickerPreview::-webkit-color-swatch-wrapper { padding: 0; }
     input.pixelPickerPreview::-webkit-color-swatch { border: 0; border-radius: 3px; }
     input.pixelPickerPreview::-moz-color-swatch { border: 0; border-radius: 3px; }
-    .screenPickerOverlay {
-      position: fixed; inset: 0; z-index: 100000;
-      background: rgba(8,10,16,.94);
-      display: flex; align-items: center; justify-content: center; padding: 24px;
-    }
-    .screenPickerStage {
-      max-width: 100%; max-height: 100%;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .screenPickerCanvas {
-      max-width: 100%; max-height: calc(100vh - 90px);
-      cursor: crosshair; image-rendering: pixelated; image-rendering: crisp-edges;
-      background: #111; box-shadow: 0 8px 32px rgba(0,0,0,.5);
-    }
-    .screenPickerHint {
-      position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
-      background: rgba(11,13,18,.92); color: #fff;
-      font-size: .85rem; font-weight: 600; letter-spacing: .02em;
-      padding: 8px 16px; border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.15);
-    }
     .pixelPaletteEdit { display: flex; gap: 6px; margin-top: 10px; align-items: stretch; }
     .pixelPaletteEdit input[type=color] { flex: 0 0 auto; width: 38px; height: 32px; padding: 0; }
     .pixelPaletteEdit input[type=text] {
@@ -3693,10 +3672,6 @@
                 <input type="color" id="pixelColorPicker" class="pixelPickerPreview" title="Click to open the OS colour picker (eyedropper available inside)" value="#e43b44" aria-label="OS colour picker" />
                 <input type="text" id="pixelColorHex" value="#e43b44" maxlength="7" spellcheck="false" autocomplete="off" placeholder="#rrggbb" aria-label="Hex colour" />
                 <button type="button" id="pixelAddColorBtn" class="pixelBarBtn primary">+ Add</button>
-              </div>
-              <div class="pixelPaletteEdit" id="pixelPickFromScreenRow" style="display:none;margin-top:6px">
-                <button type="button" id="pixelPickFromScreenBtn" class="pixelBarBtn" style="flex:1">🎯 Pick from screen</button>
-                <button type="button" id="pixelPickStopBtn" class="pixelBarBtn" style="display:none" title="Stop sharing the screen with Artstr">Stop</button>
               </div>
             </div>
           </div>
@@ -8459,9 +8434,9 @@
     }
 
     // ---- In-app HSV colour picker -------------------------------------
-    // Pure sRGB math + canvas. Bypasses the OS <input type="color"> popup
-    // and the EyeDropper API entirely, so Brave / Chromium's eyedropper
-    // bugs (R = NaN, multiply-tinted sampling) can't affect what's added.
+    // Pure sRGB math + canvas drag picker — the primary input path,
+    // running alongside the OS native colour picker. The two stay in
+    // sync via the wiring in attachEvents().
     const _pixelPicker = { h: 0, s: 1, v: 1 };
 
     function pixelHsvToRgb(h, s, v) {
@@ -8555,130 +8530,6 @@
       const pickEl = document.getElementById('pixelColorPicker');
       if (pickEl) pickEl.value = hex;
     }
-    // Persistent screen-share for the screen eyedropper. Granted once per
-    // pixel-edit session — every subsequent pick grabs a fresh frame from
-    // the existing stream, no new permission dialog. Brave / Chrome won't
-    // let us "remember" the choice across sessions (no API for that), but
-    // within one session this means a single grant.
-    let _screenShareStream = null;
-    let _screenShareTrack = null;
-
-    function _pixelPickStreamLive() {
-      return !!(_screenShareTrack && _screenShareTrack.readyState === 'live');
-    }
-    function _updatePixelPickStopBtn() {
-      const stopBtn = document.getElementById('pixelPickStopBtn');
-      if (stopBtn) stopBtn.style.display = _pixelPickStreamLive() ? '' : 'none';
-    }
-    function stopScreenShareStream() {
-      if (_screenShareTrack) { try { _screenShareTrack.stop(); } catch (_) {} }
-      _screenShareTrack = null;
-      _screenShareStream = null;
-      _updatePixelPickStopBtn();
-    }
-    async function _getOrCreateScreenShareStream() {
-      if (_pixelPickStreamLive()) return _screenShareStream;
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-      _screenShareStream = stream;
-      _screenShareTrack = stream.getVideoTracks()[0];
-      // User clicked "Stop sharing" in Brave's own UI — clear our refs.
-      _screenShareTrack.addEventListener('ended', () => {
-        _screenShareTrack = null;
-        _screenShareStream = null;
-        _updatePixelPickStopBtn();
-      });
-      _updatePixelPickStopBtn();
-      return stream;
-    }
-
-    // Pick a colour from anywhere on screen via the Screen Capture API.
-    // We grab a single frame (reusing the existing share if there is one),
-    // show it in our own overlay, and the user clicks a pixel — bypassing
-    // OS-level eyedroppers entirely.
-    async function pickColorFromScreenCapture() {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-        toastError('Screen capture isn’t available in this browser.');
-        return;
-      }
-      let stream = null;
-      try {
-        stream = await _getOrCreateScreenShareStream();
-      } catch (err) {
-        // User dismissed the share picker — nothing to do.
-        return;
-      }
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      video.autoplay = true;
-      video.playsInline = true;
-      video.muted = true;
-      try {
-        await new Promise((resolve, reject) => {
-          video.onloadedmetadata = resolve;
-          video.onerror = reject;
-        });
-        await video.play();
-        // Give the next real frame a chance to arrive.
-        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-        const trackSettings = _screenShareTrack ? _screenShareTrack.getSettings() : {};
-        const w = video.videoWidth || trackSettings.width || 1920;
-        const h = video.videoHeight || trackSettings.height || 1080;
-        const snap = document.createElement('canvas');
-        snap.width = w; snap.height = h;
-        snap.getContext('2d').drawImage(video, 0, 0, w, h);
-        video.srcObject = null;
-        openScreenPickerOverlay(snap);
-      } catch (err) {
-        toastError('Could not capture screen.');
-      }
-    }
-
-    function openScreenPickerOverlay(snapCanvas) {
-      const overlay = document.createElement('div');
-      overlay.className = 'screenPickerOverlay';
-      const stage = document.createElement('div');
-      stage.className = 'screenPickerStage';
-      const display = document.createElement('canvas');
-      display.width = snapCanvas.width;
-      display.height = snapCanvas.height;
-      display.className = 'screenPickerCanvas';
-      const dctx = display.getContext('2d');
-      dctx.drawImage(snapCanvas, 0, 0);
-      stage.appendChild(display);
-      overlay.appendChild(stage);
-      const hint = document.createElement('div');
-      hint.className = 'screenPickerHint';
-      hint.textContent = 'Click any pixel to pick its colour · Esc to cancel';
-      overlay.appendChild(hint);
-      const close = () => {
-        document.removeEventListener('keydown', onKey, true);
-        overlay.remove();
-      };
-      const onKey = (e) => {
-        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
-      };
-      document.addEventListener('keydown', onKey, true);
-      display.addEventListener('click', (e) => {
-        const r = display.getBoundingClientRect();
-        const px = Math.max(0, Math.min(display.width - 1, Math.floor((e.clientX - r.left) / r.width * display.width)));
-        const py = Math.max(0, Math.min(display.height - 1, Math.floor((e.clientY - r.top) / r.height * display.height)));
-        try {
-          const data = snapCanvas.getContext('2d').getImageData(px, py, 1, 1).data;
-          const hex = pixelRgbToHex(data[0], data[1], data[2]);
-          if (pixelPickerSyncFromHex(hex)) {
-            try { pixelRenderHueStrip(); } catch (_) {}
-            try { pixelRenderSvSquare(); } catch (_) {}
-          }
-          pixelPickerCommit();
-          close();
-        } catch (err) {
-          toastError('Could not read that pixel — try again.');
-        }
-      });
-      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-      document.body.appendChild(overlay);
-    }
-
     // Update the picker's HSV state from a hex string (no rerendering of
     // canvases — caller decides when to re-render).
     function pixelPickerSyncFromHex(hex) {
@@ -10108,9 +9959,6 @@
       _pixelEditActive = false;
       _pixelEdit = null;
       document.body.classList.remove('pixel-editing');
-      // Drop any live screen-share stream when the pixel editor closes —
-      // the user gets a fresh permission dialog next time they enter it.
-      stopScreenShareStream();
       updateUndoRedoUI();
     }
 
@@ -20557,9 +20405,10 @@
           _dragFromIdx = -1;
         });
       }
-      // Sync the OS picker <-> hex text input <-> in-app HSV picker. The
-      // in-app picker (Sat/Val square + Hue strip) is the reliable input
-      // path; the other two are kept in sync purely for display / typing.
+      // Sync the OS picker <-> hex text input <-> in-app HSV picker —
+      // change any one and the others follow. The OS picker (the small
+      // colour swatch) opens the browser's native dialog with its
+      // built-in eyedropper.
       const _pixelHexEl = $('pixelColorHex');
       const _pixelPickEl = $('pixelColorPicker');
       const _setPixelInvalid = (bad) => { if (_pixelHexEl) _pixelHexEl.classList.toggle('invalid', !!bad); };
@@ -20632,18 +20481,6 @@
         renderPixelPalette();
         renderPixelGrid();
       });
-      // Screen eyedropper — uses the Screen Capture API to take one
-      // screenshot we display in our own overlay, where the user clicks
-      // any pixel. Sidesteps both the <input type="color"> popup
-      // eyedropper and the standalone EyeDropper API, which are both
-      // bugged on some Chromium builds (R = NaN / always returns white).
-      const _pickFromScreenRow = $('pixelPickFromScreenRow');
-      const _pickFromScreenBtn = $('pixelPickFromScreenBtn');
-      if (_pickFromScreenRow && _pickFromScreenBtn && navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-        _pickFromScreenRow.style.display = '';
-        _pickFromScreenBtn.addEventListener('click', () => pickColorFromScreenCapture().catch(() => {}));
-        $('pixelPickStopBtn')?.addEventListener('click', stopScreenShareStream);
-      }
 
       // ---- PNG export dropdown ----
       const _pixelExportBtn = $('pixelExportPngBtn');
