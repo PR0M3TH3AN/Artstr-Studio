@@ -3607,7 +3607,7 @@
               </div>
             </div>
             <button type="button" id="pixelEditorImageBtn" class="pixelBarBtn" title="Pixelize an image into this design">From image…</button>
-            <input id="pixelEditorImageFile" type="file" accept="image/*" hidden />
+            <input id="pixelEditorImageFile" type="file" accept="image/*" multiple hidden />
             <div class="pixelExportWrap">
               <button type="button" id="pixelExportPngBtn" class="pixelBarBtn" aria-haspopup="true" aria-expanded="false">Export PNG ▾</button>
               <div id="pixelExportMenu" class="pixelExportMenu">
@@ -4090,7 +4090,7 @@
       <p class="hint" style="margin:0 0 12px">Downscale a picture to a pixel-art grid. Tweak the controls — the preview updates live.</p>
       <div class="pixelizePreviewRow">
         <div class="pixelizePreviewBox">
-          <div class="pixelizePreviewLabel">Source</div>
+          <div class="pixelizePreviewLabel"><span id="pixelizeSourceLabel">Source</span></div>
           <div class="pixelizePreviewArea" id="pixelizeSourceWrap"></div>
         </div>
         <div class="pixelizePreviewBox">
@@ -9776,12 +9776,19 @@
     // Reflect _pixelizeState.opts.target in the UI: highlight the chosen
     // target button, lock W / H to the editor's current dims when targeting
     // a frame (so per-frame imports don't accidentally resize the whole
-    // sprite), and unlock them again for the Whole-sprite target.
+    // sprite), and unlock them again for the Whole-sprite target. With
+    // a multi-image batch, target is forced to newFrame and the other
+    // target buttons are disabled.
     function _pixelizeSyncTargetUI() {
       if (!_pixelizeState) return;
+      const batch = _pixelizeState.imgs.length;
+      const isBatch = batch > 1;
+      if (isBatch) _pixelizeState.opts.target = 'newFrame';
       const t = _pixelizeState.opts.target || 'current';
       document.querySelectorAll('#pixelizeTarget .pixelExportScaleBtn').forEach(b => {
         b.classList.toggle('active', b.dataset.target === t);
+        // In a batch, only newFrame makes sense — keep that one enabled.
+        b.disabled = isBatch && b.dataset.target !== 'newFrame';
       });
       const lockDims = (t === 'current' || t === 'newFrame');
       const wEl = $('pixelizeW'); const hEl = $('pixelizeH');
@@ -9795,29 +9802,41 @@
       }
       const addBtn = $('pixelizeAddBtn');
       if (addBtn) {
-        addBtn.textContent = t === 'newFrame'
-          ? 'Add as new frame'
-          : t === 'all' ? 'Replace whole sprite' : 'Replace current frame';
+        if (isBatch) {
+          addBtn.textContent = `Add ${batch} frames`;
+        } else {
+          addBtn.textContent = t === 'newFrame'
+            ? 'Add as new frame'
+            : t === 'all' ? 'Replace whole sprite' : 'Replace current frame';
+        }
       }
+      const srcLabel = $('pixelizeSourceLabel');
+      if (srcLabel) srcLabel.textContent = isBatch ? `Source · 1 / ${batch}` : 'Source';
     }
 
-    function openPixelizeModal(img) {
-      // Default the grid to the editor's current dims so "Apply" lands as a
-      // drop-in replacement on the current frame.
+    function openPixelizeModal(imgOrImgs) {
+      const imgs = Array.isArray(imgOrImgs) ? imgOrImgs : [imgOrImgs];
+      if (!imgs.length) return;
+      // Defaults: grid dims and colour count both follow the editor's
+      // current state, so per-frame imports drop in coherently. A batch
+      // gets forced to the newFrame target inside _pixelizeSyncTargetUI.
       const defW = _pixelEdit ? _pixelEdit.w : 32;
       const defH = _pixelEdit ? _pixelEdit.h : 32;
+      const defColors = _pixelEdit
+        ? Math.max(2, Math.min(64, _pixelEdit.palette.length))
+        : 16;
       _pixelizeState = {
-        img,
-        opts: { width: defW, height: defH, colors: 16, fit: 'cover', target: 'current' },
+        imgs,
+        opts: { width: defW, height: defH, colors: defColors, fit: 'cover', target: 'current' },
         debounce: 0,
       };
       const modal = $('pixelizeModal');
       if (!modal) return;
       modal.style.display = 'flex';
       modal.setAttribute('aria-hidden', 'false');
-      // Show the source image.
+      // Show the first image as the source preview (representative for a batch).
       const src = $('pixelizeSourceWrap');
-      if (src) { src.innerHTML = ''; src.appendChild(img.cloneNode()); }
+      if (src) { src.innerHTML = ''; src.appendChild(imgs[0].cloneNode()); }
       $('pixelizeW').value = _pixelizeState.opts.width;
       $('pixelizeH').value = _pixelizeState.opts.height;
       $('pixelizeColors').value = _pixelizeState.opts.colors;
@@ -9842,7 +9861,9 @@
       _pixelizeState.debounce = setTimeout(() => {
         if (!_pixelizeState) return;
         try {
-          const pa = pixelizeImage(_pixelizeState.img, _pixelizeState.opts);
+          // For a batch, the preview shows what the *first* image will
+          // become — every image gets pixelized with the same options.
+          const pa = pixelizeImage(_pixelizeState.imgs[0], _pixelizeState.opts);
           _pixelizeState.previewPa = pa;
           _pixelizeRenderPreview($('pixelizeOutWrap'), pa);
         } catch (e) {
@@ -9884,15 +9905,18 @@
       return { palette: merged, indices: remapped };
     }
 
-    // Apply the pixelized image into the editor according to the chosen
-    // target — replace just the current frame (default), add a new frame
-    // after the current one, or rebuild the whole sprite from scratch.
+    // Apply the pixelized image(s) into the editor according to the chosen
+    // target. Per-frame targets pixelize at the editor's current grid so
+    // every frame stays dimensionally compatible. Multi-image batches are
+    // forced to the newFrame target and append each image as a new frame
+    // in pick-order, sharing one undo entry and one palette-merge pass.
     function pixelizeCommit() {
       if (!_pixelizeState || !_pixelEdit) { closePixelizeModal(); return; }
-      const target = _pixelizeState.opts.target || 'current';
+      const imgs = _pixelizeState.imgs;
+      const target = (imgs.length > 1) ? 'newFrame' : (_pixelizeState.opts.target || 'current');
       if (target === 'all') {
         // Whole-sprite replace — rebuild dims + palette + frames from scratch.
-        const pa = pixelizeImage(_pixelizeState.img, _pixelizeState.opts);
+        const pa = pixelizeImage(imgs[0], _pixelizeState.opts);
         pixelSnapshot();
         _pixelEdit.w = pa.width;
         _pixelEdit.h = pa.height;
@@ -9911,26 +9935,32 @@
         toastSuccess('Image pixelized.');
         return;
       }
-      // Per-frame targets — pixelize at the editor's current grid so all
-      // frames stay dimensionally compatible, then merge the new palette
-      // into the existing one and remap indices.
-      const opts = { ..._pixelizeState.opts, width: _pixelEdit.w, height: _pixelEdit.h };
-      const pa = pixelizeImage(_pixelizeState.img, opts);
-      const decoded = decodePixelArtFrames(pa, pa.width, pa.height)[0];
-      const merged = _pixelMergePaletteAndRemap(_pixelEdit.palette, pa.palette, decoded.indices);
       pixelSnapshot();
-      _pixelEdit.palette = merged.palette;
+      const opts = { ..._pixelizeState.opts, width: _pixelEdit.w, height: _pixelEdit.h };
+      let workingPalette = _pixelEdit.palette;
+      const newFrameIndicesList = [];
+      for (const img of imgs) {
+        const pa = pixelizeImage(img, opts);
+        const decoded = decodePixelArtFrames(pa, pa.width, pa.height)[0];
+        const merged = _pixelMergePaletteAndRemap(workingPalette, pa.palette, decoded.indices);
+        workingPalette = merged.palette;
+        newFrameIndicesList.push(merged.indices);
+      }
+      _pixelEdit.palette = workingPalette;
       if (target === 'newFrame') {
-        const at = _pixelEdit.currentFrame + 1;
-        _pixelEdit.frames.splice(at, 0, {
-          id: _pixelNewFrameId(),
-          durationMs: 120,
-          indices: merged.indices,
-        });
-        _pixelEdit.currentFrame = at;
+        let at = _pixelEdit.currentFrame + 1;
+        for (const indices of newFrameIndicesList) {
+          _pixelEdit.frames.splice(at, 0, {
+            id: _pixelNewFrameId(),
+            durationMs: 120,
+            indices,
+          });
+          at++;
+        }
+        _pixelEdit.currentFrame = at - 1; // land on the last inserted frame
       } else {
-        // 'current': overwrite the active frame's indices in place.
-        _pixelEdit.frames[_pixelEdit.currentFrame].indices = merged.indices;
+        // 'current' (single image only): overwrite the active frame.
+        _pixelEdit.frames[_pixelEdit.currentFrame].indices = newFrameIndicesList[0];
       }
       _pixelEdit.indices = _pixelEdit.frames[_pixelEdit.currentFrame].indices;
       renderPixelPalette();
@@ -9938,7 +9968,12 @@
       renderPixelTimeline();
       pixelCommitIfStandalone();
       closePixelizeModal();
-      toastSuccess(target === 'newFrame' ? 'Added pixelized frame.' : 'Pixelized into current frame.');
+      const n = imgs.length;
+      toastSuccess(
+        n > 1 ? `Added ${n} pixelized frames.` :
+        target === 'newFrame' ? 'Added pixelized frame.' :
+        'Pixelized into current frame.'
+      );
     }
 
     function pixelImportFromImage() {
@@ -9946,18 +9981,28 @@
     }
 
     function handlePixelImageFile(e) {
-      const file = e.target.files && e.target.files[0];
+      const files = Array.from(e.target.files || []);
       e.target.value = '';
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const img = new Image();
-        img.onload = () => openPixelizeModal(img);
-        img.onerror = () => toastError('Could not read that image.');
-        img.src = reader.result;
-      };
-      reader.onerror = () => toastError('Could not read that file.');
-      reader.readAsDataURL(file);
+      if (!files.length) return;
+      const promises = files.map(file => new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => resolve({ ok: true, img, name: file.name });
+          img.onerror = () => resolve({ ok: false });
+          img.src = reader.result;
+        };
+        reader.onerror = () => resolve({ ok: false });
+        reader.readAsDataURL(file);
+      }));
+      Promise.all(promises).then(results => {
+        const imgs = results.filter(r => r.ok).map(r => r.img);
+        if (!imgs.length) { toastError('Could not read those images.'); return; }
+        if (imgs.length < files.length) {
+          toastError(`${files.length - imgs.length} of ${files.length} files could not be read.`);
+        }
+        openPixelizeModal(imgs);
+      });
     }
 
     // Sanitize an arbitrary `pixelArt` blob (from file or community payload)
