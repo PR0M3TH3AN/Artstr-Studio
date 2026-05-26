@@ -14614,6 +14614,17 @@
       styleEl.textContent = `
         @media print {
           @page { size: ${fmt(pageW)}in ${fmt(pageH)}in; margin: 0; }
+          /* The base print stylesheet locks html / body to the cover-
+             template sheet dims with overflow:hidden so single-sheet
+             prints don't run off the page. Override that for the deck
+             exporter — we need the body to expand to hold every
+             .deckPrintPage and let break-after page-break properly. */
+          html, body {
+            width: auto !important; height: auto !important;
+            overflow: visible !important;
+            margin: 0 !important; padding: 0 !important;
+            background: #fff !important;
+          }
           body > *:not(#deckPrintContainer) { display: none !important; }
           #deckPrintContainer { position: static !important; left: 0 !important; top: 0 !important; display: block !important; }
           .deckPrintPage {
