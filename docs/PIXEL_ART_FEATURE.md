@@ -86,25 +86,56 @@ template, it is *any design*.
 
 ## Implementation status
 
-- **Phase A1 — embedded pixel layer: built (pending in-browser testing).**
-  The `pixelart` layer type + `pixelArt` data model (palette + RLE
-  frames), `renderPixelGridToCanvas` and crisp rendering across the
-  editor / preview-DOM renderers / export canvas. A `#pixelEditorView`
-  with pencil / eraser / fill / eyedropper, a palette panel (pick / add),
-  grid toggle, mirror X/Y, zoom, and a per-stroke in-editor undo.
-  Reachable via the **▦** tool-palette button ("Add Layer → Pixel Art")
-  and an "Edit pixels" button / double-click on a selected pixel layer.
-  Single static frame only.
-- **Phase A2 — standalone Pixel Art design: built (pending in-browser
-  testing).** `templateMode: 'pixelart'` — a "Pixel Art" layout on the
-  Designer tab where the `#pixelEditorView` is the whole canvas area,
-  bound to `state.pixelArt`. Save / load / publish / fork as
-  `casewrap-pixelart`; appears in the community feed with a crisp
-  preview; the `pixel-art` category was added. Single static 32×32 grid
-  (grid resize is Phase B).
-- **Phases B / C / D:** not started. (Note: a `drawPixelArtToCanvas`
-  export path is already wired, so pixel layers appear in PDF/JPEG
-  export — Phase B's dedicated PNG export is still pending.)
+All four phases shipped.
+
+- **Phase A1 — embedded pixel layer: shipped.** The `pixelart` layer
+  type + `pixelArt` data model (palette + RLE frames),
+  `renderPixelGridToCanvas` and crisp rendering across the editor /
+  preview-DOM renderers / export canvas. A `#pixelEditorView` with
+  pencil / eraser / fill / eyedropper, a palette panel (pick / add),
+  grid toggle, mirror X/Y, zoom, and per-stroke in-editor undo.
+  Reachable via the **▦** tool-palette button and an "Edit pixels"
+  button / double-click on a selected pixel layer.
+- **Phase A2 — standalone Pixel Art design: shipped.**
+  `templateMode: 'pixelart'` — a "Pixel Art" layout on the Designer
+  tab where the editor view is the whole canvas area, bound to
+  `state.pixelArt`. Save / load / publish / fork as
+  `casewrap-pixelart`; shows in the community feed under the new
+  `pixel-art` category.
+- **Phase B — raster export + editor extras: shipped.** Crisp PNG
+  export at 1× / 2× / 4× / 8× / 16× / 32× with transparency and
+  optional grid lines, sprite-sheet PNG (Grid or Row layout) for
+  multi-frame designs, line / rectangle / ellipse tools with a Fill
+  toggle, flip H/V + rotate 90° CW/CCW, grid resize (4–128 per side
+  with top-left anchor and transparent fill), and a Browse-community
+  / Import-from-file pipeline that drops a published or local
+  pixel-art design into the current design as a new layer.
+- **Phase C — animation: shipped.** Multi-frame `frames[]` data model
+  with a vertical timeline strip (add / duplicate / delete /
+  drag-reorder / click-to-select frames; arrow keys cycle), playback
+  with FPS (1–60) and Loop controls (Space to toggle, clicking the
+  canvas stops), Aseprite-style red-prev / blue-next onion-skin
+  toggle, sprite-sheet PNG export, and an inline GIF89a encoder for
+  animated GIF export — palette-indexed, no vendored dependency.
+  Multi-frame previews animate everywhere they're rendered (publish
+  modal, community browser, feed cards, profile pages).
+- **Phase D — conversion: shipped.** "From image…" button in the
+  pixel editor toolbar: pick any image file → live side-by-side
+  preview as you tune W / H / Colors / fit mode (Cover / Fit /
+  Stretch) → median-cut palette quantization → nearest-neighbour
+  downscale → applies into the editor as a drop-in replacement
+  (one undo restores the prior state).
+- **Undo / redo integration.** The pixel editor's local undo /
+  redo is driven by the top-level Undo / Redo buttons while the
+  editor is open, and falls back to the global design history
+  when the editor is closed. Snapshots capture all frames plus
+  the current-frame index, so an undo across a flip / rotate /
+  resize restores everything coherently. Standalone-mode edits
+  push debounced entries to the global stack too.
+
+Not built (deferred to the backlog): WebP / APNG / animated-WebP
+export, Blossom offload + external manifest form for very large art,
+and animated pixel layers that drive Stack actions on click.
 
 ---
 

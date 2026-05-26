@@ -7,12 +7,10 @@ Running list of deferred work. Detailed specs for the larger items live in
 
 - **Slide deck PDF export.** Add multi-slide PDF export for slide
   presentations, producing one page per slide.
-- **Pixel editor layout expansion.** Enlarge the pixel editor so it uses the
-  empty outer gaps around the current editing area.
-- **Color picker fixes.** Fix the color picker, which currently does not work
-  on pixel or vector tools.
-- **Print / Save event ID wrapping.** In the Print / Save panel, make sure the
-  event id wraps instead of forcing the side panel into horizontal scrolling.
+- **Color picker fixes (vector tools).** The in-app HSV picker now works in
+  the pixel editor; verify the OS-native `<input type="color">` flow in the
+  vector tool panels (Pen / Shape / Text fill + stroke). If the same Brave
+  R=NaN bug bites there, port the in-app HSV picker over.
 - **Copy / paste transform consistency.** Audit Copy, Paste, Copy All, and
   cross-target paste so copied objects keep consistent position and scale
   relative to the other copied objects, without unexpected misalignment or
@@ -36,17 +34,10 @@ surface + canvas export, JSON round-trip).
 
 Small editor-usability improvements — no spec doc; scoped here.
 
-All current items shipped (commit `1a517c9`): on-canvas drag-resize
-handles for every layer type, text-box resize that never rescales the
-point size, and the expanded Text tool panel (font / size / color /
-alignment / bold / italic). Add new editor-UX improvements below as
-they come up.
-
-## Cleanup
-
-- **Delete `docs/TMDB_AUTOFILL_FEATURE.md`.** TMDB auto-fill was declined —
-  the metadata fields work fine filled by hand, and the IMDb-style import
-  has been removed.
+Shipped: on-canvas drag-resize handles for every layer type, text-box
+resize that never rescales the point size, the expanded Text tool panel
+(font / size / color / alignment / bold / italic), a collapsible sidebar
+toggle that fits the early-web aesthetic. Add new editor-UX items below.
 
 ## Profile pages — deferred polish
 
@@ -81,9 +72,6 @@ Each has a full spec in `docs/`.
 - **Artstr Stacks** — `docs/STACKS_FEATURE.md`. Interactive fullscreen
   page/card stacks (HyperCard for Nostr) — the Slide Deck extended with
   layer actions and an interactive viewer. Queued after private publishing.
-- **Pixel Art** — `docs/PIXEL_ART_FEATURE.md`. An editable `pixelart`
-  layer type (palette-indexed grid in JSON), a dedicated Pixel Editor
-  view, PNG/GIF export, and a standalone `casewrap-pixelart` design.
 - **Badges (NIP-58)** — `docs/BADGES_FEATURE.md`. Award / display Nostr
   badges on profile pages.
 - **Collections (NIP-51 sets)** — `docs/COLLECTIONS_FEATURE.md`. Let users
@@ -93,3 +81,19 @@ Each has a full spec in `docs/`.
 - **Zaps via Nostr Wallet Connect** — `docs/ZAPS_NWC_FEATURE.md`. In-app
   zapping without the wallet handoff. (Tracked LNURL-pay tips already ship;
   this would be the NWC path.)
+
+## Shipped (recent)
+
+- **Pixel Art** — `docs/PIXEL_ART_FEATURE.md`. Phases A–D all shipped:
+  embedded `pixelart` layer + standalone `casewrap-pixelart` design,
+  PNG / sprite-sheet / GIF export, drawing tools (line / rect / ellipse,
+  flip / rotate, grid resize), animation (multi-frame timeline, playback,
+  onion-skin), image → pixelize, and animated previews in every preview
+  surface. Undo / redo integrated with the top-level toolbar.
+- **Pixel editor layout expansion** — addressed by the collapsible
+  sidebar (gives both the pixel and vector editors a lot more breathing
+  room when needed).
+- **Print / Save event ID wrapping** — the event-id `<dd>` already uses
+  `overflow-wrap: anywhere; word-break: break-word`, so no horizontal
+  scroll.
+- **TMDB auto-fill cleanup** — `docs/TMDB_AUTOFILL_FEATURE.md` removed.
