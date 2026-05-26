@@ -14576,9 +14576,11 @@
     //
     // Page sizing matches the slide canvas's natural design dimensions:
     // a 1920×1080 slide → 20in × 11.25in PDF page at the CSS 96 dpi
-    // baseline, so the PDF is the slide at 1:1 scale. The preview itself
-    // is always rendered at PREVIEW_BASE_PX wide internally, so we apply
-    // a CSS `transform: scale(...)` to enlarge it to fill the page.
+    // baseline, so the PDF is the slide at 1:1 scale. We render the
+    // preview at the slide's natural pixel width too (via opts.renderWidth)
+    // so it fills the page without a CSS transform — transforms in print
+    // are brittle (clipping, browser quirks) and were what produced the
+    // earlier blank PDFs.
     async function exportDeckAsPdf() {
       const deck = ensureDeck();
       const slides = deck?.slides || [];
@@ -14589,9 +14591,6 @@
       // CSS uses a 96 dpi baseline, so px / 96 → in.
       const pageW = wPx / 96;
       const pageH = hPx / 96;
-      // The preview renders at PREVIEW_BASE_PX wide; scale it up so it
-      // fills the page exactly.
-      const previewScale = wPx / PREVIEW_BASE_PX;
       const fmt = (n) => Math.round(n * 1000) / 1000;
       const container = document.createElement('div');
       container.id = 'deckPrintContainer';
@@ -14599,14 +14598,14 @@
       slides.forEach((entry, i) => {
         const page = document.createElement('div');
         page.className = 'deckPrintPage';
-        if (i < slides.length - 1) page.style.pageBreakAfter = 'always';
-        // Inner wrapper hosts the transform; the preview itself is
-        // appended inside it.
-        const inner = document.createElement('div');
-        inner.className = 'deckPrintInner';
+        // `break-after: page` is the modern spec; `page-break-after` is the
+        // legacy alias browsers still honour. Set both for safety.
+        if (i < slides.length - 1) {
+          page.style.breakAfter = 'page';
+          page.style.pageBreakAfter = 'always';
+        }
         const composed = composeSlideForDeck(entry, deck.theme || {});
-        renderCustomArtPreviewDOM(inner, composed);
-        page.appendChild(inner);
+        renderCustomArtPreviewDOM(page, composed, { renderWidth: wPx });
         container.appendChild(page);
       });
       document.body.appendChild(container);
@@ -14616,30 +14615,18 @@
         @media print {
           @page { size: ${fmt(pageW)}in ${fmt(pageH)}in; margin: 0; }
           body > *:not(#deckPrintContainer) { display: none !important; }
-          #deckPrintContainer { position: static !important; left: 0 !important; top: 0 !important; }
+          #deckPrintContainer { position: static !important; left: 0 !important; top: 0 !important; display: block !important; }
           .deckPrintPage {
             width: ${fmt(pageW)}in; height: ${fmt(pageH)}in;
-            position: relative;
             box-sizing: border-box; padding: 0; margin: 0;
             background: #fff; overflow: hidden;
           }
-          /* Scale the natively-PREVIEW_BASE_PX-wide preview up to the
-             slide's natural design dimensions. Explicit width / height are
-             required — the preview's own root uses width: min(100%, 720px),
-             which resolves against this container, so a missing width
-             collapses the whole thing to zero. transform-origin: top left
-             anchors the scale at (0,0). */
-          .deckPrintInner {
-            position: absolute; top: 0; left: 0;
-            width: ${PREVIEW_BASE_PX}px;
-            height: ${fmt(PREVIEW_BASE_PX * hPx / wPx)}px;
-            transform: scale(${fmt(previewScale)});
-            transform-origin: top left;
-          }
-          /* The preview's own root div has inline width/aspect-ratio rules
-             and a border + box-shadow for the editor view — strip the
-             decoration in print. */
-          .deckPrintInner > div {
+          /* The preview's own root div has inline rules for the editor
+             view; strip its border / shadow / margin in print and force
+             it to fill the page edge-to-edge. */
+          .deckPrintPage > div {
+            width: 100% !important; height: 100% !important;
+            max-width: none !important;
             margin: 0 !important; border: 0 !important; box-shadow: none !important;
           }
         }
@@ -19590,15 +19577,17 @@
 
       // Natural pixel size for compact mode is the same scale system as the
       // other previews — fixed at PREVIEW_BASE_PX wide, height derived from
-      // the canvas aspect ratio. fitMiniPreview() scales the whole thing to
-      // fit the thumb.
-      const naturalW = PREVIEW_BASE_PX;
-      const naturalH = PREVIEW_BASE_PX * hIn / wIn;
+      // the canvas aspect ratio. opts.renderWidth lets callers (the deck
+      // PDF exporter) render at the slide's natural pixel dims instead, so
+      // text and layer sizes scale up coherently without a transform.
+      const renderWidth = Math.max(1, opts.renderWidth | 0) || PREVIEW_BASE_PX;
+      const naturalW = renderWidth;
+      const naturalH = renderWidth * hIn / wIn;
 
       const canvas = document.createElement('div');
       canvas.style.cssText = [
         'position:relative',
-        compact ? `width:${naturalW}px` : `width:min(100%, ${PREVIEW_BASE_PX}px)`,
+        compact ? `width:${naturalW}px` : `width:min(100%, ${renderWidth}px)`,
         compact ? `height:${naturalH}px` : `aspect-ratio:${wPx} / ${hPx}`,
         compact ? 'margin:0;transform-origin:center center' : 'margin:0 auto',
         `background:${background}`,
@@ -19624,7 +19613,7 @@
         el.style.cssText = `position:absolute;left:${lx}%;top:${ly}%;width:${lw}%;height:${lh}%;transform:rotate(${Number(layer.rotate)||0}deg);opacity:${layer.opacity !== undefined ? layer.opacity : 1};overflow:hidden;pointer-events:none;box-sizing:border-box;z-index:${zi};${clipPathStyleFragment(layer)}`;
 
         if (layer.type === 'text') {
-          applyPreviewLayerTextStyle(el, layer, PREVIEW_BASE_PX / wIn);
+          applyPreviewLayerTextStyle(el, layer, renderWidth / wIn);
         } else if (layer.type === 'color') {
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
         } else if (layer.type === 'shape') {
