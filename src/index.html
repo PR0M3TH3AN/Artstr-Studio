@@ -9088,6 +9088,26 @@
       }
     }
 
+    // Select a palette slot AND push its colour into the HSV / hex / OS
+    // picker, so the user can grab a swatch and tweak it (darker, lighter,
+    // less saturated, hue-shifted) without retyping the hex. Transparent
+    // slots are selected for painting but skipped for picker sync.
+    function pixelSelectPaletteIndex(i) {
+      if (!_pixelEdit) return;
+      const n = _pixelEdit.palette.length;
+      if (i < 0 || i >= n) return;
+      _pixelEdit.current = i;
+      const hex = _pixelEdit.palette[i];
+      if (hex && !pixelHexTransparent(hex) && /^#[0-9a-fA-F]{6,8}/.test(hex)) {
+        if (pixelPickerSyncFromHex(hex.slice(0, 7))) {
+          try { pixelRenderHueStrip(); } catch (_) {}
+          try { pixelRenderSvSquare(); } catch (_) {}
+          pixelPickerCommit();
+        }
+      }
+      renderPixelPalette();
+    }
+
     function renderPixelPalette() {
       if (!_pixelEdit) return;
       const wrap = $('pixelPaletteSwatches');
@@ -9100,7 +9120,7 @@
         if (pixelHexTransparent(hex)) sw.classList.add('pixelSwatchTransparent');
         else sw.style.backgroundColor = pixelHexToRgba(hex);
         sw.title = i === 0 ? 'Transparent' : hex;
-        sw.addEventListener('click', () => { _pixelEdit.current = i; renderPixelPalette(); });
+        sw.addEventListener('click', () => pixelSelectPaletteIndex(i));
         wrap.appendChild(sw);
       });
     }
@@ -9515,8 +9535,7 @@
       const t = _pixelEdit.tool;
       if (t === 'eyedropper') {
         if (!isStart) return;
-        _pixelEdit.current = _pixelEdit.indices[cell.y * _pixelEdit.w + cell.x];
-        renderPixelPalette();
+        pixelSelectPaletteIndex(_pixelEdit.indices[cell.y * _pixelEdit.w + cell.x]);
         return;
       }
       if (t === 'fill') {
