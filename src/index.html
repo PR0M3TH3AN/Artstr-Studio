@@ -3140,6 +3140,10 @@
               <button type="button" id="textBold" title="Bold"><b>B</b></button>
               <button type="button" id="textItalic" title="Italic"><i>I</i></button>
             </div>
+
+            <label for="textLayerLink" style="margin-top:8px">Link URL (optional)</label>
+            <input id="textLayerLink" type="text" placeholder="https://example.com" autocomplete="off" spellcheck="false" />
+            <p class="hint" style="font-size:.72rem;margin:4px 0 0">Wraps the text in a hyperlink. Live in slide previews and clickable in the exported PDF. Only http/https/mailto/tel/nostr URLs are allowed.</p>
           </div>
 
           <div id="colorLayerControls" style="display:none">
@@ -13854,7 +13858,7 @@
         $(id).disabled = !layer;
       }
       $('layerUrl').disabled = !layer || layer.type !== 'image';
-      for (const id of ['textLayerContent', 'textFontFamily', 'textFontSize', 'textColor', 'textAlign', 'textBold', 'textItalic']) {
+      for (const id of ['textLayerContent', 'textFontFamily', 'textFontSize', 'textColor', 'textAlign', 'textBold', 'textItalic', 'textLayerLink']) {
         const el = $(id);
         if (el) el.disabled = !layer || layer.type !== 'text';
       }
@@ -13895,6 +13899,8 @@
         $('textFontSize').value = layer.fontSize || 24;
         $('textColor').value = layer.color || '#111827';
         $('textAlign').value = layer.align || 'left';
+        const linkEl = $('textLayerLink');
+        if (linkEl && document.activeElement !== linkEl) linkEl.value = layer.linkHref || '';
       }
 
       if (layer.type === 'color' && fillEl) {
@@ -18757,6 +18763,21 @@
 
     // Shared by all preview renderers. Mirrors the editor's `.textLayer` CSS
     // so text rendering in the preview matches what the editor shows.
+    // Allow only safe URL schemes for text-layer hyperlinks.  Blocks
+    // `javascript:` (XSS), `data:` (also XSS via HTML), and any scheme we
+    // haven't explicitly opted into.
+    function safeTextLinkHref(raw) {
+      if (typeof raw !== 'string') return '';
+      const trimmed = raw.trim();
+      if (!trimmed) return '';
+      return /^(https?:|mailto:|tel:|nostr:)/i.test(trimmed) ? trimmed : '';
+    }
+
+    // Escape user-supplied strings before they go into an HTML attribute.
+    function escAttr(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
     // pxPerInch is the preview's CSS-px per real inch (e.g., 720/sheetW or
     // PREVIEW_PX/DISC_D), so the rendered metrics scale with the preview size.
     function applyPreviewLayerTextStyle(el, layer, pxPerInch) {
@@ -18767,7 +18788,16 @@
         ? layer.fontFamily
         : 'inherit';
       el.style.cssText += `font-family:${family};color:${layer.color || '#111827'};font-size:${fontPx}px;font-weight:${layer.bold ? '800' : '400'};font-style:${layer.italic ? 'italic' : 'normal'};text-align:${align};padding:${padPx}px;box-sizing:border-box;line-height:1.2;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;`;
-      el.innerHTML = layer.html || '';
+      const inner = layer.html || '';
+      const href = safeTextLinkHref(layer.linkHref);
+      if (href) {
+        // Wrap the text in an <a> so the link survives into PDF export as a
+        // clickable annotation. display:block + 100%/100% so the link's hit
+        // area covers the whole text box, not just glyph silhouettes.
+        el.innerHTML = `<a href="${escAttr(href)}" target="_blank" rel="noopener noreferrer" style="display:block;width:100%;height:100%;color:inherit;text-decoration:underline;">${inner}</a>`;
+      } else {
+        el.innerHTML = inner;
+      }
     }
 
     const PREVIEW_BASE_PX = 720;
@@ -21923,6 +21953,17 @@
         const layer = selectedLayer();
         if (!layer || layer.type !== 'text') return;
         layer.italic = !layer.italic;
+        render();
+      });
+
+      $('textLayerLink')?.addEventListener('input', (e) => {
+        const layer = selectedLayer();
+        if (!layer || layer.type !== 'text') return;
+        pushHistoryDebounced(`text:link:${layer.id}`, 'change text link', 600);
+        const raw = e.target.value || '';
+        // Store the raw user-entered string so they don't lose what they
+        // typed; previews use safeTextLinkHref() to decide what's emitted.
+        layer.linkHref = raw;
         render();
       });
 
