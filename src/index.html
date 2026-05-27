@@ -15131,6 +15131,79 @@
       return canvas;
     }
 
+    // Slide / Custom Art / Pixel Art standalone: one flat rectangle of
+    // layers on a background colour. Slides share the customart payload
+    // shape under `state.customArt`.
+    async function renderCustomArtToExportCanvas(dpi) {
+      const ca = state.customArt || { width: 1920, height: 1080, background: '#ffffff' };
+      const wIn = (Number(ca.width) || 1920) / 96;
+      const hIn = (Number(ca.height) || 1080) / 96;
+      const canvas = document.createElement('canvas');
+      const ctx = setupExportCanvas(canvas, wIn, hIn, dpi);
+      const bg = ca.background || '#ffffff';
+      if (bg && bg.toLowerCase() !== '#ffffff' && bg.toLowerCase() !== '#fff') {
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      const layers = (state.layers || [])
+        .filter(l => l.target === 'canvas' && !l.hidden && !l._generatedDiscLayer)
+        .slice()
+        .sort((a, b) => (a.z || 0) - (b.z || 0));
+      for (const layer of layers) await drawLayerToCanvas(ctx, layer, dpi);
+      return canvas;
+    }
+
+    // Pick the right rasterizer for the current artboard, render, encode as
+    // JPEG. Returns one of:
+    //   { ok: true, blob }              — direct JPEG ready to download
+    //   { ok: false, kind: 'unsupported' } — caller should fall back
+    //   { ok: false, kind: 'cors', urls } — same; this PDF route handles it
+    //   { ok: false, kind: 'taint' }    — canvas was tainted (last-resort fallback)
+    async function exportArtboardAsJpegBlob(opts = {}) {
+      const dpi = Math.max(72, Math.min(600, opts.dpi | 0 || 150));
+      const quality = typeof opts.quality === 'number' ? opts.quality : 0.92;
+      _exportFailedImages.clear();
+      const mode = state.templateMode;
+      let canvas = null;
+      try {
+        if (state.appMode === 'designer') {
+          canvas = await renderDiscDesignToExportCanvas(dpi);
+        } else if (mode === 'cover') {
+          canvas = await renderCoverToExportCanvas(dpi);
+        } else if (mode === 'disc') {
+          canvas = await renderDiscSheetToExportCanvas(dpi);
+        } else if (mode === 'jewel') {
+          canvas = await renderJewelSheetToExportCanvas(dpi);
+        } else if (mode === 'customart' || mode === 'slide') {
+          canvas = await renderCustomArtToExportCanvas(dpi);
+        } else {
+          // pixelart standalone, deck — not supported by the direct rasterizer.
+          // (Pixel art has its own PNG export, deck has the multi-page PDF.)
+          return { ok: false, kind: 'unsupported' };
+        }
+      } catch (e) {
+        return { ok: false, kind: 'unsupported', err: String(e) };
+      }
+      // Any image we couldn't load (CORS, timeout, 404) means the JPEG
+      // would be missing content the user would expect. Route to the PDF
+      // path instead — the browser's print engine has a separate image
+      // pipeline that handles cross-origin embeds the canvas can't touch.
+      if (_exportFailedImages.size > 0) {
+        return { ok: false, kind: 'cors', urls: Array.from(_exportFailedImages) };
+      }
+      try {
+        const blob = await new Promise((resolve, reject) => {
+          canvas.toBlob((b) => b ? resolve(b) : reject(new Error('toBlob returned null')), 'image/jpeg', quality);
+        });
+        return { ok: true, blob };
+      } catch (e) {
+        // toBlob throws SecurityError on a tainted canvas. Shouldn't happen
+        // because loadImageWithCors rejects before drawImage on a CORS-
+        // blocked image, but kept as a defensive fallback.
+        return { ok: false, kind: 'taint', err: String(e) };
+      }
+    }
+
     function jpegFilenameStem() {
       const parts = [
         filenamePart(state.meta?.title) || 'design',
@@ -15203,7 +15276,43 @@
       m.setAttribute('aria-hidden', 'true');
     }
 
-    function exportArtboardAsJpeg() {
+    // The Export-JPEG entry point. Tries the direct canvas rasterizer first
+    // (one click, no print dialog, no re-upload). Falls back to the existing
+    // print-and-pick-PDF modal for canvas types that aren't covered yet
+    // (pixelart, deck) or designs with CORS-blocked remote images.
+    async function exportArtboardAsJpeg(btn) {
+      const restoreBtn = (text) => { if (btn) { btn.disabled = false; if (text != null) btn.textContent = text; } };
+      const prevText = btn?.textContent;
+      if (btn) { btn.disabled = true; btn.textContent = 'Rendering…'; }
+      let result;
+      try {
+        result = await exportArtboardAsJpegBlob({ dpi: 150, quality: 0.92 });
+      } catch (e) {
+        toastError && toastError('JPEG render failed — falling back to PDF flow.');
+        restoreBtn(prevText);
+        openPdfJpegModal();
+        return;
+      }
+      if (result.ok) {
+        const url = URL.createObjectURL(result.blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${jpegFilenameStem()}.jpg`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        toastSuccess && toastSuccess('JPEG saved.');
+        restoreBtn(prevText);
+        return;
+      }
+      // Fall back to the existing print-to-PDF + re-pick flow.
+      restoreBtn(prevText);
+      if (result.kind === 'cors') {
+        toastError && toastError(`${result.urls.length} image(s) couldn't be embedded directly — switching to the PDF route.`);
+      } else if (result.kind === 'unsupported') {
+        toastError && toastError('Direct JPEG not supported for this template — using the PDF route.');
+      }
       openPdfJpegModal();
     }
 
