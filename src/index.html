@@ -14336,7 +14336,11 @@
           nextY = fixedY - nextH;
         }
         const isCorner = drivesW && drivesH;
-        if (_aspectLocked && isCorner) {
+        // Corner-handle resize defaults to INDEPENDENT axes — each axis
+        // scales by its own drag delta. Hold Shift while dragging to lock
+        // the aspect ratio (matches Figma / Photoshop / Keynote). The
+        // sidebar 🔒 toggle still governs typed W / H input cascades.
+        if (moveEvent.shiftKey && isCorner) {
           const sxRaw = nextW / startBounds.w;
           const syRaw = nextH / startBounds.h;
           const scale = Math.max(MIN / startBounds.w, MIN / startBounds.h, Math.abs(sxRaw) >= Math.abs(syRaw) ? sxRaw : syRaw);
@@ -14425,11 +14429,13 @@
         const dh = drivesH ? (dir.includes('s') ? ldy : -ldy) : 0;
 
         // Edge handles are always single-axis — they resize in their one
-        // direction only. Aspect-lock applies to corner handles alone, so
-        // grabbing an edge never balloons the box on the other axis.
+        // direction only. Corner handles default to INDEPENDENT axes —
+        // each axis follows its own drag delta. Hold Shift to lock the
+        // aspect ratio (Figma / Photoshop / Keynote convention). The
+        // sidebar 🔒 toggle still governs typed W / H input cascades.
         const isCorner = drivesW && drivesH;
         let newW, newH;
-        if (_aspectLocked && isCorner && w0 > 0 && h0 > 0) {
+        if (e.shiftKey && isCorner && w0 > 0 && h0 > 0) {
           const sw = dw / w0;
           const sh = dh / h0;
           const s = Math.abs(sw) >= Math.abs(sh) ? sw : sh;
