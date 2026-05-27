@@ -1824,6 +1824,16 @@
       padding: 8px 0;
       border-radius: 0px;
     }
+    .textRichBar {
+      display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px;
+    }
+    .textRichBar button {
+      min-width: 32px; padding: 4px 6px;
+      border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+      cursor: pointer; font-family: inherit; font-size: .92rem; line-height: 1;
+    }
+    .textRichBar button:hover:not(:disabled) { background: rgba(127,127,127,.14); }
+    .textRichBar button:disabled { opacity: .5; cursor: not-allowed; }
 
     body.dragging-layer {
       cursor: move;
@@ -3137,13 +3147,21 @@
             </select>
 
             <div class="textTools">
-              <button type="button" id="textBold" title="Bold"><b>B</b></button>
-              <button type="button" id="textItalic" title="Italic"><i>I</i></button>
+              <button type="button" id="textBold" title="Whole-layer bold"><b>B</b></button>
+              <button type="button" id="textItalic" title="Whole-layer italic"><i>I</i></button>
             </div>
 
-            <label for="textLayerLink" style="margin-top:8px">Link URL (optional)</label>
-            <input id="textLayerLink" type="text" placeholder="https://example.com" autocomplete="off" spellcheck="false" />
-            <p class="hint" style="font-size:.72rem;margin:4px 0 0">Wraps the text in a hyperlink. Live in slide previews and clickable in the exported PDF. Only http/https/mailto/tel/nostr URLs are allowed.</p>
+            <label style="margin-top:10px">Inline formatting <span class="hint" style="font-weight:normal">(select text on the canvas first)</span></label>
+            <div class="textRichBar">
+              <button type="button" id="textRichBold" title="Bold selection (Ctrl+B)"><b>B</b></button>
+              <button type="button" id="textRichItalic" title="Italic selection (Ctrl+I)"><i>I</i></button>
+              <button type="button" id="textRichUnderline" title="Underline selection (Ctrl+U)"><u>U</u></button>
+              <button type="button" id="textRichUL" title="Bulleted list">•</button>
+              <button type="button" id="textRichOL" title="Numbered list">1.</button>
+              <button type="button" id="textRichLink" title="Insert / edit link">🔗</button>
+              <button type="button" id="textRichUnlink" title="Remove link">⌧</button>
+            </div>
+            <p class="hint" style="font-size:.72rem;margin:4px 0 0">Click into the text on the canvas, select a range, then use these buttons. Links survive into the PDF export as clickable annotations.</p>
           </div>
 
           <div id="colorLayerControls" style="display:none">
@@ -11382,6 +11400,19 @@
           text.contentEditable = 'true';
           text.spellcheck = false;
           text.innerHTML = layer.html || '';
+          // Same scrub as applyPreviewLayerTextStyle: strip / unwrap any
+          // <a> with an unsafe href so a forked design can't carry an
+          // active javascript: link into the editor.
+          text.querySelectorAll('a').forEach(a => {
+            const safe = safeTextLinkHref(a.getAttribute('href') || '');
+            if (safe) {
+              a.setAttribute('href', safe);
+            } else {
+              const parent = a.parentNode;
+              while (a.firstChild) parent.insertBefore(a.firstChild, a);
+              parent.removeChild(a);
+            }
+          });
           text.style.fontFamily = layer.fontFamily || 'inherit';
           text.style.fontSize = `${layer.fontSize || 24}pt`;
           text.style.color = layer.color || '#111827';
@@ -13858,7 +13889,12 @@
         $(id).disabled = !layer;
       }
       $('layerUrl').disabled = !layer || layer.type !== 'image';
-      for (const id of ['textLayerContent', 'textFontFamily', 'textFontSize', 'textColor', 'textAlign', 'textBold', 'textItalic', 'textLayerLink']) {
+      for (const id of [
+        'textLayerContent', 'textFontFamily', 'textFontSize', 'textColor', 'textAlign',
+        'textBold', 'textItalic',
+        'textRichBold', 'textRichItalic', 'textRichUnderline',
+        'textRichUL', 'textRichOL', 'textRichLink', 'textRichUnlink',
+      ]) {
         const el = $(id);
         if (el) el.disabled = !layer || layer.type !== 'text';
       }
@@ -13899,8 +13935,6 @@
         $('textFontSize').value = layer.fontSize || 24;
         $('textColor').value = layer.color || '#111827';
         $('textAlign').value = layer.align || 'left';
-        const linkEl = $('textLayerLink');
-        if (linkEl && document.activeElement !== linkEl) linkEl.value = layer.linkHref || '';
       }
 
       if (layer.type === 'color' && fillEl) {
@@ -18788,16 +18822,24 @@
         ? layer.fontFamily
         : 'inherit';
       el.style.cssText += `font-family:${family};color:${layer.color || '#111827'};font-size:${fontPx}px;font-weight:${layer.bold ? '800' : '400'};font-style:${layer.italic ? 'italic' : 'normal'};text-align:${align};padding:${padPx}px;box-sizing:border-box;line-height:1.2;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:break-word;`;
-      const inner = layer.html || '';
-      const href = safeTextLinkHref(layer.linkHref);
-      if (href) {
-        // Wrap the text in an <a> so the link survives into PDF export as a
-        // clickable annotation. display:block + 100%/100% so the link's hit
-        // area covers the whole text box, not just glyph silhouettes.
-        el.innerHTML = `<a href="${escAttr(href)}" target="_blank" rel="noopener noreferrer" style="display:block;width:100%;height:100%;color:inherit;text-decoration:underline;">${inner}</a>`;
-      } else {
-        el.innerHTML = inner;
-      }
+      el.innerHTML = layer.html || '';
+      // Post-render scrub: inline-link <a> tags coming from contenteditable
+      // could carry javascript: / data: hrefs (especially after a fork from
+      // another author). Strip anything not in the safeTextLinkHref allow-
+      // list, unwrap the <a>, leave the text content. Also force every
+      // surviving link to open in a new tab with noopener/noreferrer.
+      el.querySelectorAll('a').forEach(a => {
+        const safe = safeTextLinkHref(a.getAttribute('href') || '');
+        if (safe) {
+          a.setAttribute('href', safe);
+          a.setAttribute('target', '_blank');
+          a.setAttribute('rel', 'noopener noreferrer');
+        } else {
+          const parent = a.parentNode;
+          while (a.firstChild) parent.insertBefore(a.firstChild, a);
+          parent.removeChild(a);
+        }
+      });
     }
 
     const PREVIEW_BASE_PX = 720;
@@ -21956,16 +21998,53 @@
         render();
       });
 
-      $('textLayerLink')?.addEventListener('input', (e) => {
+      // Inline rich-text formatting toolbar. Each button calls
+      // document.execCommand on the canvas's currently-focused contenteditable
+      // text layer, then re-reads its innerHTML back into layer.html so the
+      // change persists. mousedown.preventDefault() keeps the contenteditable
+      // focused / selection alive when the user clicks a sidebar button.
+      function _findEditableForLayer(id) {
+        return document.querySelector(`.freeLayer[data-layer-id="${id}"] .textLayer`);
+      }
+      function _runInlineFormat(cmd, value) {
         const layer = selectedLayer();
         if (!layer || layer.type !== 'text') return;
-        pushHistoryDebounced(`text:link:${layer.id}`, 'change text link', 600);
-        const raw = e.target.value || '';
-        // Store the raw user-entered string so they don't lose what they
-        // typed; previews use safeTextLinkHref() to decide what's emitted.
-        layer.linkHref = raw;
-        render();
+        const editable = _findEditableForLayer(layer.id);
+        if (!editable) { toastError('Click into the text on the canvas first.'); return; }
+        // Make sure the contenteditable holds focus so execCommand has a
+        // selection to operate on. If the user clicked the button without
+        // having clicked into the text first, focus it (with no selection,
+        // execCommand affects the caret position only).
+        if (document.activeElement !== editable) editable.focus();
+        document.execCommand(cmd, false, value);
+        pushHistoryDebounced(`text:rich:${layer.id}`, 'format text', 600);
+        layer.html = editable.innerHTML;
+        // Don't full re-render — that'd rebuild the editable and lose focus
+        // / selection. The DOM already reflects the new HTML.
+      }
+      const _bindRich = (id, cmd, valueFn) => {
+        const btn = $(id);
+        if (!btn) return;
+        btn.addEventListener('mousedown', (e) => e.preventDefault());
+        btn.addEventListener('click', () => {
+          const value = typeof valueFn === 'function' ? valueFn() : undefined;
+          if (valueFn && value === null) return; // user cancelled prompt
+          _runInlineFormat(cmd, value);
+        });
+      };
+      _bindRich('textRichBold', 'bold');
+      _bindRich('textRichItalic', 'italic');
+      _bindRich('textRichUnderline', 'underline');
+      _bindRich('textRichUL', 'insertUnorderedList');
+      _bindRich('textRichOL', 'insertOrderedList');
+      _bindRich('textRichLink', 'createLink', () => {
+        const url = window.prompt('Link URL:', 'https://');
+        if (url === null) return null;
+        const safe = safeTextLinkHref(url);
+        if (!safe) { toastError('Only http / https / mailto / tel / nostr URLs are allowed.'); return null; }
+        return safe;
       });
+      _bindRich('textRichUnlink', 'unlink');
 
       function moveLayerStep(direction) {
         arrangeSelectedLayerRows(direction);
