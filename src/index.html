@@ -13993,6 +13993,11 @@
       if (layer.locked) { setLayerSelection([layer.id], layer.id); render(); return; }
       const textTarget = event.target.closest('.textLayer');
       if (!textTarget) blurEditableFocus();
+      // Capture BEFORE we touch selection state: was this text layer
+      // already the lone-selected layer when the user clicked it?  If so,
+      // a click-without-drag should drop the user into edit mode (the
+      // standard slide-editor UX). Stashed for the pointerup branch below.
+      const wasSoleSelected = isLayerSelected(layer.id) && selectedLayerIds().length === 1;
       const additiveSelect = !!(event.shiftKey || event.ctrlKey || event.metaKey);
       if (additiveSelect) {
         event.preventDefault();
@@ -14029,9 +14034,17 @@
       el.setPointerCapture(event.pointerId);
 
       const move = (moveEvent) => {
+        // Small dead-zone so a click with a tiny pixel jitter isn't
+        // interpreted as a drag. Anything inside this radius is ignored;
+        // the user can still enter text-edit mode via the pointerup branch.
+        if (!moved) {
+          const ddx = moveEvent.clientX - startX;
+          const ddy = moveEvent.clientY - startY;
+          if (Math.hypot(ddx, ddy) < 4) return;
+        }
         if (!snapshotted) {
-          // Capture the pre-drag state on the first pointermove so a click
-          // without movement doesn't pollute the undo stack.
+          // Capture the pre-drag state on the first real pointermove so a
+          // click without movement doesn't pollute the undo stack.
           pushHistory(dragLayers.length > 1 ? 'move selected layers' : 'move layer');
           snapshotted = true;
         }
@@ -14054,7 +14067,7 @@
         syncLayerInputs();
       };
 
-      const stop = () => {
+      const stop = (upEvent) => {
         document.body.classList.remove('dragging-layer');
         el.removeEventListener('pointermove', move);
         el.removeEventListener('pointerup', stop);
@@ -14062,6 +14075,29 @@
         if (moved) {
           el.dataset.dragMoved = '1';
           setTimeout(() => { delete el.dataset.dragMoved; }, 0);
+        } else if (textTarget && wasSoleSelected) {
+          // Click without drag on a text layer that was already the lone
+          // selection → drop into edit mode. Focus the contenteditable and
+          // place the caret at the click position so the user can start
+          // selecting / typing immediately. This is the standard "select
+          // once, click again to edit" pattern from PowerPoint / Keynote.
+          textTarget.focus();
+          const cx = (upEvent && typeof upEvent.clientX === 'number') ? upEvent.clientX : startX;
+          const cy = (upEvent && typeof upEvent.clientY === 'number') ? upEvent.clientY : startY;
+          try {
+            let range = null;
+            if (typeof document.caretRangeFromPoint === 'function') {
+              range = document.caretRangeFromPoint(cx, cy);
+            } else if (typeof document.caretPositionFromPoint === 'function') {
+              const pos = document.caretPositionFromPoint(cx, cy);
+              if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); range.collapse(true); }
+            }
+            if (range) {
+              const sel = window.getSelection();
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+          } catch (e) {}
         }
         localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify(state));
       };
