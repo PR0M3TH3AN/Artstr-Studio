@@ -16302,12 +16302,16 @@
       _zapCache.fetchedForAuthors.clear();
     }
 
-    async function fetchFeedAndReactions() {
+    async function fetchFeedAndReactions(opts) {
       const relays = splitRelayList(state.community.relays);
       const relayKey = relays.join(',');
       const age = Date.now() - _feedCache.fetchedAt;
       if (_feedCache.loading) return;
-      if (_feedCache.events && age < 5 * 60 * 1000 && _feedCache.relayKey === relayKey) return;
+      // `force: true` bypasses the 5-minute cache. Used by the Browse button
+      // to refresh in the background while the existing cached cards stay
+      // on screen, so the user sees content immediately.
+      const force = !!(opts && opts.force);
+      if (!force && _feedCache.events && age < 5 * 60 * 1000 && _feedCache.relayKey === relayKey) return;
       _feedCache.loading = true;
       _feedCache.relayKey = relayKey;
       _feedCache.reactions = {};
@@ -22061,12 +22065,17 @@
             btn.classList.toggle('active', btn.dataset.type === 'any');
           });
         }
-        // Auto-refresh on open. fetchFeedAndReactions otherwise honours a
-        // 5-minute cache and the user would see stale results (including
-        // their own design they just published).
-        invalidateFeedCache();
         $('nostrModal').classList.add('open');
         switchModalTab('New');
+        // The welcome modal pre-warms `_feedCache.events` on cold load, so
+        // opening Browse should hit that cache and render cards instantly.
+        // Only trigger a forced refresh if the cache is genuinely staleish
+        // (>30s old) — otherwise the welcome's just-loaded data gets
+        // wiped by fetchFeedAndReactions clearing reactions/profiles
+        // mid-fetch. Use the explicit Refresh button in the modal for an
+        // on-demand fresh pull.
+        const cacheAge = Date.now() - (_feedCache.fetchedAt || 0);
+        if (cacheAge > 30000) fetchFeedAndReactions({ force: true });
       });
       $('designerBrowseCommunityBtn').addEventListener('click', () => {
         for (const t of ['New', 'Popular', 'Mine']) {
@@ -22076,9 +22085,10 @@
             btn.classList.toggle('active', btn.dataset.type === 'disc-design');
           });
         }
-        invalidateFeedCache();
         $('nostrModal').classList.add('open');
         switchModalTab('New');
+        const cacheAge = Date.now() - (_feedCache.fetchedAt || 0);
+        if (cacheAge > 30000) fetchFeedAndReactions({ force: true });
       });
       $('welcomeSearchBtn').addEventListener('click', runWelcomeSearch);
       $('welcomeSkipBtn').addEventListener('click', dismissWelcomeModal);
