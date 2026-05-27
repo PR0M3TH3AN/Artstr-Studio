@@ -7141,6 +7141,17 @@
     // the Layers panel exactly once per selection change (not every render).
     let _panelLastSelection = null;
 
+    // Persist the full editor state without paying for a re-render. Login
+    // flows (and any path that mutates state without calling render()) need
+    // this so the change actually survives a refresh.
+    function persistAutosave() {
+      try {
+        localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify({ ...state, layers: nonGeneratedLayers() }));
+      } catch (error) {
+        console.warn('Autosave write failed', error);
+      }
+    }
+
     function render() {
       // Rebuild global clip-path <defs> before any renderer so layer
       // wrappers can reference them via clip-path: url(#…).
@@ -7170,7 +7181,7 @@
         if (layerControls) layerControls.open = true;
       }
       _panelLastSelection = state.selectedLayerId;
-      localStorage.setItem('case-cover-template-maker-autosave', JSON.stringify({ ...state, layers: nonGeneratedLayers() }));
+      persistAutosave();
     }
 
     function buildSlotControls() {
@@ -12955,6 +12966,7 @@
         state.community.mutedPubkeys = [];
         state.community.muteListSyncedAt = 0;
         syncCommunityInputs();
+        persistAutosave();
         return;
       }
 
@@ -12986,6 +12998,7 @@
       fetchHop2Follows().catch(() => {});
       syncCommunityInputs();
       updateNostrWidget();
+      persistAutosave();
       if ($('nostrModal')?.classList.contains('open')) {
         await refreshCommunityView();
       }
