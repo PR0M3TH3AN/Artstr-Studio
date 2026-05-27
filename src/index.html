@@ -3120,6 +3120,8 @@
               <input id="layerUrl" type="url" placeholder="https://example.com/layer.png" />
               <button type="button" class="copyUrlBtn" onclick="copyUrl('layerUrl')">Copy</button>
             </div>
+            <button type="button" id="matchCanvasToImageBtn" class="customart-only" style="margin-top:6px;width:100%;display:none">Match canvas to image size</button>
+            <p class="hint customart-only" id="matchCanvasToImageHint" style="font-size:.72rem;margin:4px 0 0;display:none">Resizes the Custom Art canvas to the image's natural pixel dimensions. Slide mode is locked 16:9.</p>
           </div>
 
           <div class="row">
@@ -13901,6 +13903,14 @@
       if (summary) summary.textContent = selectionCount > 1 ? `${selectionCount} selected layers` : 'Selected layer';
       $('textLayerControls').style.display = layer && layer.type === 'text' ? 'block' : 'none';
       $('layerImageControls').style.display = layer && layer.type === 'image' ? 'block' : 'none';
+      // "Match canvas to image size" button: only show for image layers in
+      // Custom Art mode (Slide is 16:9-locked; the other modes use sheets
+      // sized to the physical media, not the artwork).
+      const matchBtn = $('matchCanvasToImageBtn');
+      const matchHint = $('matchCanvasToImageHint');
+      const canMatchCanvas = layer && layer.type === 'image' && layer.src && state.templateMode === 'customart';
+      if (matchBtn) matchBtn.style.display = canMatchCanvas ? 'block' : 'none';
+      if (matchHint) matchHint.style.display = canMatchCanvas ? 'block' : 'none';
       const colorPanel = $('colorLayerControls');
       if (colorPanel) colorPanel.style.display = layer && layer.type === 'color' ? 'block' : 'none';
       const shapePanel = $('shapeLayerControls');
@@ -22085,6 +22095,30 @@
       });
 
       $('layerName').addEventListener('input', (event) => updateSelectedLayer('name', event.target.value));
+      $('matchCanvasToImageBtn')?.addEventListener('click', async () => {
+        const layer = selectedLayer();
+        if (!layer || layer.type !== 'image' || !layer.src) return;
+        if (state.templateMode !== 'customart') { toastError('Match-canvas only works in Custom Art mode.'); return; }
+        const btn = $('matchCanvasToImageBtn');
+        const orig = btn.textContent;
+        btn.disabled = true; btn.textContent = 'Loading image…';
+        let img;
+        try {
+          img = await loadImageWithCors(layer.src, 8000);
+        } catch (e) {
+          btn.disabled = false; btn.textContent = orig;
+          toastError('Could not load that image (CORS or network error).');
+          return;
+        }
+        const w = Math.max(CUSTOM_ART_MIN, Math.min(CUSTOM_ART_MAX, img.naturalWidth || 1920));
+        const h = Math.max(CUSTOM_ART_MIN, Math.min(CUSTOM_ART_MAX, img.naturalHeight || 1080));
+        const wasClamped = (img.naturalWidth > CUSTOM_ART_MAX) || (img.naturalHeight > CUSTOM_ART_MAX);
+        pushHistory('match canvas to image');
+        state.customArt = { ...(state.customArt || {}), width: w, height: h, preset: 'custom' };
+        syncInputs(); render();
+        btn.disabled = false; btn.textContent = orig;
+        toastSuccess(`Canvas: ${w}×${h}px${wasClamped ? ' (clamped to max)' : ''}.`);
+      });
       $('layerUrl').addEventListener('change', (event) => {
         const raw = event.target.value.trim();
         if (!raw) {
