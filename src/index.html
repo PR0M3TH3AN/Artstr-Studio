@@ -2463,23 +2463,23 @@
        generating output via window.print(). It strips editor chrome from
        the snapshot so the PDF / JPEG-fallback doesn't include layer
        selection outlines, resize handles, the spine guide labels, etc. */
-    body.export-print .spineText, body.export-print .discSpineStrip {
+    body.exporting .spineText, body.exporting .discSpineStrip {
       display: none !important;
     }
-    body.export-print .freeLayer.selected,
-    body.export-print .freeLayer.multiSelected {
+    body.exporting .freeLayer.selected,
+    body.exporting .freeLayer.multiSelected {
       outline: none !important;
       box-shadow: none !important;
     }
-    body.export-print .layerHandle,
-    body.export-print .layerSelectionBox { display: none !important; }
-    body.export-print .freeLayer {
+    body.exporting .layerHandle,
+    body.exporting .layerSelectionBox { display: none !important; }
+    body.exporting .freeLayer {
       pointer-events: none !important;
     }
-    body.export-print .sheet,
-    body.export-print .sheet *,
-    body.export-print .designerDiscWrap,
-    body.export-print .designerDiscWrap * {
+    body.exporting .sheet,
+    body.exporting .sheet *,
+    body.exporting .designerDiscWrap,
+    body.exporting .designerDiscWrap * {
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
       color-adjust: exact !important;
@@ -14798,10 +14798,15 @@
     function printWithCurrentFilename() {
       const previousTitle = document.title;
       const nextTitle = currentPdfTitle();
-      document.body.classList.add('export-print');
+      // `exporting` (chrome-stripping only) is safe for the regular print
+      // path which renders the live DOM as-is. The heavier `export-print`
+      // class triggers a CSS rule that hides everything outside
+      // #exportPrintContainer — only the JPEG-PDF flow sets that up, so
+      // adding it here would print a blank page.
+      document.body.classList.add('exporting');
       const restore = () => {
         document.title = previousTitle;
-        document.body.classList.remove('export-print');
+        document.body.classList.remove('exporting');
         window.removeEventListener('afterprint', restore);
       };
       window.addEventListener('afterprint', restore);
@@ -21645,6 +21650,7 @@
         container.appendChild(sheet);
         sheet.style.cssText = `position:absolute!important;top:${fmt(offsetY)}in!important;left:${fmt(offsetX)}in!important;width:${fmt(sheetW())}in!important;height:${fmt(sheetH())}in!important;margin:0!important;padding:0!important;transform:none!important;box-shadow:none!important;${bg ? `background:${bg}!important;` : ''}`;
         document.body.classList.add('export-print');
+        document.body.classList.add('exporting');
         $('dynamicPageStyle').textContent = `@page { size: ${fmt(pageWIn)}in ${fmt(pageHIn)}in; margin: 0; }`;
         return true;
       }
@@ -21664,6 +21670,7 @@
         }
         container.remove();
         document.body.classList.remove('export-print');
+        document.body.classList.remove('exporting');
         _exportSheetOrigParent = null;
         _exportSheetOrigNext = null;
         _exportSheetOrigStyle = null;
