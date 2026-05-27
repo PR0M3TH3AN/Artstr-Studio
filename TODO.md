@@ -5,8 +5,50 @@ Running list of deferred work. Detailed specs for the larger items live in
 
 ## Adam's working list
 
-_(All of Adam's working-list items are currently shipped — see
-"Shipped (recent)" below. New items go here.)_
+- **Click-canvas-background-to-deselect.** In the vector canvas editor,
+  clicking on empty canvas (outside any layer) should clear the layer
+  selection. Today the selection persists, which makes it hard to "exit"
+  a selected layer without picking another one.
+- **Toggle crop marks for export previews.** A new toggle in the
+  vector designer to hide crop marks from the PDF Print/Save and
+  JPEG Export flows. Today crop marks bleed into clean exports.
+- **Custom-art canvas size from imported background URL.** When a
+  user pastes a background image URL on a Custom Art canvas, offer
+  a one-click "Match canvas to image size" button (or apply
+  automatically on first import) so the canvas dims = image dims.
+  Edge cases: huge images (clamp to CUSTOM_ART_MAX), aspect-locked
+  layouts (Slide is locked 16:9 — should be skipped or warn).
+- **JPEG export: hide layer-selection outlines.** The Save-as-JPEG
+  flow currently renders the selected-layer dashed outline in the
+  output. Add `body.exporting` (or similar) state that strips
+  selection chrome before the raster snapshot.
+- **Independent-axis corner-node resize.** Corner resize handles
+  currently lock the aspect ratio (or scale both axes together).
+  Behaviour should follow the actual drag vector: dragging mostly
+  horizontally with a small vertical move resizes width a lot,
+  height a little — both axes scale proportional to their own
+  movement, not to each other. Applies to every layer type's
+  resize handles, not just text.
+
+## CORS for remote-image raster export
+
+Quick reply, no action yet:
+
+- The PDF Print/Save path renders via `window.print()` → the browser's
+  native print/PDF engine, which handles cross-origin images fine. No
+  CORS issue there.
+- The JPEG export path already round-trips through PDF.js (PDF → JPEG),
+  so it inherits the PDF path's CORS tolerance. If it's failing for
+  some images, the root cause is likely the print path itself, not a
+  canvas taint.
+- The canvas-tainted situation only bites if we ever do a direct
+  `<canvas>.toBlob('image/jpeg')` against a layout that contains a
+  cross-origin remote `<img>` without CORS headers. Options if it
+  becomes a real problem: (a) keep using the PDF.js round-trip;
+  (b) recommend CORS-friendly hosts (Blossom blobs, ImgBB, most
+  CDNs send `Access-Control-Allow-Origin: *`); (c) add an
+  optional same-origin proxy endpoint — needs a server, which the
+  app currently doesn't have.
 
 ## QR code layer — remaining phases
 
