@@ -2831,6 +2831,11 @@
         <div class="buttonRow" id="printExportRow">
           <button class="primary" id="printBtn">Print / Save PDF</button>
           <button id="exportJpegBtn">Export JPEG</button>
+          <select id="exportJpegQuality" title="JPEG quality / resolution" style="flex:0 0 auto;width:auto">
+            <option value="low">96 dpi</option>
+            <option value="standard" selected>150 dpi</option>
+            <option value="print">300 dpi</option>
+          </select>
         </div>
         <div class="buttonRow" id="deckExportRow" style="display:none">
           <button type="button" class="primary" id="deckExportPdfBtn">Export deck as PDF</button>
@@ -15495,9 +15500,16 @@
       const restoreBtn = (text) => { if (btn) { btn.disabled = false; if (text != null) btn.textContent = text; } };
       const prevText = btn?.textContent;
       if (btn) { btn.disabled = true; btn.textContent = 'Rendering…'; }
+      // Resolution preset from the dropdown next to the button.
+      const presetSel = document.getElementById('exportJpegQuality');
+      const preset = presetSel?.value || 'standard';
+      const opts =
+        preset === 'low'   ? { dpi: 96,  quality: 0.85 } :
+        preset === 'print' ? { dpi: 300, quality: 0.95 } :
+                             { dpi: 150, quality: 0.92 };
       let result;
       try {
-        result = await exportArtboardAsJpegBlob({ dpi: 150, quality: 0.92 });
+        result = await exportArtboardAsJpegBlob(opts);
       } catch (e) {
         toastError && toastError('JPEG render failed — falling back to PDF flow.');
         restoreBtn(prevText);
