@@ -2437,19 +2437,27 @@
     body.exporting .jewelSlot::before, body.exporting .jewelSlot::after,
     body.exporting .jewelSpineGuide,
     body.exporting .foldLine, body.exporting .trimArea, body.exporting .bleedFill,
-    body.exporting .spineText, body.exporting .discSpineStrip {
+    /* `body.export-print` is added while the printBtn / JPEG-PDF flows are
+       generating output via window.print(). It strips editor chrome from
+       the snapshot so the PDF / JPEG-fallback doesn't include layer
+       selection outlines, resize handles, the spine guide labels, etc. */
+    body.export-print .spineText, body.export-print .discSpineStrip {
       display: none !important;
     }
-    body.exporting .freeLayer.selected {
+    body.export-print .freeLayer.selected,
+    body.export-print .freeLayer.multiSelected {
       outline: none !important;
+      box-shadow: none !important;
     }
-    body.exporting .freeLayer {
+    body.export-print .layerHandle,
+    body.export-print .layerSelectionBox { display: none !important; }
+    body.export-print .freeLayer {
       pointer-events: none !important;
     }
-    body.exporting .sheet,
-    body.exporting .sheet *,
-    body.exporting .designerDiscWrap,
-    body.exporting .designerDiscWrap * {
+    body.export-print .sheet,
+    body.export-print .sheet *,
+    body.export-print .designerDiscWrap,
+    body.export-print .designerDiscWrap * {
       -webkit-print-color-adjust: exact !important;
       print-color-adjust: exact !important;
       color-adjust: exact !important;
@@ -14762,11 +14770,13 @@
     function printWithCurrentFilename() {
       const previousTitle = document.title;
       const nextTitle = currentPdfTitle();
-      const restoreTitle = () => {
+      document.body.classList.add('export-print');
+      const restore = () => {
         document.title = previousTitle;
-        window.removeEventListener('afterprint', restoreTitle);
+        document.body.classList.remove('export-print');
+        window.removeEventListener('afterprint', restore);
       };
-      window.addEventListener('afterprint', restoreTitle);
+      window.addEventListener('afterprint', restore);
       document.title = nextTitle;
       render();
       setTimeout(() => window.print(), 50);
@@ -22025,6 +22035,16 @@
       if (addTextLayerBtn) addTextLayerBtn.addEventListener('click', () => addTextLayer());
 
       $('sheet').addEventListener('click', () => {
+        clearLayerSelection();
+        render();
+      });
+      // Clicks in the gutter between the sheet edge and the previewShell
+      // edge also deselect — the existing #sheet handler misses those.
+      // Layer .freeLayer clicks stopPropagation so they don't bubble up
+      // through here.
+      $('previewShell')?.addEventListener('click', (event) => {
+        if (event.target.closest('.freeLayer')) return;
+        if (event.target.closest('#sheet')) return; // handled by the rule above
         clearLayerSelection();
         render();
       });
