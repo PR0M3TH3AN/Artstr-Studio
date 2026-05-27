@@ -1270,11 +1270,17 @@
       display: none !important;
     }
 
-    /* Export toggles: fold/safe/trim/bleed/crops only apply to case covers */
+    /* Export toggles: fold/safe/trim/bleed guides only apply to case
+       covers. Crop-mark toggles apply more broadly — cover + Custom Art
+       + Slide all render crop marks, only Disc / Jewel sheets don't. */
     body.template-disc .cover-toggle,
     body.template-jewel .cover-toggle,
     body.template-customart .cover-toggle,
     body.template-slide .cover-toggle {
+      display: none !important;
+    }
+    body.template-disc .crops-toggle,
+    body.template-jewel .crops-toggle {
       display: none !important;
     }
 
@@ -1907,6 +1913,22 @@
     .cm-bl-v { left: var(--bleed); top: calc(var(--bleed) + var(--trim-h) + .06in); }
     .cm-br-h { left: calc(var(--bleed) + (var(--panel-w) * 2) + var(--spine-w) + .06in); top: calc(var(--bleed) + var(--trim-h)); }
     .cm-br-v { left: calc(var(--bleed) + (var(--panel-w) * 2) + var(--spine-w)); top: calc(var(--bleed) + var(--trim-h) + .06in); }
+
+    /* Canvas-mode crop marks (Custom Art / Slide). The .sheet has no bleed
+       in canvas modes, so the corner marks sit just outside the canvas
+       edges. .cc- positions only kick in inside .canvasCrops to avoid
+       conflicting with the cover .cm- positions. */
+    .canvasCrops { display: none; }
+    body.template-customart .canvasCrops,
+    body.template-slide .canvasCrops { display: var(--crop-display, block); }
+    .canvasCrops .cc-tl-h { left: -.24in; top: 0; }
+    .canvasCrops .cc-tl-v { left: 0; top: -.24in; }
+    .canvasCrops .cc-tr-h { right: -.24in; top: 0; }
+    .canvasCrops .cc-tr-v { right: 0; top: -.24in; }
+    .canvasCrops .cc-bl-h { left: -.24in; bottom: 0; }
+    .canvasCrops .cc-bl-v { left: 0; bottom: -.24in; }
+    .canvasCrops .cc-br-h { right: -.24in; bottom: 0; }
+    .canvasCrops .cc-br-v { right: 0; bottom: -.24in; }
 
     body.hide-guides .sheet { --guide-display: none; --safe-display: none; --label-display: none; }
     body.hide-bleed .sheet { --bleed-display: none; }
@@ -2797,9 +2819,9 @@
         <div class="toggles">
           <label class="toggle cover-toggle"><input id="showGuides" type="checkbox" checked /> Show fold/safe/trim guides on screen</label>
           <label class="toggle cover-toggle"><input id="showBleed" type="checkbox" checked /> Show bleed shading on screen</label>
-          <label class="toggle cover-toggle"><input id="showCrops" type="checkbox" checked /> Show crop marks on screen</label>
+          <label class="toggle crops-toggle"><input id="showCrops" type="checkbox" checked /> Show crop marks on screen</label>
           <label class="toggle cover-toggle"><input id="printGuides" type="checkbox" /> Include guides in PDF</label>
-          <label class="toggle cover-toggle"><input id="printCrops" type="checkbox" checked /> Include crop marks in PDF</label>
+          <label class="toggle crops-toggle"><input id="printCrops" type="checkbox" checked /> Include crop marks in PDF</label>
                   </div>
         <p class="hint">PDF export opens your browser print dialog. Choose <b>Save as PDF</b>, use <b>100% scale</b>, and disable headers/footers.</p>
       </fieldset>
@@ -3533,6 +3555,12 @@
               <span class="cm-h cm-tr-h"></span><span class="cm-v cm-tr-v"></span>
               <span class="cm-h cm-bl-h"></span><span class="cm-v cm-bl-v"></span>
               <span class="cm-h cm-br-h"></span><span class="cm-v cm-br-v"></span>
+            </div>
+            <div class="cropMarks canvasCrops" aria-hidden="true">
+              <span class="cm-h cc-tl-h"></span><span class="cm-v cc-tl-v"></span>
+              <span class="cm-h cc-tr-h"></span><span class="cm-v cc-tr-v"></span>
+              <span class="cm-h cc-bl-h"></span><span class="cm-v cc-bl-v"></span>
+              <span class="cm-h cc-br-h"></span><span class="cm-v cc-br-v"></span>
             </div>
             <div class="diskLayer" id="diskLayer" aria-hidden="true">
               <div class="discSlot" data-label="DISC 1" id="disc-top">
