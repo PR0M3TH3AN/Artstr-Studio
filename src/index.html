@@ -16349,8 +16349,8 @@
 
       try {
         await Promise.all([
-          queryRelays(relays, { kinds: [30078], '#t': ['casewrap'], limit: 200 }, { timeoutMs: 4500, onEvent: onIncoming, onRelayDone: onTemplateRelayDone }),
-          queryRelays(relays, { kinds: [5], '#k': ['30078'], limit: 100 }, { timeoutMs: 3500, onEvent: onIncoming })
+          queryRelays(relays, { kinds: [30078], '#t': ['casewrap'], limit: 200 }, { timeoutMs: 6000, onEvent: onIncoming, onRelayDone: onTemplateRelayDone }),
+          queryRelays(relays, { kinds: [5], '#k': ['30078'], limit: 100 }, { timeoutMs: 5000, onEvent: onIncoming })
         ]);
         _feedCache.phase = 'enrichment';
         flushProgress();
@@ -16361,7 +16361,7 @@
           const BATCH = 50;
           const reactionRequests = [];
           for (let i = 0; i < ids.length; i += BATCH) {
-            reactionRequests.push(queryRelays(relays, { kinds: [7], '#e': ids.slice(i, i + BATCH) }, { timeoutMs: 2500 }));
+            reactionRequests.push(queryRelays(relays, { kinds: [7], '#e': ids.slice(i, i + BATCH) }, { timeoutMs: 4000 }));
           }
           const reactionBatches = await Promise.all(reactionRequests);
           for (const rxEvents of reactionBatches) {
@@ -17558,7 +17558,7 @@
       for (let i = 0; i < fresh.length; i += CHUNK) chunks.push(fresh.slice(i, i + CHUNK));
       await Promise.all(chunks.map(ids =>
         queryRelays(relays, { kinds: [9735], '#e': ids, limit: 500 }, {
-          timeoutMs: 4500,
+          timeoutMs: 6000,
           onEvent: ev => {
             if (ingestZapReceipt(ev)) { mutated = true; scheduleZapStreamRerender(); }
           }
@@ -22048,6 +22048,10 @@
             btn.classList.toggle('active', btn.dataset.type === 'any');
           });
         }
+        // Auto-refresh on open. fetchFeedAndReactions otherwise honours a
+        // 5-minute cache and the user would see stale results (including
+        // their own design they just published).
+        invalidateFeedCache();
         $('nostrModal').classList.add('open');
         switchModalTab('New');
       });
@@ -22059,6 +22063,7 @@
             btn.classList.toggle('active', btn.dataset.type === 'disc-design');
           });
         }
+        invalidateFeedCache();
         $('nostrModal').classList.add('open');
         switchModalTab('New');
       });
