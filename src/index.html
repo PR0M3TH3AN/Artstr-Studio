@@ -14918,7 +14918,150 @@
       ctx.restore();
     }
 
-    function drawTextLayerToCanvas(ctx, layer, w, h, dpi) {
+    // Detect inline rich-text marks in layer.html. When present the canvas
+    // rasterizer needs to preserve them via SVG foreignObject — the
+    // fillText path strips everything down to plain text via
+    // layerHtmlToPlainText.
+    function _textHasInlineMarks(html) {
+      if (typeof html !== 'string' || !html) return false;
+      return /<\s*(?:b|i|u|strong|em|a|ul|ol|li|br|span|font)\b/i.test(html);
+    }
+
+    // Walk a text layer's HTML into a flat list of styled "runs": text
+    // pieces with their inherited bold / italic / underline state, plus
+    // markers for line breaks and list-item bullets. Used by the rich-text
+    // raster path. SVG foreignObject was tried first but taints the
+    // canvas in Chromium, so we render via plain canvas calls instead.
+    function _parseTextRunsFromHtml(html) {
+      const div = document.createElement('div');
+      div.innerHTML = String(html || '');
+      const runs = [];
+      const listStack = [];
+      function pushBreakIfNeeded() {
+        if (runs.length && !runs[runs.length - 1].br) runs.push({ br: true });
+      }
+      function walk(node, ctx) {
+        if (node.nodeType === 3) { // text node
+          // Collapse internal whitespace to a single space, like HTML does
+          // by default. Preserves leading/trailing spaces around inline tags.
+          const text = node.textContent.replace(/[\t\n\r]+/g, ' ').replace(/ {2,}/g, ' ');
+          if (text) runs.push({ text, ...ctx });
+          return;
+        }
+        if (node.nodeType !== 1) return;
+        const tag = node.tagName.toLowerCase();
+        if (tag === 'br') { runs.push({ br: true }); return; }
+        const sub = { ...ctx };
+        if (tag === 'b' || tag === 'strong') sub.bold = true;
+        else if (tag === 'i' || tag === 'em') sub.italic = true;
+        else if (tag === 'u' || tag === 'a') sub.underline = true;
+        if (tag === 'ul' || tag === 'ol') {
+          pushBreakIfNeeded();
+          listStack.push({ ordered: tag === 'ol', n: 0 });
+          for (const child of node.childNodes) walk(child, sub);
+          listStack.pop();
+          pushBreakIfNeeded();
+          return;
+        }
+        if (tag === 'li') {
+          pushBreakIfNeeded();
+          const list = listStack[listStack.length - 1];
+          const prefix = list ? (list.ordered ? `${++list.n}. ` : '• ') : '• ';
+          runs.push({ text: prefix, ...sub });
+          for (const child of node.childNodes) walk(child, sub);
+          pushBreakIfNeeded();
+          return;
+        }
+        if (tag === 'p' || tag === 'div' || tag === 'h1' || tag === 'h2' || tag === 'h3') {
+          pushBreakIfNeeded();
+          for (const child of node.childNodes) walk(child, sub);
+          pushBreakIfNeeded();
+          return;
+        }
+        for (const child of node.childNodes) walk(child, sub);
+      }
+      walk(div, { bold: false, italic: false, underline: false });
+      // Drop any trailing line break for a tighter render.
+      while (runs.length && runs[runs.length - 1].br) runs.pop();
+      return runs;
+    }
+
+    function _layoutTextRuns(ctx, runs, maxWidth, baseFontPx, family, baseBold, baseItalic) {
+      const fontFor = (run) => {
+        const w = (run.bold || baseBold) ? '800' : '400';
+        const s = (run.italic || baseItalic) ? 'italic' : 'normal';
+        return `${s} ${w} ${baseFontPx}px ${family}`;
+      };
+      const lines = [];
+      let line = { items: [], width: 0 };
+      const pushLine = () => { lines.push(line); line = { items: [], width: 0 }; };
+      for (const run of runs) {
+        if (run.br) { pushLine(); continue; }
+        if (!run.text) continue;
+        ctx.font = fontFor(run);
+        // Split on word boundaries but keep spaces so wrapping respects them.
+        const parts = run.text.split(/(\s+)/).filter(Boolean);
+        for (const part of parts) {
+          const wWidth = ctx.measureText(part).width;
+          if (line.width + wWidth > maxWidth && line.items.length) {
+            pushLine();
+            if (/^\s+$/.test(part)) continue; // discard wrapping whitespace
+          }
+          line.items.push({ text: part, font: fontFor(run), underline: !!run.underline, width: wWidth });
+          line.width += wWidth;
+        }
+      }
+      if (line.items.length) pushLine();
+      return lines;
+    }
+
+    // Rich-text raster path. Renders inline <b> / <i> / <u> / <a> / <br> /
+    // <ul> / <ol> / <li> by walking the HTML into styled runs, laying
+    // them out with word wrap via measureText, and drawing each item with
+    // its own font + underline rule.
+    async function drawTextLayerRichToCanvas(ctx, layer, w, h, dpi) {
+      const runs = _parseTextRunsFromHtml(layer.html);
+      if (!runs.length) return;
+      const fontPx = (Number(layer.fontSize) || 14) * (dpi / 72);
+      const padding = 0.04 * dpi;
+      const innerW = Math.max(0, w - padding * 2);
+      const innerH = Math.max(0, h - padding * 2);
+      const family = layer.fontFamily && layer.fontFamily !== 'inherit' ? layer.fontFamily : 'sans-serif';
+      const baseBold = !!layer.bold;
+      const baseItalic = !!layer.italic;
+      const align = layer.align === 'center' ? 'center' : layer.align === 'right' ? 'right' : 'left';
+      const lines = _layoutTextRuns(ctx, runs, innerW, fontPx, family, baseBold, baseItalic);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(-innerW / 2, -innerH / 2, innerW, innerH);
+      ctx.clip();
+      ctx.fillStyle = layer.color || '#111827';
+      ctx.textBaseline = 'top';
+      const lineHeight = fontPx * 1.2;
+      const halfLeading = (lineHeight - fontPx) / 2;
+      let y = -innerH / 2 + halfLeading;
+      for (const line of lines) {
+        const xStart = align === 'center' ? -line.width / 2
+          : align === 'right' ? innerW / 2 - line.width
+          : -innerW / 2;
+        let cursor = xStart;
+        for (const item of line.items) {
+          ctx.font = item.font;
+          ctx.fillText(item.text, cursor, y);
+          if (item.underline) {
+            // Underline sits just below the baseline at ~95% of line height.
+            const yU = y + fontPx * 0.95;
+            ctx.fillRect(cursor, yU, item.width, Math.max(1, fontPx * 0.06));
+          }
+          cursor += item.width;
+        }
+        y += lineHeight;
+      }
+      ctx.restore();
+    }
+
+    // Plain-text raster path: classic canvas fillText with line breaks.
+    function drawTextLayerPlainToCanvas(ctx, layer, w, h, dpi) {
       const text = layerHtmlToPlainText(layer.html);
       if (!text) return;
       const fontPx = (Number(layer.fontSize) || 14) * (dpi / 72);
@@ -14947,6 +15090,15 @@
         yPos += lineHeight;
       }
       ctx.restore();
+    }
+
+    // Dispatcher: rich path when inline marks present, plain otherwise.
+    async function drawTextLayerToCanvas(ctx, layer, w, h, dpi) {
+      if (_textHasInlineMarks(layer.html)) {
+        await drawTextLayerRichToCanvas(ctx, layer, w, h, dpi);
+      } else {
+        drawTextLayerPlainToCanvas(ctx, layer, w, h, dpi);
+      }
     }
 
     async function drawLayerToCanvas(ctx, layer, dpi, offsetX = 0, offsetY = 0) {
@@ -15018,7 +15170,7 @@
           _exportFailedImages.add(layer.src);
         }
       } else if (layer.type === 'text') {
-        drawTextLayerToCanvas(ctx, layer, w, h, dpi);
+        await drawTextLayerToCanvas(ctx, layer, w, h, dpi);
       }
       ctx.restore();
     }
