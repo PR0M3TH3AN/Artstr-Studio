@@ -5,44 +5,8 @@ Running list of deferred work. Detailed specs for the larger items live in
 
 ## Adam's working list
 
-- **Click-canvas-background-to-deselect.** In the vector canvas editor,
-  clicking on empty canvas (outside any layer) should clear the layer
-  selection. Today the selection persists, which makes it hard to "exit"
-  a selected layer without picking another one.
-- **Toggle crop marks for export previews.** A new toggle in the
-  vector designer to hide crop marks from the PDF Print/Save and
-  JPEG Export flows. Today crop marks bleed into clean exports.
-- **Custom-art canvas size from imported background URL.** When a
-  user pastes a background image URL on a Custom Art canvas, offer
-  a one-click "Match canvas to image size" button (or apply
-  automatically on first import) so the canvas dims = image dims.
-  Edge cases: huge images (clamp to CUSTOM_ART_MAX), aspect-locked
-  layouts (Slide is locked 16:9 — should be skipped or warn).
-- **Hide layer-selection outlines in PDF Print + JPEG-PDF-fallback.**
-  The direct JPEG rasterizer (P1) draws to canvas via the canvas API
-  without ever touching the DOM, so selection chrome never appears in
-  the JPEG. The PDF Print / Save path AND the JPEG-fallback-via-PDF
-  path still render the live DOM though, so a dashed selected-layer
-  outline can sneak into those outputs. Add `body.exporting` (or
-  similar) class that strips `.freeLayer.selected` outlines and the
-  resize handles before either flow snapshots.
-- **JPEG export — rich-text rendering (P2).** Plain-text only today
-  in the direct JPEG flow (drawTextLayerToCanvas uses
-  layerHtmlToPlainText). Add an SVG-foreignObject renderer that
-  fires when `layer.html` contains inline marks (`<b>`/`<i>`/`<u>`/
-  `<a>`/`<ul>`/`<ol>`/`<li>`), with the existing fillText path as
-  fallback for plain text. ~150 LoC.
-- **JPEG export — DPI / quality selector (P4 polish).** Currently
-  hard-coded to dpi=150 / quality=0.92. Add a small dropdown in the
-  Export panel: Low (96 dpi, 0.8) / Standard (150, 0.92) / Print
-  (300, 0.95). ~40 LoC.
-- **Independent-axis corner-node resize.** Corner resize handles
-  currently lock the aspect ratio (or scale both axes together).
-  Behaviour should follow the actual drag vector: dragging mostly
-  horizontally with a small vertical move resizes width a lot,
-  height a little — both axes scale proportional to their own
-  movement, not to each other. Applies to every layer type's
-  resize handles, not just text.
+_(Empty — see "Shipped (recent)" below for the items that just
+landed. Drop new items in here as they come up.)_
 
 ## QR code layer — remaining phases
 
@@ -120,6 +84,38 @@ Each has a full spec in `docs/`.
 
 ## Shipped (recent)
 
+- **Click canvas background → deselect.** The existing #sheet click
+  handler missed clicks in the gutter between sheet edge and
+  previewShell edge; added a #previewShell handler.
+- **Crop marks for Custom Art / Slide canvases.** New `.canvasCrops`
+  corner marks inside .sheet, scoped to those template modes. The
+  existing showCrops / printCrops toggles drive screen + print
+  visibility (relaxed from cover-only to a new `.crops-toggle`
+  class).
+- **Strip selection chrome from PDF Print / JPEG-fallback output.**
+  Dead `body.exporting` CSS rules were renamed to actually match the
+  class JS sets. Wired both the regular printBtn flow and the
+  JPEG-PDF flow to set the class. Two-class split (`body.exporting`
+  for chrome-stripping in either flow, `body.export-print` for the
+  heavier container-isolation only the JPEG-PDF flow does) avoids the
+  blank-print regression that a single class caused.
+- **Custom Art: match canvas to image's natural dimensions.** New
+  "Match canvas to image size" button on the image-layer panel (Custom
+  Art mode only; Slide is 16:9 locked). Loads the image via
+  loadImageWithCors, clamps to CUSTOM_ART_MAX, pushes one undo entry.
+- **JPEG export — rich text rendering (P2).** Canvas-based engine
+  that walks the layer's HTML into styled runs (bold/italic/underline,
+  bullets, numbered lists, line breaks), lays them out with
+  ctx.measureText + word wrap, and draws each item with its own font
+  + underline. Dispatches to plain `fillText` when no inline marks
+  are present. SVG-foreignObject was tried first; it taints the
+  canvas in Chromium so we built the run-layout engine instead.
+- **Independent-axis corner-node resize.** Corner handles default to
+  independent axes (each axis follows its own drag delta); Shift+drag
+  locks aspect (Figma / Photoshop / Keynote convention). The sidebar
+  🔒 toggle still governs typed W/H input cascades.
+- **JPEG export — DPI / quality selector (P4 polish).** 96/150/300 dpi
+  presets in a dropdown next to the Export JPEG button.
 - **JPEG export — one-click direct rasterizer (P1).** Replaces the
   print-to-PDF-then-re-pick flow for Cover, Disc sheet, Jewel,
   Disc design, Custom Art, and Slide canvases. The infrastructure
