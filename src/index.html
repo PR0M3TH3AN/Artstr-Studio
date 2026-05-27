@@ -18623,8 +18623,17 @@
           return;
         }
         _feedPagination[tab].rows = rows;
-        if (!_feedPagination[tab].rendered || _feedPagination[tab].rendered > rows.length) {
-          _feedPagination[tab].rendered = Math.min(rows.length, _feedPagination[tab].chunk);
+        // Make sure we render at least one full chunk's worth on the initial
+        // pass, AND grow rendered if it's still below a chunk after streaming
+        // brings more rows in. Without the second clause, an early rerender
+        // (e.g. with 7 events streamed in so far) pins rendered=7, and later
+        // rerenders with 70+ rows leave the wall stuck at those 7 cards
+        // because the old condition `rendered > rows.length` never fires.
+        const chunkTarget = Math.min(rows.length, _feedPagination[tab].chunk);
+        if (_feedPagination[tab].rendered < chunkTarget) {
+          _feedPagination[tab].rendered = chunkTarget;
+        } else if (_feedPagination[tab].rendered > rows.length) {
+          _feedPagination[tab].rendered = chunkTarget;
         }
         initInfiniteScroll(tab);
         const visibleRows = rows.slice(0, _feedPagination[tab].rendered);
