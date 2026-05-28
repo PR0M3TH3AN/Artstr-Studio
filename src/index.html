@@ -992,20 +992,30 @@
       padding: 22px var(--nostr-widget-space, 210px) 14px 26px;
     }
 
+    /* Permanent top-right action strip — pinned directly under the Nostr
+       widget so the undo/redo controls and the canvas-size readouts always
+       live in the same place regardless of editor mode, sidebar state, or
+       window width. Never wraps. */
     .status {
+      position: fixed;
+      top: var(--top-strip-height, 34px);
+      right: 0;
+      z-index: 90;
       display: flex;
       flex-wrap: nowrap;
-      gap: 10px;
+      gap: 8px;
       align-items: center;
       color: var(--muted);
       font-size: .86rem;
       min-width: 0;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 4px 10px 4px 14px;
+      box-sizing: border-box;
     }
-
-    body.app-designer .status {
-      flex-basis: 100%;
-      justify-content: flex-start;
-    }
+    body.dark .status { color: var(--muted); }
+    @media print { .status { display: none !important; } }
 
     .pill {
       border: 1px solid var(--line);
@@ -3517,12 +3527,12 @@
           <p class="subhead printHelp">Left-to-right layout is back cover, spine, front cover.</p>
         </div>
         <div class="status">
+          <span class="pill" id="trimReadout"></span>
+          <span class="pill" id="sheetReadout"></span>
           <div class="undoRedoGroup">
             <button type="button" id="undoBtn" class="undoRedoBtn" disabled aria-label="Undo">↶</button>
             <button type="button" id="redoBtn" class="undoRedoBtn" disabled aria-label="Redo">↷</button>
           </div>
-          <span class="pill" id="trimReadout"></span>
-          <span class="pill" id="sheetReadout"></span>
         </div>
       </div>
 
@@ -18350,10 +18360,16 @@
     }
 
     function updateNostrWidgetSpace() {
+      // Reserve right-edge padding on the topbar for whichever fixed strip
+      // is wider: the Nostr widget itself, or the action strip below it
+      // (canvas-size pills + undo/redo). Without this, a narrow topbar
+      // would let the project title slide under the action strip.
       const widget = $('nostrWidget');
-      if (!widget) return;
-      const rect = widget.getBoundingClientRect();
-      const space = Math.ceil(rect.width || 0) + 18;
+      const statusStrip = document.querySelector('.topbar > .status');
+      let widest = 0;
+      if (widget) widest = Math.max(widest, widget.getBoundingClientRect().width || 0);
+      if (statusStrip) widest = Math.max(widest, statusStrip.getBoundingClientRect().width || 0);
+      const space = Math.ceil(widest) + 18;
       document.documentElement.style.setProperty('--nostr-widget-space', `${space}px`);
     }
 
@@ -18364,6 +18380,8 @@
       if (typeof ResizeObserver === 'function') {
         const observer = new ResizeObserver(updateNostrWidgetSpace);
         observer.observe(widget);
+        const statusStrip = document.querySelector('.topbar > .status');
+        if (statusStrip) observer.observe(statusStrip);
       }
       window.addEventListener('resize', updateNostrWidgetSpace);
     }

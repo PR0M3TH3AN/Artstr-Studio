@@ -5,8 +5,12 @@ Running list of deferred work. Detailed specs for the larger items live in
 
 ## Adam's working list
 
-_(Empty — see "Shipped (recent)" below for the items that just
-landed. Drop new items in here as they come up.)_
+- **Pixel canvas size dropdown — fix sidebar clipping.** When the
+  sidebar is open and the canvas size row wraps to a second line on
+  the left, the pixel-art canvas-size dropdown is clipped by the
+  sidebar. Easiest fix is probably "always right-align when wrapped"
+  so the dropdown opens away from the sidebar; or move the dropdown
+  to a placement that can't collide with the sidebar.
 
 ## QR code layer — remaining phases
 
@@ -84,6 +88,15 @@ Each has a full spec in `docs/`.
 
 ## Shipped (recent)
 
+- **Top-right action strip — permanent, never wraps.** Pulled the
+  canvas-size readouts and the undo / redo pair out of the topbar's
+  flex flow and pinned them in a fixed strip directly under the Nostr
+  widget, right-anchored, with `flex-wrap: nowrap`. Order: canvas-size
+  pills on the left, undo / redo on the right (so undo / redo hug the
+  viewport edge). The topbar's right padding now tracks the wider of
+  the Nostr widget or the strip via the existing
+  `--nostr-widget-space` var, so the project title never slides under
+  it.
 - **Click canvas background → deselect.** The existing #sheet click
   handler missed clicks in the gutter between sheet edge and
   previewShell edge; added a #previewShell handler.
