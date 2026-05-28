@@ -4286,6 +4286,20 @@
         </label>
         <p id="publishConfirmPrivateNote" class="hint" style="display:none;margin:8px 0 0;padding:8px 10px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.1);color:#92400e;border-radius:6px;font-size:.78rem">Private designs are encrypted — relays and other people can't read the contents. The event still reveals that you published something, and when. Encryption can't undo a past public publish.</p>
       </div>
+      <div id="publishConfirmZapGate" style="margin:0 0 12px">
+        <label class="toggle" id="publishConfirmZapGateLabel" style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
+          <input type="checkbox" id="publishConfirmZapGateToggle" />
+          <span>Premium template — viewers must zap to unlock.</span>
+        </label>
+        <div id="publishConfirmZapGateDetails" style="display:none;margin:8px 0 0 24px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg)">
+          <label style="display:flex;align-items:center;gap:8px;font-size:.82rem;margin:0 0 6px">
+            Minimum sats to unlock
+            <input type="number" id="publishConfirmZapMin" min="10" step="1" value="100" style="width:90px" />
+          </label>
+          <p id="publishConfirmSplitNote" class="hint" style="margin:0;font-size:.74rem"></p>
+          <p id="publishConfirmZapGateError" class="hint" style="display:none;margin:6px 0 0;color:var(--warn);font-size:.76rem"></p>
+        </div>
+      </div>
       <p id="publishConfirmEditNote" class="hint" style="display:none;margin:0 0 12px;padding:8px 10px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.1);color:#92400e;border-radius:6px;font-size:.78rem"></p>
       <p id="publishConfirmError" class="hint" style="display:none;margin:0 0 12px;color:var(--warn);font-size:.82rem"></p>
       <div class="buttonRow" style="margin:0;justify-content:flex-end;flex-wrap:wrap;gap:8px">
@@ -5188,6 +5202,146 @@
     // ---- end Platform-fee split --------------------------------------------
 
 
+    // ---- Zap-gated unlocks (Phase 3) ---------------------------------------
+    // Per-event "premium" gating: a creator tags a kind-30078 event with
+    // `zap-gate` + `zap-min` and viewers must pay (split between creator and
+    // platform) before the import button unlocks.
+    const UNLOCK_CACHE_KEY = 'casewrap-unlocked-templates';
+
+    function isZapGated(event) {
+      if (!event || !Array.isArray(event.tags)) return false;
+      return event.tags.some((t) => t[0] === 'zap-gate' && (t[1] === 'true' || t[1] === '1'));
+    }
+    function getZapMin(event) {
+      if (!event || !Array.isArray(event.tags)) return 0;
+      const tag = event.tags.find((t) => t[0] === 'zap-min');
+      const n = tag ? parseInt(tag[1], 10) : 0;
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    }
+    function getAllUnlocked() {
+      try { return JSON.parse(localStorage.getItem(UNLOCK_CACHE_KEY) || '{}') || {}; }
+      catch { return {}; }
+    }
+    function isUnlockedLocally(eventId) {
+      return !!getAllUnlocked()[eventId];
+    }
+    function markUnlocked(eventId, data = {}) {
+      try {
+        const all = getAllUnlocked();
+        all[eventId] = { unlockedAt: Date.now(), ...data };
+        localStorage.setItem(UNLOCK_CACHE_KEY, JSON.stringify(all));
+        // Invalidate any existing card DOM so diffWallCards rebuilds it
+        // from the latest row state (button switches from "⚡ Unlock"
+        // back to "Use/Fork").
+        document.querySelectorAll(`[data-event-id="${eventId}"]`).forEach((el) => el.remove());
+      } catch (err) { console.warn('[zap-gated] markUnlocked failed', err); }
+    }
+
+    // Relay fast-path — on feed load, query for zap receipts we've already
+    // sent for gated templates. Matching receipts auto-unlock without
+    // re-payment, so a cache wipe / private window / new device feels
+    // seamless.
+    async function relayFastPathUnlockCheck(gatedEventIds) {
+      if (!Array.isArray(gatedEventIds) || !gatedEventIds.length) return;
+      const myPubkey = normalizePubkey(state.community?.myPubkey || '');
+      if (!myPubkey) return;
+      const relays = splitRelayList(state.community?.relays || '');
+      const fresh = gatedEventIds.filter((id) => !isUnlockedLocally(id));
+      if (!fresh.length) return;
+      try {
+        // NIP-57 zap receipts tag the zapper as `P` (capital) and the target
+        // event as `e`. Query both filters in one shot.
+        const receipts = await queryRelays(relays, {
+          kinds: [9735],
+          '#e': fresh,
+          '#P': [myPubkey],
+        }, { timeoutMs: 4000 });
+        // For each unique #e that has at least one receipt with this user
+        // as the zapper, mark unlocked. We trust the relay query here —
+        // NWC.verifyEvent could re-verify each receipt's signature but
+        // worst-case impact of a forged "I paid" claim is a single user's
+        // lock disappearing client-side; their actual import still works
+        // because the gated content isn't separately encrypted.
+        const unlockedSet = new Set();
+        for (const ev of receipts || []) {
+          const eTag = (ev.tags || []).find((t) => t[0] === 'e' && t[1]);
+          if (eTag && !isUnlockedLocally(eTag[1])) unlockedSet.add(eTag[1]);
+        }
+        for (const id of unlockedSet) markUnlocked(id, { source: 'relay-fastpath' });
+      } catch (err) {
+        // Non-fatal — the user can still pay normally if the fast-path
+        // didn't find anything.
+        console.warn('[zap-gated] relay fast-path failed', err);
+      }
+    }
+
+    // openUnlockConfirmModal — small inline modal asking the user to confirm
+    // the unlock (with the split shown), then runs payZapSplit and updates
+    // the feed on success.
+    async function openUnlockConfirm(row) {
+      const eventId = row?.e?.id;
+      if (!eventId) return;
+      if (!nwc.isConnected()) {
+        toastError('Connect a Lightning wallet first (Community → ⚡ Lightning wallet).');
+        // Open the nostr modal + scroll to the wallet panel so the user can
+        // act on the prompt immediately.
+        $('nostrModal')?.classList.add('open');
+        const det = $('walletDetails'); if (det) det.open = true;
+        return;
+      }
+      if (!state.community?.myPubkey) {
+        toastError('Sign in with Nostr first.');
+        return;
+      }
+      const min = getZapMin(row.e) || 100;
+      const { creatorSats, platformSats } = platform.splitZapAmount(min);
+      const authorProfile = _feedCache.profiles?.[row.e?.pubkey] || null;
+      const creatorMeta = {
+        lud16: authorProfile?.lud16,
+        lud06: authorProfile?.lud06,
+      };
+      const ok = confirm(
+        `Unlock "${row.title || '(untitled)'}" for ${min} sats?\n\n` +
+        `• Creator (${shortPubkey(row.e.pubkey)}): ${creatorSats} sats\n` +
+        `• Artstr platform fee: ${platformSats} sats (${(PLATFORM_FEE_BPS / 100).toFixed(0)}%)`
+      );
+      if (!ok) return;
+      // Live status line; reuses the toast system for simplicity.
+      let statusToast = toast('Starting unlock…', { duration: 60000 });
+      const onStatus = (msg) => {
+        if (statusToast?.dismiss) statusToast.dismiss();
+        statusToast = toast(msg, { duration: 60000 });
+      };
+      try {
+        const result = await payZapSplit({
+          creatorPubkey: row.e.pubkey,
+          creatorMetadata: creatorMeta,
+          eventId,
+          totalSats: min,
+          onStatus,
+        });
+        if (statusToast?.dismiss) statusToast.dismiss();
+        markUnlocked(eventId, {
+          creatorSats: result.creatorSats,
+          platformSats: result.platformSats,
+          creatorPreimage: result.creatorPreimage,
+          platformPreimage: result.platformPreimage,
+        });
+        toastSuccess(`Unlocked "${row.title || 'template'}" ✓`);
+        // Re-render the feed in place — the card will now show Import.
+        if (typeof _currentFeedRerender === 'function') {
+          try { _currentFeedRerender(); } catch {}
+        }
+      } catch (err) {
+        if (statusToast?.dismiss) statusToast.dismiss();
+        const msg = err?.message || 'Unlock failed.';
+        const stage = err?.stage ? ` (${err.stage} leg)` : '';
+        toastError(`${msg}${stage}`);
+      }
+    }
+    // ---- end Zap-gated unlocks ---------------------------------------------
+
+
     // In-app toast — replaces all uses of native toastError(). Default type is
     // 'info'; use toastError / toastSuccess for the common severity flavors.
     function toast(message, opts = {}) {
@@ -5462,6 +5616,10 @@
       // d-tag a private design keeps so edits replace it in place.
       visibility: 'public',
       privateDTag: '',
+      // Zap-gated premium publishing — populated by the publish-confirm
+      // modal. The publish path reads from here when adding `zap-gate` /
+      // `zap-min` tags to kind-30078 events.
+      publish: { zapGate: false, zapMin: 100 },
       preset: 'dvd',
       panelW: presets.dvd.panelW,
       trimH: presets.dvd.trimH,
@@ -5858,6 +6016,13 @@
         tags.push(['t', `casewrap-${category}`]);
       }
       tags.push(['language', language]);
+      // Zap-gated premium: opt-in flag the publish modal sets on state.publish.
+      // Encrypted (private) designs are not eligible — they're not in the feed.
+      if (state.publish?.zapGate && state.visibility !== 'private') {
+        tags.push(['zap-gate', 'true']);
+        const min = Math.max(10, Math.floor(Number(state.publish?.zapMin) || 0));
+        tags.push(['zap-min', String(min)]);
+      }
       return tags;
     }
 
@@ -16693,9 +16858,57 @@
       if (privInput) privInput.checked = vis === 'private';
       updatePublishConfirmVisibilityNote();
 
+      // Zap-gate section. Always reflects current state.publish; hidden
+      // entirely for private designs (encrypted ⇒ not feed-listed ⇒ can't be
+      // gated). Private toggle change re-runs updatePublishConfirmZapGate so
+      // toggling private hides the row.
+      updatePublishConfirmZapGate();
+
       modal.style.display = 'flex';
       modal.setAttribute('aria-hidden', 'false');
       bringModalToFront(modal);
+    }
+
+    function updatePublishConfirmZapGate() {
+      const wrap = $('publishConfirmZapGate');
+      const toggle = $('publishConfirmZapGateToggle');
+      const details = $('publishConfirmZapGateDetails');
+      const minInput = $('publishConfirmZapMin');
+      const splitNote = $('publishConfirmSplitNote');
+      const errEl = $('publishConfirmZapGateError');
+      if (!wrap || !toggle || !details || !minInput || !splitNote || !errEl) return;
+      // Hide the whole section for private designs.
+      const allowed = state.visibility !== 'private';
+      wrap.style.display = allowed ? '' : 'none';
+      if (!allowed) {
+        toggle.checked = false;
+        state.publish = state.publish || { zapGate: false, zapMin: 100 };
+        state.publish.zapGate = false;
+        details.style.display = 'none';
+        return;
+      }
+      const pub = state.publish || (state.publish = { zapGate: false, zapMin: 100 });
+      toggle.checked = !!pub.zapGate;
+      minInput.value = Math.max(10, Math.floor(Number(pub.zapMin) || 100));
+      details.style.display = toggle.checked ? '' : 'none';
+      // Update split note + validate.
+      const min = Math.max(10, Math.floor(Number(minInput.value) || 100));
+      const { creatorSats, platformSats } = platform.splitZapAmount(min);
+      splitNote.textContent = `Of every unlock, the creator receives ${creatorSats} sats and the Artstr platform receives ${platformSats} sats (${(PLATFORM_FEE_BPS / 100).toFixed(0)}% fee).`;
+      // Block publish if the user doesn't have a Lightning address — relay-
+      // side recipients can't actually receive zaps without one.
+      const myLud16 = state.community?.myProfile?.lud16 || '';
+      const myLud06 = state.community?.myProfile?.lud06 || '';
+      if (toggle.checked && !(myLud16 || myLud06)) {
+        errEl.textContent = "Add a Lightning address (lud16) to your Nostr profile before publishing a premium template — viewers can't pay you otherwise.";
+        errEl.style.display = '';
+      } else if (toggle.checked && creatorSats <= 0) {
+        errEl.textContent = `That price splits to ${creatorSats} sats for the creator. Raise the minimum so your share is at least 1 sat.`;
+        errEl.style.display = '';
+      } else {
+        errEl.textContent = '';
+        errEl.style.display = 'none';
+      }
     }
 
     function updatePublishConfirmVisibilityNote() {
@@ -16768,6 +16981,18 @@
       const errEl = $('publishConfirmError');
       if (btn) { btn.disabled = true; btn.textContent = 'Publishing…'; }
       if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+      // Block publish if zap-gate is on but the user doesn't have a usable
+      // Lightning address — viewers couldn't pay them anyway. The publish-
+      // modal note already nags inline; this is the hard stop.
+      if (state.publish?.zapGate && state.visibility !== 'private') {
+        const lud16 = state.community?.myProfile?.lud16 || '';
+        const lud06 = state.community?.myProfile?.lud06 || '';
+        if (!lud16 && !lud06) {
+          if (errEl) { errEl.textContent = 'Add a Lightning address (lud16) to your Nostr profile, or turn off Premium.'; errEl.style.display = ''; }
+          if (btn) { btn.disabled = false; btn.textContent = 'Publish'; }
+          return;
+        }
+      }
       try {
         await target.onConfirm();
         closePublishConfirmModal();
@@ -17273,6 +17498,17 @@
           fetchZapsForEvents(ids, relays).then(mutated => {
             if (mutated) notifyFeedProgress();
           }).catch(() => {});
+
+          // Zap-gated fast-path: for any gated template the user has already
+          // paid for (kind-9735 receipt on relays), mark unlocked so a cache
+          // wipe / new device picks up where they left off without paying
+          // again. Filters the fetched events for `zap-gate` tag first.
+          const gatedIds = templateEvents
+            .filter((e) => isZapGated(e))
+            .map((e) => e.id);
+          if (gatedIds.length && state.community?.myPubkey) {
+            relayFastPathUnlockCheck(gatedIds).then(() => notifyFeedProgress()).catch(() => {});
+          }
         }
         _feedCache.fetchedAt = Date.now();
       } finally {
@@ -18918,6 +19154,13 @@
           trust: trustTierForPubkey(e.pubkey)
         };
         row.softMod = computeSoftMod(row);
+        if (isZapGated(e)) {
+          row.zapGate = {
+            gated: true,
+            min: getZapMin(e) || 100,
+            unlocked: isUnlockedLocally(e.id),
+          };
+        }
         if (uiKey) {
           if (!existing) {
             latestByAddress.set(uiKey, row);
@@ -19114,9 +19357,21 @@
       prevBtn.type = 'button'; prevBtn.textContent = 'Preview';
       prevBtn.addEventListener('click', e => { e.stopPropagation(); openDesignPreview(row); });
       const btn = document.createElement('button');
-      btn.type = 'button'; btn.textContent = 'Use/Fork';
-      btn.title = 'Fork this design — opens it in the editor so you can save your own version';
-      btn.addEventListener('click', e => { e.stopPropagation(); onUse(); });
+      btn.type = 'button';
+      // Zap-gated: replace Use/Fork with an unlock-with-zap CTA. We still
+      // let the user open the preview (whole-card click stays); the gate is
+      // only on importing into the editor.
+      const locked = row.zapGate?.gated && !row.zapGate?.unlocked;
+      if (locked) {
+        btn.textContent = `⚡ Unlock for ${row.zapGate.min} sats`;
+        btn.className = 'primary';
+        btn.title = `Premium template — zap to unlock (creator + ${(PLATFORM_FEE_BPS / 100).toFixed(0)}% Artstr platform fee).`;
+        btn.addEventListener('click', e => { e.stopPropagation(); openUnlockConfirm(row); });
+      } else {
+        btn.textContent = 'Use/Fork';
+        btn.title = 'Fork this design — opens it in the editor so you can save your own version';
+        btn.addEventListener('click', e => { e.stopPropagation(); onUse(); });
+      }
       const tipBtn = makeFeedCardTipButton(row);
       const editBtn = makeFeedCardEditButton(row);
       const isMine = rowIsOwnedByMe(row);
@@ -23577,8 +23832,20 @@
           if (e.target.checked) {
             state.visibility = e.target.value === 'private' ? 'private' : 'public';
             updatePublishConfirmVisibilityNote();
+            updatePublishConfirmZapGate();
           }
         });
+      });
+      on('publishConfirmZapGateToggle', 'change', (e) => {
+        state.publish = state.publish || { zapGate: false, zapMin: 100 };
+        state.publish.zapGate = !!e.target.checked;
+        updatePublishConfirmZapGate();
+      });
+      on('publishConfirmZapMin', 'input', (e) => {
+        state.publish = state.publish || { zapGate: false, zapMin: 100 };
+        const v = Math.max(10, Math.floor(Number(e.target.value) || 100));
+        state.publish.zapMin = v;
+        updatePublishConfirmZapGate();
       });
       on('supportDevCloseBtn', 'click', closeSupportDevModal);
       on('supportDevNoBtn', 'click', closeSupportDevModal);
