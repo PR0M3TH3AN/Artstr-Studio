@@ -66,21 +66,29 @@ toggle that fits the early-web aesthetic. Add new editor-UX items below.
 
 Each has a full spec in `docs/`.
 
-- **Private (encrypted) publishing** — `docs/PRIVATE_PUBLISHING_FEATURE.md`.
-  Publish any design encrypted, readable only by the author (Phase 1
-  "private to me"). The agreed next build; Phase 0 is a validation spike.
+- **Zap-gated premium templates (with NWC + platform split)** —
+  `docs/ZAP_GATED_PREMIUM_FEATURE.md`. **In-progress / current focus.**
+  Creators mark a template premium with a minimum sat amount; consumers
+  pay via NWC; the payment is split between the creator (70%) and the
+  Artstr platform (30%) in one user gesture. Recommended wallet is
+  CoinOS; any NIP-47 wallet works. Supersedes the older
+  `ZAP_GATED_TEMPLATES_FEATURE.md` + `ZAPS_NWC_FEATURE.md` drafts.
 - **Artstr Stacks** — `docs/STACKS_FEATURE.md`. Interactive fullscreen
   page/card stacks (HyperCard for Nostr) — the Slide Deck extended with
-  layer actions and an interactive viewer. Queued after private publishing.
+  layer actions and an interactive viewer. Queued after zap-gated lands.
 - **Badges (NIP-58)** — `docs/BADGES_FEATURE.md`. Award / display Nostr
   badges on profile pages.
 - **Collections (NIP-51 sets)** — `docs/COLLECTIONS_FEATURE.md`. Let users
   organize favorite community templates into named sets.
-- **Zap-gated premium templates** — `docs/ZAP_GATED_TEMPLATES_FEATURE.md`.
-  Creators mark a template premium with a minimum-zap threshold.
-- **Zaps via Nostr Wallet Connect** — `docs/ZAPS_NWC_FEATURE.md`. In-app
-  zapping without the wallet handoff. (Tracked LNURL-pay tips already ship;
-  this would be the NWC path.)
+
+## Phase-3+ work on shipped features
+
+- **Private (encrypted) publishing — Phases 3 & 4.**
+  `docs/PRIVATE_PUBLISHING_FEATURE.md`. Phases 1 (private-to-me) and
+  2 (toggle public ⇄ private) shipped in commit `3e6e89e`. Still
+  unbuilt: Phase 3 (share with selected pubkeys) and Phase 4 (NIP-59
+  gift-wrap metadata privacy + Blossom/NIP-96 offload for oversized
+  encrypted blobs).
 
 ## Shipped (recent)
 

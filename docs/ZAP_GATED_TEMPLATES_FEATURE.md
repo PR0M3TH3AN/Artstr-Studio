@@ -1,5 +1,12 @@
 # Zap-Gated Premium Templates Feature Plan
 
+> **⚠️ SUPERSEDED.** This draft is kept for historical context only.
+> The current plan lives in `ZAP_GATED_PREMIUM_FEATURE.md`, which
+> merges this spec with `ZAPS_NWC_FEATURE.md` and adds the mandatory
+> creator/platform fee split that's the actual reason for shipping
+> the feature. Read the merged doc; everything below is the earlier
+> draft before that scope was set.
+
 ## Overview
 Creators can mark a template as "premium" and set a minimum zap amount. Other users
 must send a Lightning zap (via NWC) before the import button unlocks. This creates a

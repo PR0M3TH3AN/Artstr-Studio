@@ -1,5 +1,12 @@
 # Zaps via Nostr Wallet Connect (NWC) Feature Plan
 
+> **⚠️ SUPERSEDED.** This draft is kept for historical context only.
+> NWC is no longer being built as a standalone feature — it's the
+> wallet substrate for `ZAP_GATED_PREMIUM_FEATURE.md` (which is the
+> canonical merged plan). General-purpose NWC zaps for the existing
+> tip flow remain a possible follow-up after that ships; see the
+> "Open questions" section of the merged doc.
+
 ## Overview
 Allow users to zap template creators (and specific templates) directly from the community
 feed using Nostr Wallet Connect (NIP-47). The user connects their Lightning wallet once via
