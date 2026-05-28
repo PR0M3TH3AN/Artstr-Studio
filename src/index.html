@@ -889,14 +889,20 @@
 
     /* PNG export dropdown in the pixel editor toolbar */
     .pixelExportWrap { position: relative; }
+    /* The menu is `position: fixed` so we can clamp it inside the viewport
+       regardless of which row its button wrapped onto in the toolbar. When
+       the button lands at the left of a wrapped row, an absolute-positioned
+       menu anchored `right: 0` slides under the sidebar — fixed + JS
+       placement avoids that. The actual top/left are set by placeFlexMenu(). */
     .pixelExportMenu {
-      position: absolute; right: 0; top: calc(100% + 6px); z-index: 20;
-      min-width: 260px; padding: 10px;
+      position: fixed; z-index: 20;
+      width: 260px; padding: 10px;
       background: var(--panel, #fff); color: var(--ink);
       border: 1px solid var(--line); border-radius: 8px;
       box-shadow: 0 8px 24px rgba(15,23,42,.18);
       flex-direction: column; gap: 8px;
       display: none;
+      box-sizing: border-box;
     }
     .pixelExportMenu.open { display: flex; }
     .pixelExportRow { display: flex; align-items: center; gap: 8px; }
@@ -9069,7 +9075,50 @@
       const willOpen = forceOpen !== undefined ? forceOpen : !isOpen;
       menu.classList.toggle('open', willOpen);
       btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      if (willOpen) placeFlexMenu(menu, btn);
     }
+
+    // Position a `.pixelExportMenu` (fixed) below its trigger button,
+    // right-aligned to the button by default and clamped inside the
+    // viewport so it can't slide under the sidebar or off the right edge.
+    // The safe-left boundary is the sidebar's right edge when visible
+    // (not just the viewport edge) — otherwise a button that wrapped to
+    // the left of its toolbar row would let the menu slide under the
+    // sidebar.
+    function placeFlexMenu(menu, btn) {
+      if (!menu || !btn) return;
+      const PAD = 8;
+      const b = btn.getBoundingClientRect();
+      const menuW = menu.offsetWidth || 260;
+      const vw = window.innerWidth;
+      const aside = document.querySelector('aside');
+      const asideRect = aside ? aside.getBoundingClientRect() : null;
+      // Sidebar is "visible at the left" when it's not collapsed AND its
+      // right edge is inside the viewport (rules out the mobile 1-col layout
+      // where the aside stacks above the canvas).
+      const sidebarRight = (asideRect && asideRect.right > 0 && asideRect.left <= 0)
+        ? asideRect.right
+        : 0;
+      const minLeft = Math.max(PAD, sidebarRight + PAD);
+      let left = b.right - menuW;             // default: anchor right of button
+      if (left < minLeft) left = b.left;       // would clip left → anchor left of button
+      if (left < minLeft) left = minLeft;      // still clipped → clamp to sidebar edge
+      if (left + menuW > vw - PAD) left = vw - menuW - PAD;
+      menu.style.left = `${Math.round(left)}px`;
+      menu.style.top = `${Math.round(b.bottom + 6)}px`;
+      menu.style.right = 'auto';
+    }
+
+    // Close any open .pixelExportMenu on window resize — its `position: fixed`
+    // coords were computed against the previous layout, so on resize they'd
+    // strand the menu away from its button.
+    window.addEventListener('resize', () => {
+      document.querySelectorAll('.pixelExportMenu.open').forEach((menu) => {
+        menu.classList.remove('open');
+        const btn = menu.parentElement?.querySelector('[aria-haspopup="true"]');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+      });
+    });
 
     // Draw a pixel-art layer onto an export canvas (ctx centred on the layer).
     function drawPixelArtToCanvas(ctx, layer, w, h) {
@@ -9640,6 +9689,7 @@
         const wi = $('pixelResizeW'); if (wi) wi.value = _pixelEdit.w;
         const hi = $('pixelResizeH'); if (hi) hi.value = _pixelEdit.h;
       }
+      if (willOpen) placeFlexMenu(menu, btn);
     }
 
     function pixelFloodFill(x, y, idx) {

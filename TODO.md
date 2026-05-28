@@ -5,12 +5,8 @@ Running list of deferred work. Detailed specs for the larger items live in
 
 ## Adam's working list
 
-- **Pixel canvas size dropdown — fix sidebar clipping.** When the
-  sidebar is open and the canvas size row wraps to a second line on
-  the left, the pixel-art canvas-size dropdown is clipped by the
-  sidebar. Easiest fix is probably "always right-align when wrapped"
-  so the dropdown opens away from the sidebar; or move the dropdown
-  to a placement that can't collide with the sidebar.
+_(Empty — see "Shipped (recent)" below for the items that just
+landed. Drop new items in here as they come up.)_
 
 ## QR code layer — remaining phases
 
@@ -88,6 +84,16 @@ Each has a full spec in `docs/`.
 
 ## Shipped (recent)
 
+- **Pixel-art dropdowns — no more sidebar clipping.** The pixel-editor
+  resize-grid and PNG-export menus were `position: absolute; right: 0`
+  inside their toolbar wrap. When the toolbar wrapped and the trigger
+  button landed at the left of its row, the menu slid leftward under
+  the main sidebar. Switched both menus to `position: fixed` with a
+  JS-placed coord that anchors to the button's right edge by default,
+  flips to its left edge if anchoring right would clip past the
+  sidebar (sidebar's actual right edge, not just the viewport),
+  and clamps inside the viewport on both sides. Also auto-closes any
+  open menu on window resize to avoid stranded fixed-position remnants.
 - **Top-right action strip — permanent, never wraps.** Pulled the
   canvas-size readouts and the undo / redo pair out of the topbar's
   flex flow and pinned them in a fixed strip directly under the Nostr
