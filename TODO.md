@@ -66,13 +66,21 @@ toggle that fits the early-web aesthetic. Add new editor-UX items below.
 
 Each has a full spec in `docs/`.
 
-- **Zap-gated premium templates (with NWC + platform split)** —
-  `docs/ZAP_GATED_PREMIUM_FEATURE.md`. **In-progress / current focus.**
-  Creators mark a template premium with a minimum sat amount; consumers
-  pay via NWC; the payment is split between the creator (70%) and the
-  Artstr platform (30%) in one user gesture. Recommended wallet is
-  CoinOS; any NIP-47 wallet works. Supersedes the older
-  `ZAP_GATED_TEMPLATES_FEATURE.md` + `ZAPS_NWC_FEATURE.md` drafts.
+- **Premium encrypted designs (static soft-gate + purchase vault)** —
+  `docs/PREMIUM_DESIGNS_FEATURE.md`. **In-progress / current focus.**
+  Creators publish encrypted designs gated by a Lightning split zap
+  (creator 70% / platform 30%). Buyers unlock via NWC; the static
+  client derives the AES key locally after valid split-zap receipts
+  arrive on relays, decrypts the payload, and stores the key in a
+  NIP-44 self-encrypted purchase vault for cross-device re-open.
+  Honest "soft gate, not strong DRM" framing — determined reverse-
+  engineers can still extract the client pepper; the protection is
+  against casual copying / relay scraping.
+  Foundation already shipped: noble crypto bundle, NWC client +
+  wallet settings, platform-fee dual-zap orchestrator, NWC-default
+  Lightning tips, and a tag-only gate UI (still in place but now
+  superseded by the encrypted content envelope). See
+  `docs/ZAP_GATED_PREMIUM_FEATURE.md` for the Phases 0–3 history.
 - **Artstr Stacks** — `docs/STACKS_FEATURE.md`. Interactive fullscreen
   page/card stacks (HyperCard for Nostr) — the Slide Deck extended with
   layer actions and an interactive viewer. Queued after zap-gated lands.

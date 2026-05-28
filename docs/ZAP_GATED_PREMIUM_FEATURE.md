@@ -1,11 +1,21 @@
 # Zap-Gated Premium Templates (with NWC + Platform Split) — Feature Plan
 
-> **Status:** planned, no code yet. This document supersedes the original
-> `ZAP_GATED_TEMPLATES_FEATURE.md` and `ZAPS_NWC_FEATURE.md` — both of
-> those described pieces of this feature in isolation. The two have
-> been merged here because, in this product, they're a single arc:
-> the platform-fee split is the whole reason for shipping zap-gated
-> templates, and NWC is what makes the split tolerable as a UX.
+> **Status:** Phases 0–3 (noble crypto bundle, NWC client + wallet
+> settings, platform-fee plumbing, tag-only feed UI) shipped on the
+> `zap-gated` branch and are reused as-is. The tag-only gate they
+> produced turned out to be too leaky to ship as the final model —
+> the design payload itself is still publicly readable. The
+> canonical spec for the encryption layer + buyer purchase vault
+> that closes that gap is now **`PREMIUM_DESIGNS_FEATURE.md`**
+> (the original "static soft-gate + buyer vault" design). Read
+> that document for the architecture going forward; this file is
+> retained for the Phases 0–3 history and the NWC/tip integration
+> notes.
+>
+> This document also superseded the original
+> `ZAP_GATED_TEMPLATES_FEATURE.md` and `ZAPS_NWC_FEATURE.md`. They
+> remain in `docs/` with a "superseded" banner for historical
+> reference.
 
 ---
 
@@ -23,10 +33,6 @@ unlock MUST split: creator gets `(100% − fee)`, platform gets `fee%`.
 There is no creator-only fallback path.
 
 ### Non-goals (v1)
-- **Non-Artstr clients.** Gating is client-side; another client could
-  in principle implement the `zap-gate` tag without the platform
-  split. The revenue model relies on Artstr being the primary client
-  for the audience that publishes premium templates.
 - **Refunds.** If the platform invoice fails after the creator
   invoice settles, we surface the error and ask the user to retry
   the platform leg — no auto-refund.
@@ -35,6 +41,29 @@ There is no creator-only fallback path.
 - **Non-NWC payment paths.** v1 requires NWC to be configured. No
   bolt11 QR fallback (would re-introduce the two-invoice clunky UX
   this whole arc is meant to avoid).
+- **Re-distribution prevention.** A paid buyer can re-share the
+  decryption key. The encryption protects against drive-by reading
+  / scraping, not against determined piracy. No client-side scheme
+  closes this gap without a server.
+
+### Content model (CORRECTED — what came after this doc)
+Phases 0–3 originally shipped a **tag-only** gate: the design content
+was published in plaintext in the kind-30078 event; Artstr's UI just
+refused to import it. Two problems surfaced in real-world testing:
+1. **Other clients can ignore the tag** and import freely.
+2. **Even inside Artstr** there are multiple import paths (feed
+   card, preview pane Use/Fork, preview pane Save JSON) — gating
+   only the feed-card button leaves the others as full bypasses.
+   Patching every UI surface still doesn't address (1).
+
+The canonical fix is the **static soft-gate + buyer purchase vault**
+model documented in **`PREMIUM_DESIGNS_FEATURE.md`**. That spec
+encrypts the design payload at publish time with a key derivable
+from public-plus-obfuscated material in the static client, gated
+behind valid split-zap receipts. Decryption keys are persisted in
+a buyer-owned NIP-44 encrypted kind-30078 vault for cross-device
+re-open. The spec also covers the watermarked preview and the
+honest "soft gate, not strong DRM" copy.
 
 ---
 
@@ -325,6 +354,12 @@ reconstruct the unlock log.
 ---
 
 ### Phase 4 — End-to-end + edge cases  *(~3–4h)*
+
+> Note: the encryption + purchase-vault work now lives in
+> `PREMIUM_DESIGNS_FEATURE.md` (the static soft-gate spec). Phase 4
+> below was scoped against the original tag-only model. Run it
+> *after* the soft-gate work lands so the E2E matrix exercises the
+> real encrypted flow, not the tag-only intermediate state.
 
 **Test matrix**
 - CoinOS source wallet + creator with Strike lud16 + platform with
