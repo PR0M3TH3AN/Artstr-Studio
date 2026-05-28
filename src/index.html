@@ -4954,6 +4954,240 @@
     // ---- end Wallet settings UI --------------------------------------------
 
 
+    // ---- Platform-fee split (Phase 2) --------------------------------------
+    // The platform takes a fixed cut of every premium-template unlock. This
+    // module owns the constants, the math, the platform-npub lud16 resolve
+    // (cached for the session), and the dual-zap orchestrator that runs the
+    // split client-side. localStorage caches in-flight legs so a failed half
+    // can be retried without double-paying.
+    const PLATFORM_NPUB = 'npub15jnttpymeytm80hatjqcvhhqhzrhx6gxp8pq0wn93rhnu8s9h9dsha32lx';
+    const PLATFORM_FEE_BPS = 3000;  // 30%. Single-constant: lower this later.
+    const PARTIAL_UNLOCK_KEY = 'casewrap-partial-unlocks';
+
+    const platform = (() => {
+      let _pubkeyHex = null;
+      let _lud16 = null;
+      let _lnurlMeta = null;
+      let _lud16Promise = null;
+
+      function getPubkeyHex() {
+        if (_pubkeyHex) return _pubkeyHex;
+        const dec = bech32Decode(PLATFORM_NPUB);
+        if (!dec || dec.hrp !== 'npub') throw new Error('PLATFORM_NPUB malformed');
+        const bytes = convertBits(dec.data, 5, 8, false);
+        if (!bytes || bytes.length !== 32) throw new Error('PLATFORM_NPUB decode failed');
+        _pubkeyHex = NWC.bytesToHex(new Uint8Array(bytes));
+        return _pubkeyHex;
+      }
+
+      async function resolveLud16() {
+        if (_lud16) return _lud16;
+        if (_lud16Promise) return _lud16Promise;
+        _lud16Promise = (async () => {
+          const relays = splitRelayList(state.community?.relays || '');
+          const events = await queryRelays(relays, { kinds: [0], authors: [getPubkeyHex()] }, { timeoutMs: 4500 });
+          // Pick the most recent kind-0 with a usable Lightning address.
+          const ordered = (events || []).slice().sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+          for (const ev of ordered) {
+            const profile = safeJsonParse(ev.content, {});
+            const lud = profile?.lud16 || decodeLud06ToAddress(profile?.lud06 || '');
+            if (lud) { _lud16 = lud; return lud; }
+          }
+          throw new Error('Platform Lightning address not found in profile');
+        })();
+        try { return await _lud16Promise; }
+        finally { _lud16Promise = null; }
+      }
+
+      async function resolveLnurlMeta() {
+        if (_lnurlMeta) return _lnurlMeta;
+        const lud = await resolveLud16();
+        const url = lud16ToLnurlpUrl(lud);
+        if (!url) throw new Error('Platform LNURL endpoint not resolvable');
+        _lnurlMeta = await fetchLnurlPayMetadata(url);
+        return _lnurlMeta;
+      }
+
+      // Split totalSats into creator + platform shares whose sum equals total.
+      // Platform takes floor; creator gets the remainder (creator-favouring).
+      function splitZapAmount(totalSats, bps = PLATFORM_FEE_BPS) {
+        const total = Math.max(0, Math.floor(Number(totalSats) || 0));
+        if (total <= 0) return { creatorSats: 0, platformSats: 0 };
+        const platformSats = Math.floor((total * bps) / 10000);
+        const creatorSats = total - platformSats;
+        return { creatorSats, platformSats };
+      }
+
+      return { getPubkeyHex, resolveLud16, resolveLnurlMeta, splitZapAmount };
+    })();
+
+    // PARTIAL_UNLOCK_KEY persists in-flight zap legs across reloads, so a
+    // half-failed unlock survives a page refresh and the user can resume
+    // without double-paying. Phase 4 wires the resume banner on top of this.
+    function getAllPartialUnlocks() {
+      try { return JSON.parse(localStorage.getItem(PARTIAL_UNLOCK_KEY) || '{}') || {}; }
+      catch { return {}; }
+    }
+    function getPartialUnlock(eventId) { return getAllPartialUnlocks()[eventId] || null; }
+    function savePartialUnlock(eventId, data) {
+      try {
+        const all = getAllPartialUnlocks();
+        all[eventId] = data;
+        localStorage.setItem(PARTIAL_UNLOCK_KEY, JSON.stringify(all));
+      } catch (err) { console.warn('[platform] savePartialUnlock failed', err); }
+    }
+    function clearPartialUnlock(eventId) {
+      try {
+        const all = getAllPartialUnlocks();
+        if (!(eventId in all)) return;
+        delete all[eventId];
+        localStorage.setItem(PARTIAL_UNLOCK_KEY, JSON.stringify(all));
+      } catch (err) { console.warn('[platform] clearPartialUnlock failed', err); }
+    }
+
+    // payZapSplit — the dual-zap orchestrator. Parallel where possible:
+    //   1. resolve creator + platform LNURL metadata (parallel)
+    //   2. validate minSendable on both
+    //   3. sign both kind-9734 zap requests (parallel via window.nostr)
+    //   4. fetch both bolt11s (parallel)
+    //   5. PAY CREATOR FIRST, then platform (sequential — half-fail at least
+    //      pays the creator; user retries the platform leg)
+    //   6. on each pay, lookup_invoice first if we already have a payment-
+    //      hash in the partial cache (skip already-settled legs on retry)
+    //   7. mark unlocked on preimage return; receipts are background async
+    //      verification (preimage IS proof; we don't block on receipts).
+    async function payZapSplit({ creatorPubkey, creatorMetadata, eventId, totalSats, onStatus = () => {} }) {
+      if (!nwc.isConnected()) {
+        throw Object.assign(new Error('Connect a Lightning wallet first.'), { code: 'NWC_NOT_CONNECTED' });
+      }
+      const myPubkey = state.community?.myPubkey;
+      if (!myPubkey) throw Object.assign(new Error('Sign in with Nostr to unlock premium templates.'), { code: 'NOT_SIGNED_IN' });
+
+      const { creatorSats, platformSats } = platform.splitZapAmount(totalSats);
+      if (creatorSats <= 0 || platformSats <= 0) {
+        throw Object.assign(new Error(`Unlock amount too small to split (creator=${creatorSats}, platform=${platformSats}).`), { code: 'AMOUNT_TOO_SMALL' });
+      }
+      const creatorMsats = creatorSats * 1000;
+      const platformMsats = platformSats * 1000;
+
+      // Restore any in-flight legs from a previous attempt.
+      let partial = getPartialUnlock(eventId) || { startedAt: Date.now() };
+
+      onStatus('Resolving Lightning endpoints…');
+      const creatorLnurlUrl = resolveLnurlPayUrl(creatorMetadata);
+      if (!creatorLnurlUrl) {
+        throw Object.assign(new Error("Creator hasn't set a Lightning address yet."), { code: 'CREATOR_NO_LUD16' });
+      }
+      const [creatorLnurlMeta, platformLnurlMeta] = await Promise.all([
+        fetchLnurlPayMetadata(creatorLnurlUrl),
+        platform.resolveLnurlMeta(),
+      ]);
+
+      // minSendable check on both sides
+      if ((creatorLnurlMeta.minSendable || 0) > creatorMsats) {
+        const minSats = Math.ceil(creatorLnurlMeta.minSendable / 1000);
+        throw Object.assign(new Error(`Creator's Lightning provider requires ≥${minSats} sats per zap. Ask the creator to lower their minimum, or wait for a more expensive unlock.`), { code: 'CREATOR_MIN_SEND' });
+      }
+      if ((platformLnurlMeta.minSendable || 0) > platformMsats) {
+        const minSats = Math.ceil(platformLnurlMeta.minSendable / 1000);
+        throw Object.assign(new Error(`Platform fee too small for our Lightning provider (need ≥${minSats} sats). This unlock can't be split — try a higher-priced template.`), { code: 'PLATFORM_MIN_SEND' });
+      }
+
+      const userRelays = splitRelayList(state.community?.relays || '').slice(0, 5);
+
+      // Step 3 — sign both zap requests in parallel. Both prompts will fire
+      // back-to-back in the NIP-07 extension; the user sees them as one
+      // burst rather than mid-flow.
+      onStatus('Signing zap requests…');
+      let signedCreator = partial.creator?.signedReq;
+      let signedPlatform = partial.platform?.signedReq;
+      if (!signedCreator || !signedPlatform) {
+        const creatorUnsigned = buildZapRequestEvent({
+          recipient: creatorPubkey, amountMsats: creatorMsats, eventId,
+          relays: userRelays, comment: '',
+        });
+        const platformUnsigned = buildZapRequestEvent({
+          recipient: platform.getPubkeyHex(), amountMsats: platformMsats, eventId,
+          relays: userRelays, comment: 'Artstr platform fee',
+        });
+        creatorUnsigned.pubkey = myPubkey;
+        platformUnsigned.pubkey = myPubkey;
+        const [c, p] = await Promise.all([
+          signedCreator ? Promise.resolve(signedCreator) : signNostrEvent(creatorUnsigned),
+          signedPlatform ? Promise.resolve(signedPlatform) : signNostrEvent(platformUnsigned),
+        ]);
+        signedCreator = c; signedPlatform = p;
+        partial.creator  = { ...(partial.creator  || {}), signedReq: signedCreator };
+        partial.platform = { ...(partial.platform || {}), signedReq: signedPlatform };
+        savePartialUnlock(eventId, partial);
+      }
+
+      // Step 4 — fetch both bolt11s in parallel (skip legs that already have
+      // a bolt11 from a prior attempt).
+      onStatus('Fetching invoices…');
+      const fetchTasks = [];
+      if (!partial.creator?.bolt11) {
+        fetchTasks.push((async () => {
+          const bolt11 = await fetchLnurlInvoice(creatorLnurlMeta.callback, creatorMsats, { nostr: JSON.stringify(signedCreator) });
+          partial.creator = { ...(partial.creator || {}), bolt11 };
+        })());
+      }
+      if (!partial.platform?.bolt11) {
+        fetchTasks.push((async () => {
+          const bolt11 = await fetchLnurlInvoice(platformLnurlMeta.callback, platformMsats, { nostr: JSON.stringify(signedPlatform) });
+          partial.platform = { ...(partial.platform || {}), bolt11 };
+        })());
+      }
+      await Promise.all(fetchTasks);
+      savePartialUnlock(eventId, partial);
+
+      // Step 5/6 — pay each leg; before each, see if the wallet already
+      // settled it from an earlier attempt (lookup_invoice). Creator first.
+      async function payLeg(side, label) {
+        const leg = partial[side];
+        if (leg?.preimage) return; // already paid
+        if (leg?.bolt11) {
+          try {
+            const lookup = await nwc.lookupInvoice(leg.bolt11);
+            // NIP-47 lookup_invoice returns `{ ..., preimage, settled_at, ... }`
+            // when settled. Different wallets vary slightly; we accept any
+            // non-empty preimage as evidence the leg has been paid.
+            if (lookup?.preimage) {
+              partial[side].preimage = lookup.preimage;
+              savePartialUnlock(eventId, partial);
+              return;
+            }
+          } catch {
+            // lookup_invoice is optional in some wallets — silently fall
+            // through to pay.
+          }
+        }
+        onStatus(`Paying ${label}…`);
+        const result = await nwc.payInvoice(leg.bolt11);
+        if (!result?.preimage) throw new Error(`${label} payment returned no preimage`);
+        partial[side] = { ...leg, preimage: result.preimage };
+        savePartialUnlock(eventId, partial);
+      }
+
+      try {
+        await payLeg('creator',  'creator');
+        await payLeg('platform', 'platform fee');
+      } catch (err) {
+        // Surface the failure stage so the UI can show a precise retry prompt.
+        if (!partial.creator?.preimage) err.stage = 'creator';
+        else if (!partial.platform?.preimage) err.stage = 'platform';
+        throw err;
+      }
+
+      onStatus('Unlocked');
+      const creatorPreimage = partial.creator.preimage;
+      const platformPreimage = partial.platform.preimage;
+      clearPartialUnlock(eventId);
+      return { creatorPreimage, platformPreimage, creatorSats, platformSats };
+    }
+    // ---- end Platform-fee split --------------------------------------------
+
+
     // In-app toast — replaces all uses of native toastError(). Default type is
     // 'info'; use toastError / toastSuccess for the common severity flavors.
     function toast(message, opts = {}) {
