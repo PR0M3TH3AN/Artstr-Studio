@@ -450,6 +450,157 @@ window.ArtstrPptxImporter = (function () {
     };
   }
 
+  // ---- Picture + graphicFrame placeholders -----------------------------
+  // PPTX relationship URIs for the OOXML object families we recognize.
+  // Anything not in this map becomes an "unknown" placeholder.
+  const GRAPHIC_DATA_URI_CHART   = 'http://schemas.openxmlformats.org/drawingml/2006/chart';
+  const GRAPHIC_DATA_URI_TABLE   = 'http://schemas.openxmlformats.org/drawingml/2006/table';
+  const GRAPHIC_DATA_URI_DIAGRAM = 'http://schemas.openxmlformats.org/drawingml/2006/diagram';
+
+  // Load a slide's relationship file as an rId → Target map so the
+  // image converter can resolve a:blip@r:embed values to their original
+  // media filenames (used only for the layer `name` — bytes are never
+  // decoded; src always points at the static placeholder URL).
+  function readSlideRels(files, slidePath) {
+    if (!slidePath) return new Map();
+    const m = slidePath.match(/^(.*\/)([^/]+)$/);
+    if (!m) return new Map();
+    const relsPath = `${m[1]}_rels/${m[2]}.rels`;
+    const text = readZipText(files, relsPath);
+    if (!text) return new Map();
+    let doc;
+    try { doc = parseXml(text); } catch { return new Map(); }
+    const map = new Map();
+    const rels = doc.getElementsByTagName('Relationship');
+    for (let i = 0; i < rels.length; i++) {
+      const id = rels[i].getAttribute('Id');
+      const target = rels[i].getAttribute('Target');
+      const type = rels[i].getAttribute('Type') || '';
+      if (id && target) map.set(id, { target, type });
+    }
+    return map;
+  }
+
+  // Strip the directory and decode any URL-escapes so 'image%201.png'
+  // surfaces as 'image 1.png' in the layer name.
+  function _basename(p) {
+    if (!p) return '';
+    const noQuery = p.split(/[?#]/)[0];
+    const parts = noQuery.split('/');
+    let last = parts[parts.length - 1] || '';
+    try { last = decodeURIComponent(last); } catch { /* keep raw */ }
+    return last;
+  }
+
+  // p:pic → Artstr image layer pointing at the shared placeholder URL.
+  // We do NOT read media bytes from the package — the user replaces
+  // each placeholder by editing the layer's src after import (see
+  // PPTX_IMAGE_PLACEHOLDER_URL in the spec).
+  function convertPicture(picNode, ctx) {
+    const spPr = _directChild(picNode, 'spPr');
+    const xfrm = spPr ? _directChild(spPr, 'xfrm') : null;
+    const bounds = readXfrm(xfrm, ctx.scale);
+    if (!bounds || bounds.w <= 0 || bounds.h <= 0) return null;
+
+    // Resolve the embed-relationship to the original media filename
+    // (best-effort — if it's missing we still emit a placeholder).
+    const blipFill = _directChild(picNode, 'blipFill');
+    const blip = blipFill ? _directChild(blipFill, 'blip') : null;
+    const embedId = blip
+      ? (blip.getAttributeNS(RELATIONSHIPS_NS, 'embed')
+         || blip.getAttribute('r:embed')
+         || '')
+      : '';
+    const rel = embedId ? ctx.slideRels.get(embedId) : null;
+    const mediaFile = rel ? _basename(rel.target) : '';
+
+    const cNvPr = picNode.getElementsByTagName('p:cNvPr')[0]
+              || picNode.getElementsByTagNameNS('*', 'cNvPr')[0];
+    const sourceName = cNvPr?.getAttribute('name') || '';
+    const label = mediaFile || sourceName || 'placeholder';
+    const name = `Image: ${label}`;
+
+    if (!embedId) {
+      _warn(ctx.report, ctx.slideIndex, 'MISSING_IMAGE_RELATIONSHIP',
+        `Slide ${ctx.slideIndex + 1}: image has no embed relationship — imported as placeholder.`);
+    }
+
+    return {
+      id: _makePptxLayerId(),
+      type: 'image',
+      name,
+      target: 'canvas',
+      src: PPTX_IMAGE_PLACEHOLDER_URL,
+      x: bounds.x,
+      y: bounds.y,
+      w: bounds.w,
+      h: bounds.h,
+      rotate: bounds.rotate || 0,
+      opacity: 1,
+      z: ctx.nextZ++,
+    };
+  }
+
+  // p:graphicFrame → typed placeholder image layer (chart / table /
+  // SmartArt / unknown). We don't try to render the chart or rebuild
+  // the table; the user replaces each placeholder with their own
+  // image / screenshot / Artstr equivalent.
+  function convertGraphicFrame(gfNode, ctx) {
+    // graphicFrame puts xfrm directly under itself, not inside spPr.
+    const xfrm = _directChild(gfNode, 'xfrm');
+    const bounds = readXfrm(xfrm, ctx.scale);
+    if (!bounds || bounds.w <= 0 || bounds.h <= 0) return null;
+
+    const graphic = _directChild(gfNode, 'graphic');
+    const graphicData = graphic ? _directChild(graphic, 'graphicData') : null;
+    const uri = graphicData?.getAttribute('uri') || '';
+
+    let kind = 'unknown';
+    let warnCode = 'UNSUPPORTED_UNKNOWN_PLACEHOLDER';
+    let warnMsg;
+    let counterKey = 'unknown';
+    let label = 'Unknown object';
+    if (uri === GRAPHIC_DATA_URI_CHART) {
+      kind = 'chart';
+      warnCode = 'UNSUPPORTED_CHART_PLACEHOLDER';
+      counterKey = 'charts';
+      label = 'Chart';
+    } else if (uri === GRAPHIC_DATA_URI_TABLE) {
+      kind = 'table';
+      warnCode = 'UNSUPPORTED_TABLE_PLACEHOLDER';
+      counterKey = 'tables';
+      label = 'Table';
+    } else if (uri === GRAPHIC_DATA_URI_DIAGRAM) {
+      kind = 'smartArt';
+      warnCode = 'UNSUPPORTED_SMART_ART_PLACEHOLDER';
+      counterKey = 'smartArt';
+      label = 'SmartArt';
+    }
+
+    const cNvPr = gfNode.getElementsByTagName('p:cNvPr')[0]
+              || gfNode.getElementsByTagNameNS('*', 'cNvPr')[0];
+    const sourceName = cNvPr?.getAttribute('name') || '';
+    const detail = sourceName ? `${label} placeholder: ${sourceName}` : `${label} placeholder`;
+    warnMsg = `Slide ${ctx.slideIndex + 1}: ${label.toLowerCase()} was imported as a placeholder image.`;
+    _warn(ctx.report, ctx.slideIndex, warnCode, warnMsg);
+    ctx.report.placeholders[counterKey] += 1;
+
+    return {
+      id: _makePptxLayerId(),
+      type: 'image',
+      name: detail,
+      target: 'canvas',
+      src: PPTX_IMAGE_PLACEHOLDER_URL,
+      x: bounds.x,
+      y: bounds.y,
+      w: bounds.w,
+      h: bounds.h,
+      rotate: bounds.rotate || 0,
+      opacity: 1,
+      z: ctx.nextZ++,
+    };
+  }
+
   // ---- Shape conversion -----------------------------------------------
   // Per-import counter so two consecutive imports don't generate
   // colliding layer ids. Reset at the start of importPptxFile.
@@ -576,7 +727,8 @@ window.ArtstrPptxImporter = (function () {
     if (!spTreeNode) return;
     for (let i = 0; i < spTreeNode.children.length; i++) {
       const child = spTreeNode.children[i];
-      if (child.localName === 'sp') {
+      const ln = child.localName;
+      if (ln === 'sp') {
         // A p:sp with p:txBody is a text shape; without it, it's a
         // pure shape. Dispatch to the right converter and bump the
         // matching counter.
@@ -594,11 +746,22 @@ window.ArtstrPptxImporter = (function () {
             ctx.report.imported.shapes += 1;
           }
         }
+      } else if (ln === 'pic') {
+        const layer = convertPicture(child, ctx);
+        if (layer) {
+          layersOut.push(layer);
+          ctx.report.imported.images += 1;
+        }
+      } else if (ln === 'graphicFrame') {
+        const layer = convertGraphicFrame(child, ctx);
+        if (layer) {
+          layersOut.push(layer);
+          // graphicFrame counters live under report.placeholders.*;
+          // convertGraphicFrame increments the appropriate one itself.
+        }
       }
       // Future phases:
-      //   - 'pic'           → image placeholder (Phase 3)
-      //   - 'graphicFrame'  → chart / table / SmartArt placeholder (Phase 3)
-      //   - 'grpSp'         → group (Phase 5 — recurse with combined xfrm)
+      //   - 'grpSp' → group (Phase 5 — recurse with combined xfrm)
     }
   }
 
@@ -732,7 +895,8 @@ window.ArtstrPptxImporter = (function () {
           // fills in images / chart placeholders; Phase 5 flattens groups.
           const spTree = slideDoc.getElementsByTagName('p:spTree')[0]
                      || slideDoc.getElementsByTagNameNS('*', 'spTree')[0];
-          const ctx = { scale, slideIndex: i, report, nextZ: 0 };
+          const slideRels = readSlideRels(files, slidePath);
+          const ctx = { scale, slideIndex: i, report, nextZ: 0, slideRels };
           walkSpTree(spTree, ctx, layers);
         } catch (err) {
           _warn(report, i, 'SLIDE_PARSE_FAILED',
@@ -807,7 +971,10 @@ window.ArtstrPptxImporter = (function () {
       readXfrm,
       convertPresetShape,
       convertTextShape,
+      convertPicture,
+      convertGraphicFrame,
       walkSpTree,
+      readSlideRels,
       readSlideNotes,
     },
   };
