@@ -684,7 +684,7 @@ Status: shipped. Phase 1+ paused while we work on a purchase-vault
 fix on `main`. Branch `pptx-import` retains the Phase 0 commit so
 work can resume here without setup.
 
-### Phase 1: Deck Shell
+### Phase 1: Deck Shell — SHIPPED on `pptx-import` (commit `2cc2b85`)
 
 - Read `.pptx` as ArrayBuffer.
 - Unzip with fflate.
@@ -696,6 +696,10 @@ work can resume here without setup.
 
 Acceptance: Importing a PPTX creates a deck with the correct number of
 slides; deck loads in the Deck Builder; each slide is editable.
+
+Status: shipped. Verified via CDP smoke test against synthetic 3-slide
+and 5-slide `.pptx` files built in-browser with `fflate.zipSync`.
+Garbage bytes throw a clean "invalid zip data" error.
 
 ### Phase 2: Text + Notes
 
