@@ -2161,6 +2161,8 @@
     .nostrWidget{position:fixed;top:0;right:0;z-index:500;display:flex;align-items:center;gap:6px;background:var(--panel);border-left:1px solid var(--line);border-bottom:1px solid var(--line);box-sizing:border-box;height:var(--top-strip-height,34px);padding:3px 14px 3px 12px}
     .nostrWidget .pill{box-shadow:none;padding:4px 10px;font-size:.78rem;line-height:1.2;height:26px;box-sizing:border-box;display:inline-flex;align-items:center}
     .nostrProfileBtn{display:flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:0;padding:2px 9px;background:#fff;cursor:pointer;font-size:.78rem;line-height:1.2;font-weight:600;color:var(--ink);max-width:200px;height:26px;box-sizing:border-box}
+    .profileMenuItem:hover{background:rgba(0,184,230,.10);color:var(--ink)}
+    body.dark .profileMenuItem:hover{background:rgba(0,217,255,.12)}
     .nostrAvatar{width:22px;height:22px;border-radius:50%;object-fit:cover;border:1px solid var(--line);background:#f1f5f9;flex:0 0 auto}
     .nostrNameEl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
     body.dark .nostrProfileBtn{background:transparent;border:none;padding:0}
@@ -2745,10 +2747,16 @@
 <body>
   <div class="nostrWidget" id="nostrWidget">
     <button type="button" id="nostrLoginBtn" class="pill">Sign in with Nostr</button>
-    <button type="button" id="nostrProfileBtn" class="nostrProfileBtn" style="display:none">
+    <button type="button" id="nostrProfileBtn" class="nostrProfileBtn" style="display:none" aria-haspopup="true" aria-expanded="false">
       <img class="nostrAvatar" id="nostrAvatarEl" alt="" />
       <span id="nostrNameEl"></span>
     </button>
+    <div id="nostrProfileMenu" role="menu" aria-hidden="true" style="display:none;position:absolute;top:100%;right:0;margin-top:4px;background:var(--panel);border:1px solid var(--line);box-shadow:0 6px 18px rgba(15,23,42,.18);border-radius:6px;min-width:180px;z-index:600;padding:4px 0">
+      <button type="button" role="menuitem" id="profileMenuView" class="profileMenuItem" style="display:block;width:100%;text-align:left;padding:8px 14px;background:transparent;border:0;cursor:pointer;font-size:.84rem;color:var(--ink)">👤 View profile</button>
+      <button type="button" role="menuitem" id="profileMenuSettings" class="profileMenuItem" style="display:block;width:100%;text-align:left;padding:8px 14px;background:transparent;border:0;cursor:pointer;font-size:.84rem;color:var(--ink)">⚙ Settings</button>
+      <hr style="margin:4px 0;border:0;border-top:1px solid var(--line)">
+      <button type="button" role="menuitem" id="profileMenuLogout" class="profileMenuItem" style="display:block;width:100%;text-align:left;padding:8px 14px;background:transparent;border:0;cursor:pointer;font-size:.84rem;color:var(--ink)">↩ Logout</button>
+    </div>
   </div>
 
   <div class="app">
@@ -4150,17 +4158,21 @@
       </div>
 
       <div id="nostrPreviewPanel" style="display:none;margin-top:12px;overflow-y:auto;max-height:68vh;"></div>
+    </div>
+  </div>
 
-      <details id="nostrRelayDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+  <!-- Settings modal. Opens from the profile menu (top-right) and consolidates
+       Relays, Trust + blocked authors, and Lightning wallet. -->
+  <div class="modal" id="settingsModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:560px;position:relative">
+      <button type="button" id="settingsCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
+      <h2 style="font-size:1.05rem;margin:0 0 4px;font-family:inherit">Settings</h2>
+      <p class="hint" style="margin:0 0 12px">Relays, web-of-trust filters, blocked authors, and your Lightning wallet.</p>
+      <details id="nostrRelayDetails" open style="margin-top:8px;border-top:1px solid var(--line);padding-top:10px">
         <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">Relay settings</summary>
         <label for="relayList" style="margin-top:8px;display:block;font-size:.8rem;font-weight:650;color:#374151">Nostr relays</label>
         <input id="relayList" type="text" placeholder="wss://relay.damus.io, wss://nos.lol, wss://relay.primal.net, wss://relay.snort.social, wss://relay.nostr.band" style="margin-top:4px" />
         <p class="hint">Separate multiple relays with commas. Changing relays clears the template cache.</p>
-      </details>
-      <details id="blockListDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
-        <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">Blocked authors <span id="blockCountBadge">0</span></summary>
-        <p class="hint">Blocked authors are hidden in all community feed views.</p>
-        <div id="blockListContainer" class="hint">No blocked authors yet.</div>
       </details>
       <details id="softModDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px;display:none">
         <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">Web-of-trust soft moderation</summary>
@@ -4168,6 +4180,11 @@
           <input type="checkbox" id="softModEnabledToggle" style="accent-color:var(--accent);margin-top:2px" />
           <span>Blur cards that ≥2 people you follow have muted or reported. Click <em>Show anyway</em> to reveal.</span>
         </label>
+      </details>
+      <details id="blockListDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+        <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">Blocked authors <span id="blockCountBadge">0</span></summary>
+        <p class="hint">Blocked authors are hidden in all community feed views.</p>
+        <div id="blockListContainer" class="hint">No blocked authors yet.</div>
       </details>
       <details id="walletDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
         <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">⚡ Lightning wallet <span id="walletStatusBadge" style="font-weight:500;color:var(--muted);font-size:.74rem;margin-left:6px"></span></summary>
@@ -5742,10 +5759,10 @@
       const eventId = row?.e?.id;
       if (!eventId) return;
       if (!nwc.isConnected()) {
-        toastError('Connect a Lightning wallet first (Community → ⚡ Lightning wallet).');
-        // Open the nostr modal + scroll to the wallet panel so the user can
-        // act on the prompt immediately.
-        $('nostrModal')?.classList.add('open');
+        toastError('Connect a Lightning wallet first (Profile → Settings → ⚡ Lightning wallet).');
+        // Open Settings + expand the wallet panel so the user can act on
+        // the prompt immediately.
+        if (typeof openSettingsModal === 'function') openSettingsModal();
         const det = $('walletDetails'); if (det) det.open = true;
         return;
       }
@@ -20924,6 +20941,77 @@
       modal.setAttribute('aria-hidden', 'true');
     }
 
+    // Profile menu dropdown — opens from the avatar pill once signed in.
+    let _profileMenuClickAwayHandler = null;
+    function openProfileMenu() {
+      const menu = $('nostrProfileMenu');
+      const btn = $('nostrProfileBtn');
+      if (!menu || !btn) return;
+      menu.style.display = 'block';
+      menu.setAttribute('aria-hidden', 'false');
+      btn.setAttribute('aria-expanded', 'true');
+      // Close on outside-click and on Escape.
+      if (_profileMenuClickAwayHandler) document.removeEventListener('click', _profileMenuClickAwayHandler, true);
+      _profileMenuClickAwayHandler = (e) => {
+        if (menu.contains(e.target) || btn.contains(e.target)) return;
+        closeProfileMenu();
+      };
+      // Defer so the click that just opened the menu isn't itself caught.
+      setTimeout(() => document.addEventListener('click', _profileMenuClickAwayHandler, true), 0);
+    }
+    function closeProfileMenu() {
+      const menu = $('nostrProfileMenu');
+      const btn = $('nostrProfileBtn');
+      if (!menu || !btn) return;
+      menu.style.display = 'none';
+      menu.setAttribute('aria-hidden', 'true');
+      btn.setAttribute('aria-expanded', 'false');
+      if (_profileMenuClickAwayHandler) {
+        document.removeEventListener('click', _profileMenuClickAwayHandler, true);
+        _profileMenuClickAwayHandler = null;
+      }
+    }
+
+    // Settings modal (Relays, Trust, Blocked authors, Lightning wallet).
+    function openSettingsModal() {
+      closeProfileMenu();
+      const modal = $('settingsModal');
+      if (!modal) return;
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+      if (typeof bringModalToFront === 'function') bringModalToFront(modal);
+    }
+    function closeSettingsModal() {
+      const modal = $('settingsModal');
+      if (!modal) return;
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+    }
+
+    // Logout — clears the local Nostr identity. Per Adam: does NOT
+    // disconnect the wallet (handled via its own Disconnect button in
+    // Settings) and does NOT delete the synced-wallet record on relays
+    // (the whole point of the sync is to make the next sign-in pick it
+    // back up). Untick "Sync this wallet" in Settings first if you want
+    // a clean slate.
+    async function nostrLogout() {
+      closeProfileMenu();
+      state.community.myPubkey = '';
+      state.community.myProfile = null;
+      state.community.myFollows = [];
+      state.community.myExtendedFollows = new Set();
+      state.community.muteListSyncedAt = 0;
+      try { localStorage.removeItem('casewrap-unlocked-templates'); } catch {}
+      _vaultCache = null;  // force a fresh load on next sign-in
+      try { persistAutosave(); } catch {}
+      if (typeof updateNostrWidget === 'function') updateNostrWidget();
+      // Bring the feed back to its logged-out view.
+      if (typeof _currentFeedRerender === 'function') {
+        try { _currentFeedRerender(); } catch {}
+      }
+      if (typeof toast === 'function') toast('Signed out of Nostr.');
+    }
+
     async function loadMyDesigns() {
       const wall = $('feedWallMine');
       if (!state.community.myPubkey) {
@@ -21752,8 +21840,8 @@
         const el = $(`panel${t}`);
         if (el) el.style.display = 'none';
       }
-      const rd = $('nostrRelayDetails');
-      if (rd) rd.style.display = 'none';
+      // (No need to hide nostrRelayDetails any more — it lives in the
+      // Settings modal, not in the Community modal.)
       content.style.display = '';
 
       // Locked premium row → render the watermarked JPEG instead of the
@@ -21803,8 +21891,6 @@
       $('nostrBackBtn').style.display = 'none';
       $('nostrModal').querySelector('.modalTabs').style.display = '';
       $('nostrPreviewPanel').style.display = 'none';
-      const rd = $('nostrRelayDetails');
-      if (rd) rd.style.display = '';
       for (const t of ['New', 'Popular', 'Zapped', 'Search', 'Mine']) {
         const tabEl = $(`tab${t}`);
         const panelEl = $(`panel${t}`);
@@ -24329,13 +24415,29 @@
       on('loginOptNsec', 'click', () => {
         toast('Direct nsec login is coming soon. For now, use a NIP-07 browser extension that holds the key for you.');
       });
-      $("nostrProfileBtn").addEventListener("click", () => {
+      // Profile pill now opens a dropdown menu; the actual "View profile"
+      // action is one item in that menu.
+      $("nostrProfileBtn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const menu = $('nostrProfileMenu');
+        if (menu && menu.style.display === 'block') closeProfileMenu();
+        else openProfileMenu();
+      });
+      on('profileMenuView', 'click', () => {
+        closeProfileMenu();
         const pk = normalizePubkey(state.community?.myPubkey || '');
         if (pk) openProfilePage(pk);
-        else {
-          $('nostrModal').classList.add('open');
-          switchModalTab('Mine');
-        }
+      });
+      on('profileMenuSettings', 'click', openSettingsModal);
+      on('profileMenuLogout', 'click', nostrLogout);
+      on('settingsCloseBtn', 'click', closeSettingsModal);
+      const settingsModalEl = $('settingsModal');
+      if (settingsModalEl) settingsModalEl.addEventListener('click', (e) => { if (e.target === settingsModalEl) closeSettingsModal(); });
+      // Escape key closes both the menu and the settings modal.
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if ($('nostrProfileMenu')?.style.display === 'block') closeProfileMenu();
+        if ($('settingsModal')?.style.display === 'flex') closeSettingsModal();
       });
 
       document.querySelectorAll('.feedTypeBtn').forEach(btn => {
