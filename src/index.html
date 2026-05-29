@@ -4289,7 +4289,7 @@
       <div id="publishConfirmZapGate" style="margin:0 0 12px">
         <label class="toggle" id="publishConfirmZapGateLabel" style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">
           <input type="checkbox" id="publishConfirmZapGateToggle" />
-          <span>Premium template — viewers must zap to unlock.</span>
+          <span>Premium encrypted — viewers see a watermarked preview and must zap to unlock the full design. <em>Soft-gate, not strong DRM</em> — once unlocked, buyers can still export or share.</span>
         </label>
         <div id="publishConfirmZapGateDetails" style="display:none;margin:8px 0 0 24px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg)">
           <label style="display:flex;align-items:center;gap:8px;font-size:.82rem;margin:0 0 6px">
@@ -5392,6 +5392,76 @@
       const n = tag ? parseInt(tag[1], 10) : 0;
       return Number.isFinite(n) && n > 0 ? n : 0;
     }
+
+    // Premium event detection (PREMIUM_DESIGNS_FEATURE.md §5.1).
+    // A premium event carries `premium=true` + `premium-mode=softgate-v1`
+    // tags AND has an encrypted envelope as content. Older tag-only
+    // events (just zap-gate=true) are NOT considered premium — they're
+    // the leaky transitional shape from before this work landed; the
+    // feed still shows them as gated but they can't actually be
+    // unlocked (the design payload is in plaintext on relays).
+    function isPremiumEvent(event) {
+      if (!event || !Array.isArray(event.tags)) return false;
+      return event.tags.some((t) => t[0] === 'premium' && (t[1] === 'true' || t[1] === '1'));
+    }
+    function getPremiumEnvelope(event) {
+      try {
+        const parsed = JSON.parse(event?.content || '{}');
+        if (parsed?.visibility !== 'premium' || !parsed?.enc?.alg) return null;
+        return parsed;
+      } catch { return null; }
+    }
+    function premiumEventTagValue(event, key) {
+      if (!event || !Array.isArray(event.tags)) return '';
+      const t = event.tags.find((tag) => tag[0] === key);
+      return t ? (t[1] || '') : '';
+    }
+    function premiumEventDTag(event) { return premiumEventTagValue(event, 'd'); }
+    function premiumAddressCoord(event) {
+      const d = premiumEventDTag(event);
+      const pk = event?.pubkey;
+      return (d && pk) ? `30078:${pk}:${d}` : '';
+    }
+    function premiumEventMode(event) {
+      const tTags = (event?.tags || []).filter((t) => t[0] === 't' && typeof t[1] === 'string').map((t) => t[1]);
+      for (const tt of tTags) {
+        const m = tt.match(/^casewrap-(.+)$/);
+        if (m) return m[1];
+      }
+      return 'cover';
+    }
+    // Synthesize a partial payload from public tags so the feed-card readers
+    // (title/category/mode) work on a still-locked premium row. The real
+    // decrypted payload replaces this on unlock.
+    function _stubPayloadFromPremiumEvent(event) {
+      return {
+        version: 5,
+        premium: true,
+        visibility: 'premium',
+        templateMode: premiumEventMode(event),
+        meta: {
+          title: premiumEventTagValue(event, 'title'),
+          category: premiumEventTagValue(event, 'category'),
+          language: premiumEventTagValue(event, 'language') || 'en',
+          imdbId: '',
+        },
+      };
+    }
+    // Parse §5.1 / §11.1 zap split tags. Falls back to the platform
+    // 70/30 default if no zap tags are present.
+    function parsePremiumZapSplits(event) {
+      const tags = event?.tags || [];
+      const zapTags = tags.filter((t) => t[0] === 'zap' && t[1] && t[2]);
+      const hasWeights = zapTags.some((t) => t[3] != null);
+      const parsed = zapTags
+        .map((t) => ({
+          pubkey: t[1],
+          relay: t[2],
+          weight: hasWeights ? Math.max(0, parseInt(t[3] || '0', 10) || 0) : 1,
+        }))
+        .filter((s) => s.weight > 0);
+      return parsed;
+    }
     function getAllUnlocked() {
       try { return JSON.parse(localStorage.getItem(UNLOCK_CACHE_KEY) || '{}') || {}; }
       catch { return {}; }
@@ -5415,36 +5485,66 @@
     // sent for gated templates. Matching receipts auto-unlock without
     // re-payment, so a cache wipe / private window / new device feels
     // seamless.
-    async function relayFastPathUnlockCheck(gatedEventIds) {
-      if (!Array.isArray(gatedEventIds) || !gatedEventIds.length) return;
+    // Relay fast-path. Premium designs use address-based purchase scope
+    // (PREMIUM_DESIGNS_FEATURE.md §13.2) so a creator's edit-in-place
+    // doesn't invalidate prior unlocks. We query by `#a` first, then `#e`
+    // as a fallback for legacy tag-only events.
+    async function relayFastPathUnlockCheck(gatedEvents) {
+      if (!Array.isArray(gatedEvents) || !gatedEvents.length) return;
       const myPubkey = normalizePubkey(state.community?.myPubkey || '');
       if (!myPubkey) return;
       const relays = splitRelayList(state.community?.relays || '');
-      const fresh = gatedEventIds.filter((id) => !isUnlockedLocally(id));
-      if (!fresh.length) return;
-      try {
-        // NIP-57 zap receipts tag the zapper as `P` (capital) and the target
-        // event as `e`. Query both filters in one shot.
-        const receipts = await queryRelays(relays, {
-          kinds: [9735],
-          '#e': fresh,
-          '#P': [myPubkey],
-        }, { timeoutMs: 4000 });
-        // For each unique #e that has at least one receipt with this user
-        // as the zapper, mark unlocked. We trust the relay query here —
-        // NWC.verifyEvent could re-verify each receipt's signature but
-        // worst-case impact of a forged "I paid" claim is a single user's
-        // lock disappearing client-side; their actual import still works
-        // because the gated content isn't separately encrypted.
-        const unlockedSet = new Set();
-        for (const ev of receipts || []) {
-          const eTag = (ev.tags || []).find((t) => t[0] === 'e' && t[1]);
-          if (eTag && !isUnlockedLocally(eTag[1])) unlockedSet.add(eTag[1]);
+
+      const freshEvents = gatedEvents.filter((e) => !isUnlockedLocally(e.id));
+      if (!freshEvents.length) return;
+
+      const addressByEvent = new Map();   // event id → address coord
+      const addressesToQuery = [];
+      const eventIdsToQuery = [];
+      for (const ev of freshEvents) {
+        const addr = premiumAddressCoord(ev);
+        if (addr) {
+          addressByEvent.set(ev.id, addr);
+          addressesToQuery.push(addr);
         }
-        for (const id of unlockedSet) markUnlocked(id, { source: 'relay-fastpath' });
+        eventIdsToQuery.push(ev.id);
+      }
+
+      try {
+        const queries = [];
+        if (addressesToQuery.length) {
+          queries.push(queryRelays(relays, {
+            kinds: [9735], '#a': [...new Set(addressesToQuery)], '#P': [myPubkey],
+          }, { timeoutMs: 4000 }).catch(() => []));
+        }
+        if (eventIdsToQuery.length) {
+          queries.push(queryRelays(relays, {
+            kinds: [9735], '#e': eventIdsToQuery, '#P': [myPubkey],
+          }, { timeoutMs: 4000 }).catch(() => []));
+        }
+        const receiptSets = await Promise.all(queries);
+        const seenAddresses = new Set();
+        const seenEventIds = new Set();
+        for (const receipts of receiptSets) {
+          for (const ev of receipts || []) {
+            const aTag = (ev.tags || []).find((t) => t[0] === 'a' && t[1]);
+            if (aTag) seenAddresses.add(aTag[1]);
+            const eTag = (ev.tags || []).find((t) => t[0] === 'e' && t[1]);
+            if (eTag) seenEventIds.add(eTag[1]);
+          }
+        }
+        for (const ev of freshEvents) {
+          if (isUnlockedLocally(ev.id)) continue;
+          const addr = addressByEvent.get(ev.id);
+          if (addr && seenAddresses.has(addr)) {
+            markUnlocked(ev.id, { source: 'relay-fastpath-a', address: addr });
+            continue;
+          }
+          if (seenEventIds.has(ev.id)) {
+            markUnlocked(ev.id, { source: 'relay-fastpath-e' });
+          }
+        }
       } catch (err) {
-        // Non-fatal — the user can still pay normally if the fast-path
-        // didn't find anything.
         console.warn('[zap-gated] relay fast-path failed', err);
       }
     }
@@ -5494,12 +5594,43 @@
           totalSats: min,
           onStatus,
         });
+        // Premium event → also decrypt the design payload now so subsequent
+        // renders / forks have the real data. Tag-only zap-gate events
+        // (no envelope) fall through with the existing markUnlocked.
+        let decryptedPayload = null;
+        if (row.premium?.envelope) {
+          onStatus('Decrypting design…');
+          try {
+            decryptedPayload = await Premium.decryptPayload(row.premium.envelope, {
+              creatorPubkey: row.e.pubkey,
+              dTag: row.premium.dTag,
+              schemaVersion: row.premium.envelope.payloadSchemaVersion || 5,
+            });
+          } catch (decryptErr) {
+            if (statusToast?.dismiss) statusToast.dismiss();
+            toastError(`Payment went through, but the design couldn't be decrypted: ${decryptErr?.message || decryptErr}. Try refreshing — receipts may still be settling.`);
+            // Stash payment proof anyway so the user doesn't re-pay; the
+            // next page load can retry the decrypt.
+            markUnlocked(eventId, {
+              creatorSats: result.creatorSats,
+              platformSats: result.platformSats,
+              creatorPreimage: result.creatorPreimage,
+              platformPreimage: result.platformPreimage,
+              address: row.premium.address || '',
+              decryptError: decryptErr?.message || String(decryptErr),
+            });
+            if (typeof _currentFeedRerender === 'function') { try { _currentFeedRerender(); } catch {} }
+            return;
+          }
+        }
         if (statusToast?.dismiss) statusToast.dismiss();
         markUnlocked(eventId, {
           creatorSats: result.creatorSats,
           platformSats: result.platformSats,
           creatorPreimage: result.creatorPreimage,
           platformPreimage: result.platformPreimage,
+          address: row.premium?.address || '',
+          payload: decryptedPayload || undefined,
         });
         toastSuccess(`Unlocked "${row.title || 'template'}" ✓`);
         // Re-render the feed in place — the card will now show Import.
@@ -6190,13 +6321,10 @@
         tags.push(['t', `casewrap-${category}`]);
       }
       tags.push(['language', language]);
-      // Zap-gated premium: opt-in flag the publish modal sets on state.publish.
-      // Encrypted (private) designs are not eligible — they're not in the feed.
-      if (state.publish?.zapGate && state.visibility !== 'private') {
-        tags.push(['zap-gate', 'true']);
-        const min = Math.max(10, Math.floor(Number(state.publish?.zapMin) || 0));
-        tags.push(['zap-min', String(min)]);
-      }
+      // Premium / zap-gated events are published via _publishPremiumDesign,
+      // which builds its own tag set per PREMIUM_DESIGNS_FEATURE.md §5.1.
+      // getTemplateTags() is only called from the public non-premium path,
+      // so no zap-gate tags here.
       return tags;
     }
 
@@ -13707,6 +13835,16 @@
         return signed;
       }
       const mode = normalizeTemplateMode(payload);
+      // Premium: publish the design as an encrypted envelope + watermarked
+      // preview JPEG, with the §5.1 tag set. Soft-gate; honest about the
+      // limitation in the publish-modal copy.
+      if (state.publish?.zapGate) {
+        const signed = await _publishPremiumDesign(payload, mode, typeTag);
+        const label = isEditing() ? `Updated "${state.meta.title}" (premium)` : `Premium "${state.meta.title}"`;
+        await finalizePublishedTemplateEvent(signed, { label });
+        if (isEditing()) exitEditMode();
+        return signed;
+      }
       const dBase = state.meta.imdbId
         || state.meta.title
         || (isCanvasMode(mode) ? `${state.customArt?.width || 0}x${state.customArt?.height || 0}` : '');
@@ -13723,6 +13861,76 @@
       await finalizePublishedTemplateEvent(signed, { label });
       if (isEditing()) exitEditMode();
       return signed;
+    }
+
+    // Premium publish path (PREMIUM_DESIGNS_FEATURE.md §5 / §6).
+    // Encrypts the payload via Premium.encryptPayload, renders the
+    // watermarked preview JPEG, builds the §5.1 tag set including the
+    // platform-fee zap split, and publishes a single kind-30078 event.
+    async function _publishPremiumDesign(payload, mode, typeTag) {
+      // Pre-flight: lud16 on creator (already enforced at the modal level),
+      // and resolve the platform lud16 so the split-zap actually works for
+      // buyers later.
+      const myPubkey = state.community?.myPubkey;
+      if (!myPubkey) throw new Error('Sign in with Nostr before publishing premium.');
+      // Generate the preview FIRST so a too-large artboard bails before we
+      // build any event.
+      const preview = await renderPremiumPreviewDataUrl();
+      // Stable d-tag with a `premium:` prefix so it can't collide with an
+      // existing non-premium event from the same author. Edit-in-place
+      // reuses the original.
+      const dBase = state.meta.imdbId
+        || state.meta.title
+        || (isCanvasMode(mode) ? `${state.customArt?.width || 0}x${state.customArt?.height || 0}` : '');
+      const dTag = isEditing() ? state.editingDTag : `premium:${mode}:${dBase}`;
+      const coord = { creatorPubkey: myPubkey, dTag, schemaVersion: 5 };
+      // Encrypt the payload. The decrypted shape is the existing
+      // loadProjectFromText-compatible JSON.
+      const envelope = await Premium.encryptPayload(payload, coord);
+      envelope.payloadSchemaVersion = 5;
+      envelope.premiumMode = 'softgate-v1';
+      envelope.preview = {
+        kind: 'watermarked-image',
+        dataUrl: preview.dataUrl,
+        width: preview.width,
+        height: preview.height,
+      };
+      // Build the §5.1 tag set. Discovery tags (title/category/language/
+      // mode) stay public; encrypted-only data lives in `content`.
+      const zapMin = Math.max(10, Math.floor(Number(state.publish?.zapMin) || 100));
+      const platformPubkey = platform.getPubkeyHex();
+      const relayHint = (splitRelayList(state.community?.relays || '')[0]) || '';
+      const epoch = envelope.softgate?.epoch || Premium.CURRENT_EPOCH;
+      const tags = [
+        ['d', dTag],
+        ['t', 'casewrap'],
+        ...(typeTag ? [['t', typeTag]] : []),
+        ['title', state.meta?.title || ''],
+        ['summary', state.meta?.title ? `Premium encrypted Artstr design — ${state.meta.title}` : 'Premium encrypted Artstr design'],
+        ['category', state.meta?.category || ''],
+        ['language', state.meta?.language || 'en'],
+        ['client', 'Artstr Studio'],
+        ['premium', 'true'],
+        ['premium-mode', 'softgate-v1'],
+        ['softgate-epoch', epoch],
+        ['encrypted', 'artstr-softgate-v1'],
+        ['zap-gate', 'true'],
+        ['zap-min', String(zapMin)],
+        ['zap-split', 'required'],
+        // Designer share — full creator share weight; consumer side splits
+        // using the existing 70/30 PLATFORM_FEE_BPS constant when these
+        // weights aren't present. We emit explicit weights so future
+        // consumers don't depend on the client constant.
+        ['zap', myPubkey, relayHint, String(10000 - PLATFORM_FEE_BPS)],
+        ['zap', platformPubkey, relayHint, String(PLATFORM_FEE_BPS)],
+      ];
+      const evt = {
+        kind: 30078,
+        created_at: Math.floor(Date.now() / 1000),
+        tags,
+        content: JSON.stringify(envelope),
+      };
+      return publishCommunityEvent(evt);
     }
 
     async function publishDiscDesignToNostr() {
@@ -17818,12 +18026,11 @@
           // Zap-gated fast-path: for any gated template the user has already
           // paid for (kind-9735 receipt on relays), mark unlocked so a cache
           // wipe / new device picks up where they left off without paying
-          // again. Filters the fetched events for `zap-gate` tag first.
-          const gatedIds = templateEvents
-            .filter((e) => isZapGated(e))
-            .map((e) => e.id);
-          if (gatedIds.length && state.community?.myPubkey) {
-            relayFastPathUnlockCheck(gatedIds).then(() => notifyFeedProgress()).catch(() => {});
+          // again. Premium events use address-coord receipts; legacy
+          // tag-only events fall back to event-id receipts.
+          const gatedEvents = templateEvents.filter((e) => isPremiumEvent(e) || isZapGated(e));
+          if (gatedEvents.length && state.community?.myPubkey) {
+            relayFastPathUnlockCheck(gatedEvents).then(() => notifyFeedProgress()).catch(() => {});
           }
         }
         _feedCache.fetchedAt = Date.now();
@@ -19447,10 +19654,25 @@
         const authorPubkey = normalizePubkey(e.pubkey);
         if (authorPubkey && _blockedAuthors.has(authorPubkey)) continue;
         let payload = null;
-        try { payload = JSON.parse(e.content || '{}'); } catch { continue; }
+        let premiumEnvelope = null;
+        const isPremium = isPremiumEvent(e);
+        try {
+          const parsed = JSON.parse(e.content || '{}');
+          if (isPremium) {
+            premiumEnvelope = parsed;
+            // If the user has already unlocked + decrypted this design,
+            // surface the real payload so the existing card renderers can
+            // produce a full preview. Otherwise synthesise a stub from the
+            // public tags so title/category/mode still work.
+            const cached = getAllUnlocked()[e.id];
+            payload = cached?.payload || _stubPayloadFromPremiumEvent(e);
+          } else {
+            payload = parsed;
+          }
+        } catch { continue; }
         // Encrypted designs never render here — they're feed-invisible and
         // are pre-decrypted by loadMyDesigns before reaching this builder.
-        if (isEncryptedEnvelope(payload)) continue;
+        if (!isPremium && isEncryptedEnvelope(payload)) continue;
         if (!skipVersionFilter && (payload.version ?? 0) < MIN_SUPPORTED_SCHEMA_VERSION) continue;
         const address = templateEventAddress(e, payload);
         const eventTime = e.created_at || 0;
@@ -19497,7 +19719,26 @@
           trust: trustTierForPubkey(e.pubkey)
         };
         row.softMod = computeSoftMod(row);
-        if (isZapGated(e)) {
+        if (isPremium) {
+          const cached = getAllUnlocked()[e.id];
+          row.premium = {
+            envelope: premiumEnvelope,
+            previewJpegDataUrl: premiumEnvelope?.preview?.dataUrl || '',
+            decrypted: !!cached?.payload,
+            address: premiumAddressCoord(e),
+            dTag: premiumEventDTag(e),
+          };
+          row.zapGate = {
+            gated: true,
+            min: getZapMin(e) || 100,
+            unlocked: !!cached?.payload,
+          };
+        } else if (isZapGated(e)) {
+          // Older tag-only events from before the encrypted publish path
+          // landed. Still surfaced as locked in the feed, but the design
+          // payload is in plaintext on relays so this is now just a
+          // visible reminder to the author to delete + republish under the
+          // new path.
           row.zapGate = {
             gated: true,
             min: getZapMin(e) || 100,
@@ -19604,23 +19845,33 @@
       const thumb = document.createElement('div');
       thumb.className = 'feedCardThumb';
 
-      // Mini-preview: same DOM as the full preview rendered at its natural size,
-      // then CSS-scaled via transform to fit the thumb. Layers, text, and slot
-      // art all scale together so it's WYSIWYG with the click-Preview pane.
+      // Mini-preview: for premium *locked* rows, show the watermarked JPEG
+      // embedded in the envelope. Otherwise re-render the design DOM at its
+      // natural size and CSS-scale to fit (WYSIWYG with the preview pane).
       const previewWrap = document.createElement('div');
       previewWrap.className = 'miniPreviewWrap';
-      try {
-        const payload = row.payload || {};
-        if (row.mode === 'disc-design') renderDiscPreviewDOM(previewWrap, payload, { compact: true });
-        else if (row.mode === 'disc') renderDiscSheetPreviewDOM(previewWrap, payload, { compact: true });
-        else if (row.mode === 'jewel') renderJewelPreviewDOM(previewWrap, payload, { compact: true });
-        else if (row.mode === 'customart' || row.mode === 'slide') renderCustomArtPreviewDOM(previewWrap, payload, { compact: true });
-        else if (row.mode === 'deck') renderDeckPreviewDOM(previewWrap, payload, { compact: true });
-        else if (row.mode === 'pixelart') renderPixelArtPreviewDOM(previewWrap, payload, { compact: true });
-        else renderTemplatePreviewDOM(previewWrap, payload, { compact: true });
-      } catch {}
+      const isLockedPremium = !!(row.premium && !row.premium.decrypted);
+      if (isLockedPremium && row.premium.previewJpegDataUrl) {
+        const img = document.createElement('img');
+        img.src = row.premium.previewJpegDataUrl;
+        img.alt = row.title || 'Premium template preview';
+        img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;background:#fff';
+        previewWrap.style.cssText = 'width:100%;height:100%;display:flex';
+        previewWrap.appendChild(img);
+      } else {
+        try {
+          const payload = row.payload || {};
+          if (row.mode === 'disc-design') renderDiscPreviewDOM(previewWrap, payload, { compact: true });
+          else if (row.mode === 'disc') renderDiscSheetPreviewDOM(previewWrap, payload, { compact: true });
+          else if (row.mode === 'jewel') renderJewelPreviewDOM(previewWrap, payload, { compact: true });
+          else if (row.mode === 'customart' || row.mode === 'slide') renderCustomArtPreviewDOM(previewWrap, payload, { compact: true });
+          else if (row.mode === 'deck') renderDeckPreviewDOM(previewWrap, payload, { compact: true });
+          else if (row.mode === 'pixelart') renderPixelArtPreviewDOM(previewWrap, payload, { compact: true });
+          else renderTemplatePreviewDOM(previewWrap, payload, { compact: true });
+        } catch {}
+      }
       thumb.appendChild(previewWrap);
-      fitMiniPreview(previewWrap);
+      if (!isLockedPremium) fitMiniPreview(previewWrap);
 
       // Fallback label so empty designs still show their mode (and as a placeholder
       // if the preview produced nothing visible).
@@ -20510,15 +20761,36 @@
       });
       actionsDiv.insertBefore(shareBtn, saveJsonBtn);
 
+      // Gate Use/Fork + Save JSON when the row is a locked premium template
+      // (the design content is encrypted; downloading the JSON would just
+      // hand the buyer the envelope, not the plaintext).
+      const lockedPremium = !!(row.premium && !row.premium.decrypted);
       const forkBtn = document.createElement('button');
       forkBtn.type = 'button';
-      forkBtn.textContent = 'Use/Fork';
-      forkBtn.title = 'Fork this design — opens it in the editor so you can save your own version';
-      forkBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        forkRowIntoEditor(row);
-      });
+      if (lockedPremium) {
+        forkBtn.textContent = `⚡ Unlock for ${row.zapGate?.min || 100} sats`;
+        forkBtn.className = 'primary';
+        forkBtn.title = `Premium template — zap to unlock (creator + ${(PLATFORM_FEE_BPS / 100).toFixed(0)}% Artstr platform fee).`;
+        forkBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openUnlockConfirm(row);
+        });
+      } else {
+        forkBtn.textContent = 'Use/Fork';
+        forkBtn.title = 'Fork this design — opens it in the editor so you can save your own version';
+        forkBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          forkRowIntoEditor(row);
+        });
+      }
       actionsDiv.insertBefore(forkBtn, saveJsonBtn);
+      if (lockedPremium && saveJsonBtn) {
+        saveJsonBtn.disabled = true;
+        saveJsonBtn.title = 'Locked — pay to unlock the design data.';
+      } else if (saveJsonBtn) {
+        saveJsonBtn.disabled = false;
+        saveJsonBtn.title = '';
+      }
 
       // Decks get a Start Presentation button — present straight from the
       // browser without forking.
@@ -20632,7 +20904,25 @@
       if (rd) rd.style.display = 'none';
       content.style.display = '';
 
-      if (mode === 'disc-design') {
+      // Locked premium row → render the watermarked JPEG instead of the
+      // (unavailable) plaintext design. Add an honest "soft-gate" note.
+      if (row.premium && !row.premium.decrypted) {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px';
+        if (row.premium.previewJpegDataUrl) {
+          const img = document.createElement('img');
+          img.src = row.premium.previewJpegDataUrl;
+          img.alt = row.title || 'Premium template preview';
+          img.style.cssText = 'max-width:100%;height:auto;border:1px solid var(--line);background:#fff';
+          wrap.appendChild(img);
+        }
+        const note = document.createElement('p');
+        note.className = 'hint';
+        note.style.cssText = 'margin:0;text-align:center;max-width:520px';
+        note.textContent = 'Premium encrypted design. Soft-gated — unlock pays the creator and Artstr; once paid the full editable design opens here. Soft-gate is not strong DRM; buyers can still export or share after unlocking.';
+        wrap.appendChild(note);
+        content.appendChild(wrap);
+      } else if (mode === 'disc-design') {
         renderDiscPreviewDOM(content, p);
       } else if (mode === 'disc') {
         renderDiscSheetPreviewDOM(content, p);
