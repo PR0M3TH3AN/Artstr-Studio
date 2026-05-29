@@ -4195,6 +4195,10 @@
             </div>
           </div>
           <p class="hint" id="walletCapabilityWarning" style="display:none;margin:8px 0 0;color:#b45309">⚠ This wallet doesn't advertise <code>pay_invoice</code>; unlocks will fail.</p>
+          <label id="walletSyncRow" style="display:flex;align-items:flex-start;gap:8px;margin:8px 0 0;font-size:.74rem;cursor:pointer">
+            <input type="checkbox" id="walletSyncToggle" style="margin-top:2px" />
+            <span>Sync this wallet to my Nostr account so I don't have to paste it on every device. The NWC connection string is NIP-44 encrypted to your own pubkey — only someone with your nsec can decrypt it.</span>
+          </label>
           <div class="buttonRow" style="margin:8px 0 0">
             <button type="button" id="walletTestBtn">Test connection</button>
             <button type="button" id="walletDisconnectBtn">Disconnect</button>
@@ -5137,6 +5141,14 @@
         if (badge) badge.textContent = '— ' + alias;
         const warn = $('walletCapabilityWarning');
         if (warn) warn.style.display = (caps && !caps.has('pay_invoice')) ? '' : 'none';
+        // Sync toggle — reflect the current preference. Hidden if the user
+        // isn't signed in to Nostr OR their extension doesn't support
+        // encryption (since both are prerequisites for syncing).
+        const syncRow = $('walletSyncRow');
+        const syncToggle = $('walletSyncToggle');
+        const canSync = !!(state.community?.myPubkey && (typeof _supportsVault === 'function' ? _supportsVault() : true));
+        if (syncRow) syncRow.style.display = canSync ? '' : 'none';
+        if (syncToggle) syncToggle.checked = nwcSyncPref();
       }
 
       async function handleConnect() {
@@ -5152,6 +5164,14 @@
           if (input) input.value = '';
           if (statusEl) statusEl.textContent = '';
           toastSuccess('Lightning wallet connected.');
+          // Sync the wallet credential across the user's Nostr identity
+          // if the sync toggle is on and they're signed in. Fire-and-forget
+          // — failures don't block the local connection that already worked.
+          if (nwcSyncPref() && state.community?.myPubkey && typeof publishNwcSync === 'function') {
+            publishNwcSync(uri).then((signed) => {
+              if (signed) toast('Wallet synced to your Nostr account ✓');
+            }).catch(() => {});
+          }
         } catch (err) {
           if (statusEl) statusEl.textContent = err?.message || 'Connection failed.';
         } finally {
@@ -5178,6 +5198,11 @@
 
       function handleDisconnect() {
         nwc.disconnect();
+        // If a synced copy exists on the user's Nostr identity, clear it
+        // too — otherwise the next sign-in would auto-reconnect.
+        if (state.community?.myPubkey && typeof deleteSyncedNwcUri === 'function') {
+          deleteSyncedNwcUri().catch(() => {});
+        }
         toast('Wallet disconnected.');
         render();
       }
@@ -5203,6 +5228,26 @@
         on('walletTestBtn',    'click', handleTest);
         on('walletDisconnectBtn', 'click', handleDisconnect);
         on('walletNwcInput', 'keydown', (e) => { if (e.key === 'Enter') handleConnect(); });
+        on('walletSyncToggle', 'change', (e) => {
+          const on = !!e.target.checked;
+          setNwcSyncPref(on);
+          const conn = nwc.getConn();
+          if (on && conn?.servicePubkey && state.community?.myPubkey) {
+            // Rebuild the original NWC URI from the in-memory connection so
+            // we can publish the encrypted record. (parseNwcUri saved the
+            // pieces; here we reverse it.)
+            const relayParam = (conn.relays || []).map((r) => `relay=${encodeURIComponent(r)}`).join('&');
+            const uri = `nostr+walletconnect://${conn.servicePubkey}?${relayParam}&secret=${conn.secret}${conn.lud16 ? `&lud16=${encodeURIComponent(conn.lud16)}` : ''}`;
+            publishNwcSync(uri).then((signed) => {
+              if (signed) toast('Wallet synced to your Nostr account ✓');
+            }).catch(() => {});
+          } else if (!on) {
+            // User turned sync off — remove any existing synced record so
+            // sign-in elsewhere doesn't auto-restore.
+            deleteSyncedNwcUri().catch(() => {});
+            toast('Wallet sync disabled. Existing synced record cleared.');
+          }
+        });
         nwc.on(render);
         render();
       }
@@ -5805,6 +5850,8 @@
     // writes lose to the latest one but no item is removed (merge keeps the
     // union).
     const VAULT_D_TAG = 'artstr:purchase-vault:v1';
+    const NWC_SYNC_D_TAG = 'artstr:nwc-connection:v1';
+    const NWC_SYNC_PREF_KEY = 'casewrap-nwc-sync-pref';  // 'on' | 'off'
     let _vaultLoadPromise = null;
     let _vaultCache = null;   // { v, updatedAt, items: [...] } once hydrated
 
@@ -6074,6 +6121,100 @@
         return { restored: 0, total: 0, err };
       }
     }
+
+    // ---- NWC sync (cross-device wallet credential sharing) -----------------
+    // Stores the NWC connection URI in a NIP-44-self-encrypted kind-30078
+    // event with d=artstr:nwc-connection:v1. Mirrors the purchase-vault
+    // shape; the NWC URI is a wallet-spending credential, so encryption is
+    // load-bearing — anyone with the user's nsec can decrypt + spend up to
+    // the wallet's NWC budget. Opt-in (default ON on first connect; user
+    // can toggle off in the wallet panel).
+    function nwcSyncPref() {
+      const v = localStorage.getItem(NWC_SYNC_PREF_KEY);
+      return v === 'off' ? false : true;  // default on
+    }
+    function setNwcSyncPref(on) {
+      try { localStorage.setItem(NWC_SYNC_PREF_KEY, on ? 'on' : 'off'); } catch {}
+    }
+
+    async function publishNwcSync(uri) {
+      if (!_supportsVault()) return null;
+      if (!state.community?.myPubkey) return null;
+      if (!uri || typeof uri !== 'string') return null;
+      try {
+        const plaintext = JSON.stringify({ v: 1, updatedAt: Date.now(), uri });
+        const content = await _selfEncrypt(plaintext);
+        const evt = {
+          kind: 30078,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [
+            ['d', NWC_SYNC_D_TAG],
+            ['client', 'Artstr Studio'],
+            ['encrypted', nostrEncryptCapability() || 'nip44'],
+          ],
+          content,
+        };
+        return await publishCommunityEvent(evt);
+      } catch (err) { console.warn('[nwc-sync] publish failed', err); return null; }
+    }
+
+    async function loadSyncedNwcUri() {
+      if (!_supportsVault()) return null;
+      const myPubkey = state.community?.myPubkey;
+      if (!myPubkey) return null;
+      try {
+        const relays = splitRelayList(state.community?.relays || '');
+        const events = await queryRelays(relays, {
+          kinds: [30078], authors: [myPubkey], '#d': [NWC_SYNC_D_TAG], limit: 3,
+        }, { timeoutMs: 4500 });
+        const latest = (events || []).filter((e) => e?.content)
+          .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
+        if (!latest) return null;
+        const plaintext = await _selfDecrypt(latest.content);
+        const parsed = JSON.parse(plaintext);
+        return (typeof parsed?.uri === 'string' && parsed.uri.startsWith('nostr')) ? parsed.uri : null;
+      } catch (err) { console.warn('[nwc-sync] load failed', err); return null; }
+    }
+
+    async function deleteSyncedNwcUri() {
+      // Publish an empty record (no `uri` field) at a newer created_at so
+      // any subsequent load returns nothing. Avoids needing kind-5
+      // deletion events.
+      if (!_supportsVault() || !state.community?.myPubkey) return;
+      try {
+        const plaintext = JSON.stringify({ v: 1, updatedAt: Date.now() });
+        const content = await _selfEncrypt(plaintext);
+        await publishCommunityEvent({
+          kind: 30078,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [['d', NWC_SYNC_D_TAG], ['client', 'Artstr Studio'], ['encrypted', nostrEncryptCapability() || 'nip44']],
+          content,
+        });
+      } catch (err) { console.warn('[nwc-sync] delete failed', err); }
+    }
+
+    // Restore a synced NWC connection on Nostr login. Only runs if the user
+    // hasn't already configured a local wallet (we respect the local choice
+    // over the synced one).
+    async function hydrateNwcFromSync() {
+      try {
+        if (!nwcSyncPref()) return { restored: false, reason: 'pref-off' };
+        if (nwc.isConnected()) return { restored: false, reason: 'already-connected' };
+        if (nwc.getConn()) return { restored: false, reason: 'local-creds-present' };
+        const uri = await loadSyncedNwcUri();
+        if (!uri) return { restored: false, reason: 'no-synced-uri' };
+        await nwc.connect(uri);
+        if (typeof toastSuccess === 'function') {
+          toastSuccess('Lightning wallet restored from your Nostr account ✓');
+        }
+        return { restored: true };
+      } catch (err) {
+        console.warn('[nwc-sync] hydrate failed', err);
+        return { restored: false, reason: 'connect-failed', err };
+      }
+    }
+    // ---- end NWC sync ------------------------------------------------------
+
     function _rowFromVaultItem(item) {
       // Build a synthetic row that buildFeedCard / forkRowIntoEditor /
       // openDesignPreview can all consume. The payload here is the real
@@ -14959,6 +15100,10 @@
           try { _currentFeedRerender(); } catch {}
         }
       }).catch(() => {});
+      // If the user opted in to NWC cross-device sync, try to restore a
+      // previously-saved Lightning wallet from the encrypted-on-Nostr
+      // record. Respects the local-creds-present case (no overwrite).
+      hydrateNwcFromSync().catch(() => {});
       if ($('nostrModal')?.classList.contains('open')) {
         await refreshCommunityView();
       }
