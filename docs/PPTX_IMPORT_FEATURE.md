@@ -701,7 +701,7 @@ Status: shipped. Verified via CDP smoke test against synthetic 3-slide
 and 5-slide `.pptx` files built in-browser with `fflate.zipSync`.
 Garbage bytes throw a clean "invalid zip data" error.
 
-### Phase 2: Text + Notes
+### Phase 2: Text + Notes — SHIPPED on `pptx-import` (commit `49d6697`)
 
 - Parse `p:sp` with `p:txBody`.
 - Extract text content (paragraphs / runs).
