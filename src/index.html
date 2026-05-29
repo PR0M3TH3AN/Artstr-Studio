@@ -3038,6 +3038,10 @@
           <button type="button" id="deckImportFileBtn">Import from file</button>
         </div>
         <input id="deckSlideImportFile" type="file" accept="application/json,.json" hidden />
+        <div class="buttonRow">
+          <button type="button" id="importPptxBtn">Import PowerPoint (.pptx)</button>
+        </div>
+        <input id="pptxFileInput" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden />
         <p class="hint" id="deckCountHint">No slides yet — add one to start your deck.</p>
         <p class="hint">Click a slide thumbnail to edit it. Drag thumbnails to reorder.</p>
       </fieldset>
@@ -4581,6 +4585,25 @@
     </div>
   </div>
 
+  <div class="modal" id="pptxImportReportModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:520px">
+      <h2 style="font-size:1.05rem;margin:0 0 8px;font-family:inherit">PowerPoint import report</h2>
+      <p class="hint" id="pptxImportReportFile" style="margin:0 0 12px"></p>
+      <div id="pptxImportReportBody" style="margin:0 0 12px"></div>
+      <p class="hint" id="pptxImportReportPlaceholderNote" style="margin:0 0 12px;display:none">
+        Imported images and unsupported objects show as placeholder images. Open each placeholder layer
+        and paste your own image URL to restore the original content.
+      </p>
+      <details id="pptxImportReportWarningsWrap" style="margin:0 0 12px;display:none">
+        <summary style="cursor:pointer;font-size:.85rem">Warnings</summary>
+        <ul id="pptxImportReportWarnings" style="margin:8px 0 0;padding-left:18px;font-size:.82rem"></ul>
+      </details>
+      <div class="buttonRow" style="margin:0;justify-content:flex-end">
+        <button type="button" id="pptxImportReportCloseBtn" class="primary">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="layerGroupModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:380px">
       <h2 style="font-size:1.05rem;margin:0 0 8px;font-family:inherit">Name layer group</h2>
@@ -5797,25 +5820,35 @@
           }, { timeoutMs: 4000 }).catch(() => []));
         }
         const receiptSets = await Promise.all(queries);
-        const seenAddresses = new Set();
-        const seenEventIds = new Set();
+        const receiptsByAddress = new Map();
+        const receiptsByEventId = new Map();
         for (const receipts of receiptSets) {
           for (const ev of receipts || []) {
             const aTag = (ev.tags || []).find((t) => t[0] === 'a' && t[1]);
-            if (aTag) seenAddresses.add(aTag[1]);
+            if (aTag) {
+              const arr = receiptsByAddress.get(aTag[1]) || [];
+              arr.push(ev);
+              receiptsByAddress.set(aTag[1], arr);
+            }
             const eTag = (ev.tags || []).find((t) => t[0] === 'e' && t[1]);
-            if (eTag) seenEventIds.add(eTag[1]);
+            if (eTag) {
+              const arr = receiptsByEventId.get(eTag[1]) || [];
+              arr.push(ev);
+              receiptsByEventId.set(eTag[1], arr);
+            }
           }
         }
         for (const ev of freshEvents) {
           if (isUnlockedLocally(ev.id)) continue;
           const addr = addressByEvent.get(ev.id);
-          if (addr && seenAddresses.has(addr)) {
-            markUnlocked(ev.id, { source: 'relay-fastpath-a', address: addr });
+          const addressReceipts = addr ? (receiptsByAddress.get(addr) || []) : [];
+          const eventReceipts = receiptsByEventId.get(ev.id) || [];
+          if (addressReceipts.length) {
+            await restorePremiumUnlockFromReceipts(ev, addressReceipts, 'relay-fastpath-a');
             continue;
           }
-          if (seenEventIds.has(ev.id)) {
-            markUnlocked(ev.id, { source: 'relay-fastpath-e' });
+          if (eventReceipts.length) {
+            await restorePremiumUnlockFromReceipts(ev, eventReceipts, 'relay-fastpath-e');
           }
         }
       } catch (err) {
@@ -5898,8 +5931,7 @@
             return;
           }
         }
-        if (statusToast?.dismiss) statusToast.dismiss();
-        markUnlocked(eventId, {
+        const unlockRecord = {
           creatorSats: result.creatorSats,
           platformSats: result.platformSats,
           creatorPreimage: result.creatorPreimage,
@@ -5907,10 +5939,12 @@
           address: row.premium?.address || '',
           payload: decryptedPayload || undefined,
           previewJpegDataUrl: row.premium?.previewJpegDataUrl || undefined,
-        });
+        };
         // Persist to the Nostr-synced vault in the background so the unlock
         // survives localStorage.clear() and shows up on other devices.
+        let vaultSaved = false;
         if (row.premium && decryptedPayload) {
+          onStatus('Saving encrypted purchase vault…');
           const vaultItem = _buildVaultItemForUnlock({
             row,
             totalSats: min,
@@ -5920,9 +5954,25 @@
             platformPreimage: result.platformPreimage,
             payload: decryptedPayload,
           });
-          upsertPurchaseVaultItem(vaultItem).catch((err) => console.warn('[vault] upsert failed', err));
+          try {
+            await upsertPurchaseVaultItem(vaultItem);
+            vaultSaved = true;
+            _clearPendingVaultItem(vaultItem.a);
+          } catch (err) {
+            console.warn('[vault] upsert failed', err);
+            _rememberPendingVaultItem(vaultItem, err);
+          }
         }
-        toastSuccess(`Unlocked "${row.title || 'template'}" ✓`);
+        if (statusToast?.dismiss) statusToast.dismiss();
+        markUnlocked(eventId, { ...unlockRecord, vaultSaved, vaultPending: row.premium && decryptedPayload && !vaultSaved });
+        if (row.premium && decryptedPayload && !vaultSaved) {
+          toastError(
+            `Unlocked "${row.title || 'template'}" on this device, but the encrypted purchase vault did not sync. Do not clear browser data until your next sign-in or Purchased refresh retries it.`,
+            { duration: 12000 }
+          );
+        } else {
+          toastSuccess(`Unlocked "${row.title || 'template'}" ✓${vaultSaved ? ' Saved to purchase vault.' : ''}`);
+        }
         // Re-render the feed in place — the card will now show Import.
         if (typeof _currentFeedRerender === 'function') {
           try { _currentFeedRerender(); } catch {}
@@ -5970,12 +6020,23 @@
     // writes lose to the latest one but no item is removed (merge keeps the
     // union).
     const VAULT_D_TAG = 'artstr:purchase-vault:v1';
+    const VAULT_PENDING_KEY = 'casewrap-pending-purchase-vault-items';
     const NWC_SYNC_D_TAG = 'artstr:nwc-connection:v1';
     const NWC_SYNC_PREF_KEY = 'casewrap-nwc-sync-pref';  // 'on' | 'off'
     let _vaultLoadPromise = null;
     let _vaultCache = null;   // { v, updatedAt, items: [...] } once hydrated
 
     function _supportsVault() { return !!nostrEncryptCapability(); }
+
+    function _purchaseVaultRelays() {
+      // Vault records are account-critical. Always use the user's current
+      // relays plus the built-in public defaults so a cache wipe or relay-list
+      // edit is less likely to orphan purchases.
+      return [...new Set([
+        ...splitRelayList(state.community?.relays || ''),
+        ...DEFAULT_NOSTR_RELAYS,
+      ].map(normalizeRelayHealthRelay).filter(Boolean))];
+    }
 
     async function _selfEncrypt(plaintext) {
       const method = nostrEncryptCapability();
@@ -6025,6 +6086,39 @@
       };
     }
 
+    function _pendingVaultItems() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(VAULT_PENDING_KEY) || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+      } catch { return []; }
+    }
+
+    function _writePendingVaultItems(items) {
+      try {
+        const clean = (items || []).filter((item) => item?.a && item?.payload);
+        if (clean.length) localStorage.setItem(VAULT_PENDING_KEY, JSON.stringify(clean));
+        else localStorage.removeItem(VAULT_PENDING_KEY);
+      } catch (err) {
+        console.warn('[vault] pending write failed', err);
+      }
+    }
+
+    function _rememberPendingVaultItem(item, err = null) {
+      if (!item?.a || !item?.payload) return;
+      const pending = _pendingVaultItems().filter((it) => it?.a !== item.a);
+      pending.unshift({
+        ...item,
+        pendingSince: Date.now(),
+        lastError: err?.message || String(err || ''),
+      });
+      _writePendingVaultItems(pending.slice(0, 50));
+    }
+
+    function _clearPendingVaultItem(addressCoord) {
+      if (!addressCoord) return;
+      _writePendingVaultItems(_pendingVaultItems().filter((item) => item?.a !== addressCoord));
+    }
+
     async function loadPurchaseVault({ force = false } = {}) {
       if (!force && _vaultCache) return _vaultCache;
       if (_vaultLoadPromise) return _vaultLoadPromise;
@@ -6035,7 +6129,7 @@
       }
       _vaultLoadPromise = (async () => {
         try {
-          const relays = splitRelayList(state.community?.relays || '');
+          const relays = _purchaseVaultRelays();
           const events = await queryRelays(relays, {
             kinds: [30078], authors: [myPubkey], '#d': [VAULT_D_TAG], limit: 5,
           }, { timeoutMs: 4500 });
@@ -6044,10 +6138,17 @@
           if (!latest) { _vaultCache = { v: 1, updatedAt: 0, items: [] }; return _vaultCache; }
           let plaintext;
           try { plaintext = await _selfDecrypt(latest.content); }
-          catch (err) { console.warn('[vault] decrypt failed', err); _vaultCache = { v: 1, updatedAt: 0, items: [] }; return _vaultCache; }
+          catch (err) {
+            console.warn('[vault] decrypt failed', err);
+            _vaultCache = null;
+            throw new Error('Found a purchase vault on relays, but your Nostr extension could not decrypt it.');
+          }
           let parsed;
           try { parsed = JSON.parse(plaintext); } catch { parsed = null; }
-          if (!parsed?.items) { _vaultCache = { v: 1, updatedAt: 0, items: [] }; return _vaultCache; }
+          if (!parsed?.items) {
+            _vaultCache = null;
+            throw new Error('Found a purchase vault on relays, but its decrypted contents were not valid vault JSON.');
+          }
           // Split mode: index carries stubs only; fetch per-item events and
           // merge their payloads onto the stubs. Stubs without a matching
           // per-item event still appear in the list (titles + amounts) but
@@ -6132,7 +6233,15 @@
         ],
         content,
       };
-      return { signed: await publishCommunityEvent(evt), encryptedSize: content.length };
+      const signed = await signNostrEvent(evt);
+      const relays = _purchaseVaultRelays();
+      const publishResult = await publishToRelays(signed, relays);
+      const acceptedRelays = (publishResult.accepted || []).map((r) => r.relay).filter(Boolean);
+      const verification = await verifyEventOnRelays(signed, acceptedRelays.length ? acceptedRelays : relays, 2);
+      if (!verification.verified) {
+        throw new Error(`Purchase vault event was accepted but could not be read back from relays (${dTag}).`);
+      }
+      return { signed, encryptedSize: content.length, publishResult, verification };
     }
 
     // Publish the full vault. Tries single-event first; if encrypted size
@@ -6152,6 +6261,7 @@
       // Split: publish each item as its own event, then publish the index
       // with stubs only.
       console.info(`[vault] single-vault size ${probe.length} > threshold ${VAULT_SIZE_THRESHOLD}; publishing per-item events.`);
+      const itemFailures = [];
       for (const item of (vault.items || [])) {
         if (!item?.a) continue;
         try {
@@ -6162,7 +6272,11 @@
           );
         } catch (err) {
           console.warn('[vault] per-item publish failed for', item.a, err);
+          itemFailures.push({ item, err });
         }
+      }
+      if (itemFailures.length) {
+        throw new Error(`Could not publish ${itemFailures.length} purchase-vault item${itemFailures.length === 1 ? '' : 's'}; vault index was not updated.`);
       }
       const indexPlain = JSON.stringify({
         v: 1,
@@ -6176,14 +6290,37 @@
     }
 
     async function upsertPurchaseVaultItem(item) {
-      if (!_supportsVault()) return null;
-      if (!state.community?.myPubkey) return null;
+      if (!_supportsVault()) throw new Error('Your Nostr extension does not support encrypted purchase vaults.');
+      if (!state.community?.myPubkey) throw new Error('Sign in with Nostr to save the purchase vault.');
       // Always refresh first to avoid stomping a concurrent device update.
       const current = await loadPurchaseVault({ force: true });
       const mergedItems = _vaultMerge(current.items || [], [item]);
       const next = { v: 1, updatedAt: Date.now(), items: mergedItems };
-      try { return await _publishVault(next); }
-      catch (err) { console.warn('[vault] publish failed', err); return null; }
+      return await _publishVault(next);
+    }
+
+    async function retryPendingVaultWrites({ silent = false } = {}) {
+      const pending = _pendingVaultItems();
+      if (!pending.length || !_supportsVault() || !state.community?.myPubkey) {
+        return { attempted: 0, saved: 0, failed: pending.length };
+      }
+      let saved = 0;
+      const failed = [];
+      for (const item of pending) {
+        try {
+          await upsertPurchaseVaultItem(item);
+          saved++;
+        } catch (err) {
+          console.warn('[vault] pending retry failed', err);
+          failed.push({ ...item, lastError: err?.message || String(err || ''), lastRetryAt: Date.now() });
+        }
+      }
+      _writePendingVaultItems(failed);
+      if (!silent) {
+        if (saved) toastSuccess(`Saved ${saved} pending purchase${saved === 1 ? '' : 's'} to your vault ✓`);
+        if (failed.length) toastError(`${failed.length} purchase${failed.length === 1 ? '' : 's'} still could not sync to your vault.`, { duration: 9000 });
+      }
+      return { attempted: pending.length, saved, failed: failed.length };
     }
 
     function _buildVaultItemForUnlock({ row, totalSats, creatorSats, platformSats, creatorPreimage, platformPreimage, payload }) {
@@ -6207,6 +6344,71 @@
       };
     }
 
+    async function restorePremiumUnlockFromReceipts(event, receipts = [], source = 'relay-fastpath') {
+      const address = premiumAddressCoord(event);
+      if (!isPremiumEvent(event)) {
+        markUnlocked(event.id, { source, address });
+        return false;
+      }
+      const envelope = getPremiumEnvelope(event);
+      if (!envelope) {
+        markUnlocked(event.id, { source, address });
+        return false;
+      }
+      let payload = null;
+      try {
+        payload = await Premium.decryptPayload(envelope, {
+          creatorPubkey: event.pubkey,
+          dTag: premiumEventDTag(event),
+          schemaVersion: envelope.payloadSchemaVersion || 5,
+        });
+      } catch (err) {
+        console.warn('[vault] receipt-based premium decrypt failed', err);
+        markUnlocked(event.id, { source, address, decryptError: err?.message || String(err || '') });
+        return false;
+      }
+
+      const title = premiumEventTagValue(event, 'title') || payload?.meta?.title || payload?.title || '';
+      const mode = normalizeTemplateMode(payload);
+      const amountSats = getZapMin(event) || 0;
+      const vaultItem = {
+        a: address,
+        eventId: event.id,
+        creatorPubkey: event.pubkey || '',
+        title,
+        mode,
+        unlockedAt: Date.now(),
+        amountSats,
+        previewJpegDataUrl: envelope?.preview?.dataUrl || '',
+        payload,
+        payment: {
+          mode: 'relay-receipt-recovery-v1',
+          receipts: (receipts || []).map((receipt) => ({
+            receiptId: receipt.id || '',
+            created_at: receipt.created_at || 0,
+            amountSats,
+          })),
+        },
+      };
+      markUnlocked(event.id, {
+        source,
+        address,
+        payload,
+        previewJpegDataUrl: vaultItem.previewJpegDataUrl,
+        amountSats,
+        unlockedAt: vaultItem.unlockedAt,
+      });
+      try {
+        await upsertPurchaseVaultItem(vaultItem);
+        _clearPendingVaultItem(address);
+        return true;
+      } catch (err) {
+        console.warn('[vault] receipt recovery vault save failed', err);
+        _rememberPendingVaultItem(vaultItem, err);
+        return false;
+      }
+    }
+
     // Hydrate localStorage UNLOCK_CACHE_KEY from the vault so feed cards
     // come up as "unlocked" without a separate vault-vs-cache check.
     async function hydrateUnlockedFromVault() {
@@ -6214,8 +6416,10 @@
         const vault = await loadPurchaseVault();
         const items = vault?.items || [];
         let restored = 0;
+        let unavailable = 0;
         for (const it of items) {
           if (!it?.eventId) continue;
+          if (!it?.payload) { unavailable++; continue; }
           if (isUnlockedLocally(it.eventId, it.a)) continue;
           // Store under the LATEST event id from the vault, but include
           // the address so a future edit-in-place still picks this up.
@@ -6229,12 +6433,15 @@
           });
           restored++;
         }
+        if (unavailable > 0 && typeof toastError === 'function') {
+          toastError(`${unavailable} purchase vault entr${unavailable === 1 ? 'y is' : 'ies are'} missing decrypted design data. Try Refresh in Purchased, or re-open the original premium card.`, { duration: 9000 });
+        }
         if (restored > 0 && typeof toastSuccess === 'function') {
           toastSuccess(restored === 1
             ? 'Restored 1 premium unlock from your vault ✓'
             : `Restored ${restored} premium unlocks from your vault ✓`);
         }
-        return { restored, total: items.length };
+        return { restored, unavailable, total: items.length };
       } catch (err) {
         console.warn('[vault] hydrate failed', err);
         if (typeof toastError === 'function') toastError('Couldn’t restore premium unlocks from vault: ' + (err?.message || err));
@@ -6437,6 +6644,7 @@
         wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading purchased designs…</div>';
       }
       try {
+        await retryPendingVaultWrites({ silent: true });
         const vault = await loadPurchaseVault({ force: opts.force !== false });
         _renderVaultItemsIntoWall(wall, vault?.items || [], false);
       } catch (err) {
@@ -15215,7 +15423,7 @@
       persistAutosave();
       // Hydrate localStorage premium unlocks from the Nostr-synced
       // purchase vault — runs in the background so login isn't blocked.
-      hydrateUnlockedFromVault().then(() => {
+      retryPendingVaultWrites({ silent: false }).then(() => hydrateUnlockedFromVault()).then(() => {
         if (typeof _currentFeedRerender === 'function') {
           try { _currentFeedRerender(); } catch {}
         }
@@ -23790,6 +23998,145 @@
       }
     }
 
+    // ---- PPTX import (Deck Builder) -------------------------------------
+    //
+    // Canonical spec: docs/PPTX_IMPORT_FEATURE.md. Zip parsing, XML
+    // walking, and PowerPoint-to-Artstr conversion all live in
+    // src/pptx-importer.js. That module + its fflate dependency are
+    // lazy-loaded on the first Import PPTX click so the main bundle
+    // stays lean for users who never use this path.
+    const _loadedScripts = new Map();
+    function loadScriptOnce(src) {
+      if (_loadedScripts.has(src)) return _loadedScripts.get(src);
+      const p = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error(`Failed to load ${src}`));
+        document.head.appendChild(s);
+      });
+      _loadedScripts.set(src, p);
+      return p;
+    }
+
+    async function ensurePptxImporterLoaded() {
+      if (window.ArtstrPptxImporter && window.fflate) return;
+      const btn = $('importPptxBtn');
+      const originalLabel = btn?.textContent;
+      if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+      try {
+        await loadScriptOnce('vendor/fflate.min.js');
+        await loadScriptOnce('pptx-importer.js');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = originalLabel || 'Import PowerPoint (.pptx)'; }
+      }
+      if (!window.fflate) throw new Error('fflate did not load');
+      if (!window.ArtstrPptxImporter) throw new Error('pptx-importer did not load');
+    }
+
+    async function onImportPptxClick() {
+      try {
+        await ensurePptxImporterLoaded();
+      } catch (e) {
+        toastError(`Could not load PPTX importer: ${e?.message || e}`);
+        return;
+      }
+      const input = $('pptxFileInput');
+      if (!input) return;
+      input.value = '';
+      input.click();
+    }
+
+    async function onPptxFileChosen(file) {
+      if (!file) return;
+      if (!/\.pptx$/i.test(file.name)) {
+        toastError('Please choose a .pptx file.');
+        return;
+      }
+      const report = window.ArtstrPptxImporter.makePptxImportReport(file.name);
+      try {
+        const payload = await window.ArtstrPptxImporter.importPptxFile(file, report);
+        loadProjectFromText(JSON.stringify(payload));
+        openPptxImportReportModal(report);
+      } catch (err) {
+        console.error(err);
+        toastError(`Could not import PPTX: ${err?.message || err}`);
+      }
+    }
+
+    function openPptxImportReportModal(report) {
+      const modal = $('pptxImportReportModal');
+      if (!modal) return;
+      const fileEl = $('pptxImportReportFile');
+      const bodyEl = $('pptxImportReportBody');
+      const placeholderNote = $('pptxImportReportPlaceholderNote');
+      const warningsWrap = $('pptxImportReportWarningsWrap');
+      const warningsList = $('pptxImportReportWarnings');
+      const imp = report.imported || {};
+      const ph = report.placeholders || {};
+
+      if (fileEl) fileEl.textContent = `Imported: ${report.fileName || '(unknown file)'}`;
+
+      const lines = [`Slides: ${report.slideCount || 0}`];
+      if (imp.text)   lines.push(`Text boxes: ${imp.text}`);
+      if (imp.images) lines.push(`Image placeholders: ${imp.images}`);
+      if (imp.shapes) lines.push(`Shapes: ${imp.shapes}`);
+      if (imp.notes)  lines.push(`Speaker notes: ${imp.notes}`);
+      const placeholderTotal =
+        (ph.charts || 0) + (ph.smartArt || 0) + (ph.tables || 0) + (ph.media || 0) + (ph.unknown || 0);
+      if (placeholderTotal) {
+        const parts = [];
+        if (ph.charts)   parts.push(`${ph.charts} chart${ph.charts === 1 ? '' : 's'}`);
+        if (ph.smartArt) parts.push(`${ph.smartArt} SmartArt object${ph.smartArt === 1 ? '' : 's'}`);
+        if (ph.tables)   parts.push(`${ph.tables} table${ph.tables === 1 ? '' : 's'}`);
+        if (ph.media)    parts.push(`${ph.media} media item${ph.media === 1 ? '' : 's'}`);
+        if (ph.unknown)  parts.push(`${ph.unknown} unknown object${ph.unknown === 1 ? '' : 's'}`);
+        lines.push(`Skipped (placeholders shown): ${parts.join(', ')}`);
+      }
+      if (bodyEl) {
+        bodyEl.innerHTML = '';
+        for (const line of lines) {
+          const row = document.createElement('div');
+          row.textContent = line;
+          row.style.fontSize = '.85rem';
+          row.style.lineHeight = '1.5';
+          bodyEl.appendChild(row);
+        }
+      }
+
+      if (placeholderNote) {
+        const hasPlaceholders = (imp.images || 0) > 0 || placeholderTotal > 0;
+        placeholderNote.style.display = hasPlaceholders ? '' : 'none';
+      }
+
+      const warns = Array.isArray(report.warnings) ? report.warnings : [];
+      if (warningsWrap && warningsList) {
+        if (warns.length) {
+          warningsList.innerHTML = '';
+          for (const w of warns) {
+            const li = document.createElement('li');
+            li.textContent = w.message || w.code || '(unknown warning)';
+            warningsList.appendChild(li);
+          }
+          warningsWrap.style.display = '';
+        } else {
+          warningsWrap.style.display = 'none';
+        }
+      }
+
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closePptxImportReportModal() {
+      const modal = $('pptxImportReportModal');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+      }
+    }
+
     function attachEvents() {
       // Layout tabs: cover/disc live on the Template tab; customart/discdesign
       // on the Designer tab. applyLayout() sorts out the appMode crossing.
@@ -23830,6 +24177,19 @@
       $('deckSorterAddBtn')?.addEventListener('click', deckAddBlankSlide);
       $('deckImportSlideBtn')?.addEventListener('click', openDeckSlideImportBrowser);
       $('deckImportFileBtn')?.addEventListener('click', deckImportSlideFromFile);
+      $('importPptxBtn')?.addEventListener('click', onImportPptxClick);
+      $('pptxFileInput')?.addEventListener('change', (e) => {
+        const f = e.target.files?.[0];
+        e.target.value = '';
+        if (f) onPptxFileChosen(f);
+      });
+      $('pptxImportReportCloseBtn')?.addEventListener('click', closePptxImportReportModal);
+      const _pptxReportModal = $('pptxImportReportModal');
+      if (_pptxReportModal) {
+        _pptxReportModal.addEventListener('click', (e) => {
+          if (e.target === _pptxReportModal) closePptxImportReportModal();
+        });
+      }
       $('deckThemeBgEnabled')?.addEventListener('change', (e) => {
         ensureDeck();
         pushHistory('toggle deck background');
