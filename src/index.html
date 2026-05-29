@@ -20947,7 +20947,12 @@
         // "Mine" tab keeps everything because users want to see their own posts.
         if (tab !== 'Mine') rows = dedupByFingerprint(rows);
         if (tab === 'New') {
-          rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b))) || (TIER_WEIGHT[a.trust] - TIER_WEIGHT[b.trust]) || (b.createdAt - a.createdAt));
+          // "New" means newest first. Broken-image previews still sink to
+          // the bottom so the wall doesn't lead with junk, but trust tier
+          // is NOT a sort key on this tab — that's what the Trust filter
+          // dropdown is for. Use Popular if you want trust- and zap-
+          // weighted ranking.
+          rows.sort((a, b) => (Number(isPreviewBroken(a)) - Number(isPreviewBroken(b))) || (b.createdAt - a.createdAt));
         } else if (tab === 'Premium') {
           // Newest premium first; cheaper unlocks before pricier ones at the
           // same recency.
