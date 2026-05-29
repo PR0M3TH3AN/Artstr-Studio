@@ -5428,12 +5428,29 @@
       }
 
       try {
-        await payLeg('creator',  'creator');
-        await payLeg('platform', 'platform fee');
+        // Pay both legs in parallel — the wallet handles them as independent
+        // pay_invoice RPCs, and the per-leg lookup_invoice + cached preimage
+        // protect us from double-paying on retry. Halves user-facing wall
+        // time vs the old sequential creator-first-then-platform order.
+        onStatus('Paying creator + platform fee…');
+        const results = await Promise.allSettled([payLeg('creator', 'creator'), payLeg('platform', 'platform fee')]);
+        const creatorErr = results[0].status === 'rejected' ? results[0].reason : null;
+        const platformErr = results[1].status === 'rejected' ? results[1].reason : null;
+        if (creatorErr || platformErr) {
+          // Both failed → bubble the creator one (or platform if creator
+          // succeeded). One failed → its stage flag tells the UI which
+          // leg to retry; the other leg's preimage is already cached so
+          // retry will only re-pay the failing side.
+          const primary = creatorErr || platformErr;
+          if (creatorErr && !partial.creator?.preimage) primary.stage = 'creator';
+          else if (platformErr && !partial.platform?.preimage) primary.stage = 'platform';
+          throw primary;
+        }
       } catch (err) {
-        // Surface the failure stage so the UI can show a precise retry prompt.
-        if (!partial.creator?.preimage) err.stage = 'creator';
-        else if (!partial.platform?.preimage) err.stage = 'platform';
+        // Defensive — payLeg can also throw directly (e.g. RPC timeout
+        // outside the allSettled boundary).
+        if (!partial.creator?.preimage) err.stage = err.stage || 'creator';
+        else if (!partial.platform?.preimage) err.stage = err.stage || 'platform';
         throw err;
       }
 
@@ -5536,8 +5553,30 @@
       try { return JSON.parse(localStorage.getItem(UNLOCK_CACHE_KEY) || '{}') || {}; }
       catch { return {}; }
     }
-    function isUnlockedLocally(eventId) {
-      return !!getAllUnlocked()[eventId];
+    // Accepts (eventId) for direct lookups OR (eventId, addressCoord) for
+    // edit-in-place tolerance: if the creator updates the design, the new
+    // event id won't match what's stored, but the address coord (which is
+    // pinned to the d-tag) will. We also accept it as a single arg via the
+    // common `e` shape so callers don't have to pre-compute.
+    function isUnlockedLocally(eventId, addressCoord) {
+      const all = getAllUnlocked();
+      if (eventId && all[eventId]) return true;
+      if (addressCoord) {
+        for (const k of Object.keys(all)) {
+          if (all[k]?.address === addressCoord) return true;
+        }
+      }
+      return false;
+    }
+    function findUnlockedEntry(eventId, addressCoord) {
+      const all = getAllUnlocked();
+      if (eventId && all[eventId]) return all[eventId];
+      if (addressCoord) {
+        for (const k of Object.keys(all)) {
+          if (all[k]?.address === addressCoord) return all[k];
+        }
+      }
+      return null;
     }
     function markUnlocked(eventId, data = {}) {
       try {
@@ -6007,8 +6046,12 @@
       try {
         const vault = await loadPurchaseVault();
         const items = vault?.items || [];
+        let restored = 0;
         for (const it of items) {
-          if (!it?.eventId || isUnlockedLocally(it.eventId)) continue;
+          if (!it?.eventId) continue;
+          if (isUnlockedLocally(it.eventId, it.a)) continue;
+          // Store under the LATEST event id from the vault, but include
+          // the address so a future edit-in-place still picks this up.
           markUnlocked(it.eventId, {
             source: 'vault',
             address: it.a || '',
@@ -6017,8 +6060,19 @@
             amountSats: it.amountSats,
             unlockedAt: it.unlockedAt,
           });
+          restored++;
         }
-      } catch (err) { console.warn('[vault] hydrate failed', err); }
+        if (restored > 0 && typeof toastSuccess === 'function') {
+          toastSuccess(restored === 1
+            ? 'Restored 1 premium unlock from your vault ✓'
+            : `Restored ${restored} premium unlocks from your vault ✓`);
+        }
+        return { restored, total: items.length };
+      } catch (err) {
+        console.warn('[vault] hydrate failed', err);
+        if (typeof toastError === 'function') toastError('Couldn’t restore premium unlocks from vault: ' + (err?.message || err));
+        return { restored: 0, total: 0, err };
+      }
     }
     function _rowFromVaultItem(item) {
       // Build a synthetic row that buildFeedCard / forkRowIntoEditor /
@@ -20156,11 +20210,12 @@
           const parsed = JSON.parse(e.content || '{}');
           if (isPremium) {
             premiumEnvelope = parsed;
-            // If the user has already unlocked + decrypted this design,
-            // surface the real payload so the existing card renderers can
-            // produce a full preview. Otherwise synthesise a stub from the
-            // public tags so title/category/mode still work.
-            const cached = getAllUnlocked()[e.id];
+            // Address-tolerant lookup: a creator's edit-in-place changes the
+            // event id, but the address coord stays pinned to the d-tag.
+            // findUnlockedEntry checks event id first, then falls back to
+            // matching by address so an old vault unlock still applies to
+            // an updated event.
+            const cached = findUnlockedEntry(e.id, premiumAddressCoord(e));
             payload = cached?.payload || _stubPayloadFromPremiumEvent(e);
           } else {
             payload = parsed;
@@ -20216,12 +20271,13 @@
         };
         row.softMod = computeSoftMod(row);
         if (isPremium) {
-          const cached = getAllUnlocked()[e.id];
+          const addressCoord = premiumAddressCoord(e);
+          const cached = findUnlockedEntry(e.id, addressCoord);
           row.premium = {
             envelope: premiumEnvelope,
             previewJpegDataUrl: premiumEnvelope?.preview?.dataUrl || '',
             decrypted: !!cached?.payload,
-            address: premiumAddressCoord(e),
+            address: addressCoord,
             dTag: premiumEventDTag(e),
           };
           row.zapGate = {
