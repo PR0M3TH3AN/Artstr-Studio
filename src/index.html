@@ -5679,13 +5679,6 @@
       if (!event || !Array.isArray(event.tags)) return false;
       return event.tags.some((t) => t[0] === 'premium' && (t[1] === 'true' || t[1] === '1'));
     }
-    function getPremiumEnvelope(event) {
-      try {
-        const parsed = JSON.parse(event?.content || '{}');
-        if (parsed?.visibility !== 'premium' || !parsed?.enc?.alg) return null;
-        return parsed;
-      } catch { return null; }
-    }
     function premiumEventTagValue(event, key) {
       if (!event || !Array.isArray(event.tags)) return '';
       const t = event.tags.find((tag) => tag[0] === key);
@@ -6087,7 +6080,6 @@
     // writes lose to the latest one but no item is removed (merge keeps the
     // union).
     const VAULT_D_TAG = 'artstr:purchase-vault:v1';
-    const VAULT_PENDING_KEY = 'casewrap-pending-purchase-vault-items';
     const NWC_SYNC_D_TAG = 'artstr:nwc-connection:v1';
     const NWC_SYNC_PREF_KEY = 'casewrap-nwc-sync-pref';  // 'on' | 'off'
     let _vaultLoadPromise = null;
@@ -6161,39 +6153,6 @@
         unlockedAt: item.unlockedAt,
         amountSats: item.amountSats,
       };
-    }
-
-    function _pendingVaultItems() {
-      try {
-        const parsed = JSON.parse(localStorage.getItem(VAULT_PENDING_KEY) || '[]');
-        return Array.isArray(parsed) ? parsed : [];
-      } catch { return []; }
-    }
-
-    function _writePendingVaultItems(items) {
-      try {
-        const clean = (items || []).filter((item) => item?.a && item?.payload);
-        if (clean.length) localStorage.setItem(VAULT_PENDING_KEY, JSON.stringify(clean));
-        else localStorage.removeItem(VAULT_PENDING_KEY);
-      } catch (err) {
-        console.warn('[vault] pending write failed', err);
-      }
-    }
-
-    function _rememberPendingVaultItem(item, err = null) {
-      if (!item?.a || !item?.payload) return;
-      const pending = _pendingVaultItems().filter((it) => it?.a !== item.a);
-      pending.unshift({
-        ...item,
-        pendingSince: Date.now(),
-        lastError: err?.message || String(err || ''),
-      });
-      _writePendingVaultItems(pending.slice(0, 50));
-    }
-
-    function _clearPendingVaultItem(addressCoord) {
-      if (!addressCoord) return;
-      _writePendingVaultItems(_pendingVaultItems().filter((item) => item?.a !== addressCoord));
     }
 
     async function loadPurchaseVault({ force = false } = {}) {
@@ -6394,71 +6353,6 @@
           ],
         },
       };
-    }
-
-    async function restorePremiumUnlockFromReceipts(event, receipts = [], source = 'relay-fastpath') {
-      const address = premiumAddressCoord(event);
-      if (!isPremiumEvent(event)) {
-        markUnlocked(event.id, { source, address });
-        return false;
-      }
-      const envelope = getPremiumEnvelope(event);
-      if (!envelope) {
-        markUnlocked(event.id, { source, address });
-        return false;
-      }
-      let payload = null;
-      try {
-        payload = await Premium.decryptPayload(envelope, {
-          creatorPubkey: event.pubkey,
-          dTag: premiumEventDTag(event),
-          schemaVersion: envelope.payloadSchemaVersion || 5,
-        });
-      } catch (err) {
-        console.warn('[vault] receipt-based premium decrypt failed', err);
-        markUnlocked(event.id, { source, address, decryptError: err?.message || String(err || '') });
-        return false;
-      }
-
-      const title = premiumEventTagValue(event, 'title') || payload?.meta?.title || payload?.title || '';
-      const mode = normalizeTemplateMode(payload);
-      const amountSats = getZapMin(event) || 0;
-      const vaultItem = {
-        a: address,
-        eventId: event.id,
-        creatorPubkey: event.pubkey || '',
-        title,
-        mode,
-        unlockedAt: Date.now(),
-        amountSats,
-        previewJpegDataUrl: envelope?.preview?.dataUrl || '',
-        payload,
-        payment: {
-          mode: 'relay-receipt-recovery-v1',
-          receipts: (receipts || []).map((receipt) => ({
-            receiptId: receipt.id || '',
-            created_at: receipt.created_at || 0,
-            amountSats,
-          })),
-        },
-      };
-      markUnlocked(event.id, {
-        source,
-        address,
-        payload,
-        previewJpegDataUrl: vaultItem.previewJpegDataUrl,
-        amountSats,
-        unlockedAt: vaultItem.unlockedAt,
-      });
-      try {
-        await upsertPurchaseVaultItem(vaultItem);
-        _clearPendingVaultItem(address);
-        return true;
-      } catch (err) {
-        console.warn('[vault] receipt recovery vault save failed', err);
-        _rememberPendingVaultItem(vaultItem, err);
-        return false;
-      }
     }
 
     // Hydrate localStorage UNLOCK_CACHE_KEY from the vault so feed cards
