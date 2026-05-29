@@ -18517,8 +18517,14 @@
       const myPubkey = normalizePubkey(state.community.myPubkey);
       if (!myPubkey) return 'unknown';
       if (normalized === myPubkey) return 'self';
-      if (state.community.myFollows.includes(normalized)) return 'trusted';
-      if (state.community.myExtendedFollows?.has(normalized)) return 'extended';
+      const follows = Array.isArray(state.community.myFollows) ? state.community.myFollows : [];
+      if (follows.includes(normalized)) return 'trusted';
+      // myExtendedFollows is a Set in memory but autosave serialises it as
+      // `{}`. Guard against the post-restore shape — otherwise this would
+      // throw inside the feed-row builder on every event and silently kill
+      // the whole rerender.
+      const ext = state.community.myExtendedFollows;
+      if (ext instanceof Set && ext.has(normalized)) return 'extended';
       return 'unknown';
     }
 
@@ -20784,6 +20790,16 @@
       wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading…</div>';
 
       const rerender = () => {
+        try { return rerenderInner(); }
+        catch (err) {
+          // Without this guard, a single throw inside the row builder /
+          // dedup / sort / diff path silently kills the whole feed —
+          // leaving the user staring at an empty wall with no clue
+          // anything went wrong.
+          console.warn('[feed] rerender threw — leaving wall as-is:', err);
+        }
+      };
+      const rerenderInner = () => {
         const wallEl = $(`feedWall${tab}`);
         if (!wallEl) return;
         const typeFilter = _feedState[`filter${tab}`] || 'any';
@@ -24905,6 +24921,16 @@
         });
         normalizeDiscState();
         normalizeJewelState();
+        // JSON can't represent a Set — autosave round-trips Sets as `{}`.
+        // Re-init the community Sets so feed code (trustTierForPubkey,
+        // _blockedAuthors etc) gets the right shape after restore.
+        // fetchHop2Follows refills myExtendedFollows on next login.
+        if (!(state.community.myExtendedFollows instanceof Set)) {
+          state.community.myExtendedFollows = new Set();
+        }
+        if (!Array.isArray(state.community.myFollows)) {
+          state.community.myFollows = [];
+        }
         if ((parsed.appMode || parsed.ui?.appMode) === 'designer') {
           loadCurrentDiscDesignLayers();
         }
