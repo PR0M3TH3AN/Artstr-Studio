@@ -5767,7 +5767,10 @@
       if (!Array.isArray(gatedEvents) || !gatedEvents.length) return;
       const myPubkey = normalizePubkey(state.community?.myPubkey || '');
       if (!myPubkey) return;
-      const relays = splitRelayList(state.community?.relays || '');
+      // Query receipts on the wider vault relay union so a session that
+      // narrowed its relay list (or runs on a different domain) can
+      // still recover prior purchases.
+      const relays = _vaultRelayUnion();
 
       const freshEvents = gatedEvents.filter((e) => !isUnlockedLocally(e.id));
       if (!freshEvents.length) return;
@@ -5797,25 +5800,95 @@
           }, { timeoutMs: 4000 }).catch(() => []));
         }
         const receiptSets = await Promise.all(queries);
+        // Bucket the full receipt events by address / event-id so the
+        // decrypt-and-back-fill step below can attach real evidence to
+        // the vault entry, not just "yes, paid".
+        const receiptsByAddress = new Map();
+        const receiptsByEventId = new Map();
         const seenAddresses = new Set();
         const seenEventIds = new Set();
         for (const receipts of receiptSets) {
-          for (const ev of receipts || []) {
-            const aTag = (ev.tags || []).find((t) => t[0] === 'a' && t[1]);
-            if (aTag) seenAddresses.add(aTag[1]);
-            const eTag = (ev.tags || []).find((t) => t[0] === 'e' && t[1]);
-            if (eTag) seenEventIds.add(eTag[1]);
+          for (const r of receipts || []) {
+            const aTag = (r.tags || []).find((t) => t[0] === 'a' && t[1]);
+            const eTag = (r.tags || []).find((t) => t[0] === 'e' && t[1]);
+            if (aTag) {
+              seenAddresses.add(aTag[1]);
+              const arr = receiptsByAddress.get(aTag[1]) || [];
+              arr.push(r);
+              receiptsByAddress.set(aTag[1], arr);
+            }
+            if (eTag) {
+              seenEventIds.add(eTag[1]);
+              const arr = receiptsByEventId.get(eTag[1]) || [];
+              arr.push(r);
+              receiptsByEventId.set(eTag[1], arr);
+            }
           }
         }
         for (const ev of freshEvents) {
           if (isUnlockedLocally(ev.id)) continue;
           const addr = addressByEvent.get(ev.id);
-          if (addr && seenAddresses.has(addr)) {
-            markUnlocked(ev.id, { source: 'relay-fastpath-a', address: addr });
-            continue;
+          const matchedByAddress = !!(addr && seenAddresses.has(addr));
+          const matchedByEventId = seenEventIds.has(ev.id);
+          if (!matchedByAddress && !matchedByEventId) continue;
+
+          // The soft-gate KDF is deterministic from public material +
+          // the static client pepper, so a valid receipt is sufficient
+          // to re-derive and decrypt locally — no creator-online step,
+          // no surviving vault required. Run the decrypt now so the
+          // card unlocks fully (payload + preview), not just the flag.
+          let envelope = null;
+          let decryptedPayload = null;
+          try {
+            envelope = JSON.parse(ev.content || '{}');
+            if (isPremiumEvent(ev)) {
+              decryptedPayload = await Premium.decryptPayload(envelope, {
+                creatorPubkey: ev.pubkey,
+                dTag: premiumEventDTag(ev),
+                schemaVersion: envelope?.payloadSchemaVersion || 5,
+              });
+            }
+          } catch (err) {
+            console.warn('[zap-gated] fast-path decrypt failed for', ev.id, err);
           }
-          if (seenEventIds.has(ev.id)) {
-            markUnlocked(ev.id, { source: 'relay-fastpath-e' });
+
+          markUnlocked(ev.id, {
+            source: matchedByAddress ? 'relay-fastpath-a' : 'relay-fastpath-e',
+            address: addr || '',
+            payload: decryptedPayload || undefined,
+            previewJpegDataUrl: envelope?.preview?.dataUrl || undefined,
+          });
+
+          // Opportunistically back-fill the vault so the next device /
+          // domain doesn't have to redo this receipt scan. Failures
+          // here are non-fatal — the local cache still holds the
+          // re-derived payload and the receipts remain on relays.
+          if (decryptedPayload && isPremiumEvent(ev)) {
+            const matchedReceipts =
+              (matchedByAddress ? (receiptsByAddress.get(addr) || []) : (receiptsByEventId.get(ev.id) || []));
+            const totalSats = matchedReceipts.reduce((sum, r) => {
+              const amtTag = (r.tags || []).find((t) => t[0] === 'amount' && t[1]);
+              const msats = amtTag ? Number(amtTag[1]) || 0 : 0;
+              return sum + Math.round(msats / 1000);
+            }, 0);
+            const vaultItem = {
+              a: addr || '',
+              eventId: ev.id,
+              creatorPubkey: ev.pubkey,
+              title: decryptedPayload?.meta?.title || '',
+              mode: decryptedPayload?.templateMode || '',
+              unlockedAt: Date.now(),
+              amountSats: totalSats,
+              previewJpegDataUrl: envelope?.preview?.dataUrl || '',
+              payload: decryptedPayload,
+              payment: {
+                mode: 'recovered-from-receipt',
+                receipts: matchedReceipts.map((r) => ({ id: r.id, kind: r.kind })),
+              },
+            };
+            upsertPurchaseVaultItem(vaultItem).catch((err) => {
+              console.warn('[vault] back-fill from receipt failed for', ev.id, err);
+            });
           }
         }
       } catch (err) {
@@ -5898,7 +5971,6 @@
             return;
           }
         }
-        if (statusToast?.dismiss) statusToast.dismiss();
         markUnlocked(eventId, {
           creatorSats: result.creatorSats,
           platformSats: result.platformSats,
@@ -5908,9 +5980,17 @@
           payload: decryptedPayload || undefined,
           previewJpegDataUrl: row.premium?.previewJpegDataUrl || undefined,
         });
-        // Persist to the Nostr-synced vault in the background so the unlock
-        // survives localStorage.clear() and shows up on other devices.
+        // Persist to the Nostr-synced vault BEFORE telling the user
+        // the unlock is complete. The local cache flip above keeps the
+        // UI snappy, but a fire-and-forget publish was masking real
+        // durability failures: a vault that never persisted left the
+        // user with a localhost-only unlock that wouldn't show up on
+        // any other device or domain.
+        let vaultSynced = !row.premium || !decryptedPayload;
+        let vaultErr = null;
         if (row.premium && decryptedPayload) {
+          if (statusToast?.dismiss) statusToast.dismiss();
+          statusToast = toast('Unlocked. Syncing to your purchase vault…', { duration: 30000 });
           const vaultItem = _buildVaultItemForUnlock({
             row,
             totalSats: min,
@@ -5920,9 +6000,23 @@
             platformPreimage: result.platformPreimage,
             payload: decryptedPayload,
           });
-          upsertPurchaseVaultItem(vaultItem).catch((err) => console.warn('[vault] upsert failed', err));
+          try {
+            await upsertPurchaseVaultItem(vaultItem);
+            vaultSynced = true;
+          } catch (err) {
+            vaultErr = err;
+            console.warn('[vault] upsert failed', err);
+          }
         }
-        toastSuccess(`Unlocked "${row.title || 'template'}" ✓`);
+        if (statusToast?.dismiss) statusToast.dismiss();
+        if (vaultSynced) {
+          toastSuccess(`Unlocked "${row.title || 'template'}" ✓`);
+        } else {
+          toastError(
+            `Unlocked "${row.title || 'template'}" on this device, but vault sync failed (${vaultErr?.message || 'no relay accepted the event'}). Your purchase is saved locally; other devices won’t see it until sync recovers.`,
+            { duration: 12000 }
+          );
+        }
         // Re-render the feed in place — the card will now show Import.
         if (typeof _currentFeedRerender === 'function') {
           try { _currentFeedRerender(); } catch {}
@@ -5976,6 +6070,26 @@
     let _vaultCache = null;   // { v, updatedAt, items: [...] } once hydrated
 
     function _supportsVault() { return !!nostrEncryptCapability(); }
+
+    // Vault and zap-receipt traffic uses a wider relay set than ordinary
+    // feed queries: the user's configured relays unioned with the
+    // app-default list (DEFAULT_NOSTR_RELAYS). This keeps purchases
+    // visible across browsers / devices / domains even when the user
+    // edits or narrows their relay list. NIP-65 write relays could be
+    // folded in here later without changing any call sites.
+    function _vaultRelayUnion() {
+      const seen = new Set();
+      const out = [];
+      const add = (r) => {
+        const norm = normalizeRelayHealthRelay(r);
+        if (!norm || seen.has(norm)) return;
+        seen.add(norm);
+        out.push(norm);
+      };
+      for (const r of splitRelayList(state.community?.relays || '')) add(r);
+      for (const r of DEFAULT_NOSTR_RELAYS) add(r);
+      return out;
+    }
 
     async function _selfEncrypt(plaintext) {
       const method = nostrEncryptCapability();
@@ -6035,7 +6149,7 @@
       }
       _vaultLoadPromise = (async () => {
         try {
-          const relays = splitRelayList(state.community?.relays || '');
+          const relays = _vaultRelayUnion();
           const events = await queryRelays(relays, {
             kinds: [30078], authors: [myPubkey], '#d': [VAULT_D_TAG], limit: 5,
           }, { timeoutMs: 4500 });
@@ -6132,7 +6246,11 @@
         ],
         content,
       };
-      return { signed: await publishCommunityEvent(evt), encryptedSize: content.length };
+      const signed = await signNostrEvent(evt);
+      // Publish to the union (user relays + defaults) so the vault is
+      // reachable from any device / domain that shares the login.
+      await publishToRelays(signed, _vaultRelayUnion());
+      return { signed, encryptedSize: content.length };
     }
 
     // Publish the full vault. Tries single-event first; if encrypted size
@@ -6182,8 +6300,10 @@
       const current = await loadPurchaseVault({ force: true });
       const mergedItems = _vaultMerge(current.items || [], [item]);
       const next = { v: 1, updatedAt: Date.now(), items: mergedItems };
-      try { return await _publishVault(next); }
-      catch (err) { console.warn('[vault] publish failed', err); return null; }
+      // Propagate publish failures to the caller so the UI can show a
+      // real error instead of silently leaving the user's local state
+      // drifted from the relay-synced source of truth.
+      return await _publishVault(next);
     }
 
     function _buildVaultItemForUnlock({ row, totalSats, creatorSats, platformSats, creatorPreimage, platformPreimage, payload }) {
