@@ -66,6 +66,14 @@ toggle that fits the early-web aesthetic. Add new editor-UX items below.
 
 Each has a full spec in `docs/`.
 
+- **PPTX import** — `docs/PPTX_IMPORT_FEATURE.md`. Phased editable
+  importer that converts a `.pptx` package into an Artstr deck.
+  Images and unsupported objects (charts, SmartArt, tables, video)
+  land as placeholder image layers pointing at a hardcoded URL;
+  user replaces each placeholder by editing the layer's src. No
+  Blossom prereq, no base64 bloat, decks publish to Nostr normally.
+  fflate vendored bundle + a lazy-loaded `src/pptx-importer.js`
+  module so the main app weight doesn't grow.
 - **Artstr Stacks** — `docs/STACKS_FEATURE.md`. Interactive fullscreen
   page/card stacks (HyperCard for Nostr) — the Slide Deck extended with
   layer actions and an interactive viewer.
