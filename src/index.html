@@ -4065,6 +4065,7 @@
           <button class="feedTypeBtn" data-tab="Mine" data-type="jewel">Jewel Inserts</button>
           <button class="feedTypeBtn" data-tab="Mine" data-type="disc-design">Disc Designs</button>
           <button class="feedTypeBtn" data-tab="Mine" data-type="customart">Custom Art</button>
+          <button class="feedTypeBtn" data-tab="Mine" data-type="purchased" title="Premium designs you've unlocked (synced from your encrypted purchase vault)">⚡ Purchased</button>
           <select id="feedCategoryMine" class="feedCategorySelect categorySelect" data-tab="Mine" aria-label="Category filter"></select>
           <select id="feedLanguageMine" class="feedCategorySelect feedLanguageSelect" data-tab="Mine" aria-label="Language filter">
             <option value="">Any language</option>
@@ -5631,7 +5632,22 @@
           platformPreimage: result.platformPreimage,
           address: row.premium?.address || '',
           payload: decryptedPayload || undefined,
+          previewJpegDataUrl: row.premium?.previewJpegDataUrl || undefined,
         });
+        // Persist to the Nostr-synced vault in the background so the unlock
+        // survives localStorage.clear() and shows up on other devices.
+        if (row.premium && decryptedPayload) {
+          const vaultItem = _buildVaultItemForUnlock({
+            row,
+            totalSats: min,
+            creatorSats: result.creatorSats,
+            platformSats: result.platformSats,
+            creatorPreimage: result.creatorPreimage,
+            platformPreimage: result.platformPreimage,
+            payload: decryptedPayload,
+          });
+          upsertPurchaseVaultItem(vaultItem).catch((err) => console.warn('[vault] upsert failed', err));
+        }
         toastSuccess(`Unlocked "${row.title || 'template'}" ✓`);
         // Re-render the feed in place — the card will now show Import.
         if (typeof _currentFeedRerender === 'function') {
@@ -5645,6 +5661,244 @@
       }
     }
     // ---- end Zap-gated unlocks ---------------------------------------------
+
+
+    // ---- Purchase vault (PREMIUM_DESIGNS_FEATURE.md §8) ---------------------
+    // NIP-44 self-encrypted kind-30078 (d=artstr:purchase-vault:v1) listing
+    // every premium design the user has unlocked, with the decrypted
+    // payload + preview JPEG + receipts inline. Syncs across browsers /
+    // devices via Nostr; survives localStorage.clear(). Last-write-wins
+    // semantics with merge-by-`a`-coord; conflicts on simultaneous device
+    // writes lose to the latest one but no item is removed (merge keeps the
+    // union).
+    const VAULT_D_TAG = 'artstr:purchase-vault:v1';
+    let _vaultLoadPromise = null;
+    let _vaultCache = null;   // { v, updatedAt, items: [...] } once hydrated
+
+    function _supportsVault() { return !!nostrEncryptCapability(); }
+
+    async function _selfEncrypt(plaintext) {
+      const method = nostrEncryptCapability();
+      if (!method) throw new Error('Your Nostr extension does not support encryption (NIP-44 or NIP-04).');
+      const myPubkey = state.community?.myPubkey;
+      if (!myPubkey) throw new Error('Sign in with Nostr to use the purchase vault.');
+      if (method === 'nip44') return await window.nostr.nip44.encrypt(myPubkey, plaintext);
+      return await window.nostr.nip04.encrypt(myPubkey, plaintext);
+    }
+    async function _selfDecrypt(ciphertext) {
+      const myPubkey = state.community?.myPubkey;
+      if (!myPubkey) throw new Error('Sign in with Nostr to use the purchase vault.');
+      // Try NIP-44 then NIP-04 — extensions may vary; the ciphertext format
+      // is distinct enough that the wrong path errors quickly.
+      const n = window.nostr;
+      if (n?.nip44?.decrypt) {
+        try { return await n.nip44.decrypt(myPubkey, ciphertext); } catch {}
+      }
+      if (n?.nip04?.decrypt) return await n.nip04.decrypt(myPubkey, ciphertext);
+      throw new Error('No NIP-44 / NIP-04 decrypt available.');
+    }
+
+    async function loadPurchaseVault({ force = false } = {}) {
+      if (!force && _vaultCache) return _vaultCache;
+      if (_vaultLoadPromise) return _vaultLoadPromise;
+      const myPubkey = state.community?.myPubkey;
+      if (!myPubkey || !_supportsVault()) {
+        _vaultCache = { v: 1, updatedAt: 0, items: [] };
+        return _vaultCache;
+      }
+      _vaultLoadPromise = (async () => {
+        try {
+          const relays = splitRelayList(state.community?.relays || '');
+          const events = await queryRelays(relays, {
+            kinds: [30078], authors: [myPubkey], '#d': [VAULT_D_TAG], limit: 5,
+          }, { timeoutMs: 4500 });
+          const latest = (events || []).filter((e) => e?.content)
+            .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
+          if (!latest) { _vaultCache = { v: 1, updatedAt: 0, items: [] }; return _vaultCache; }
+          let plaintext;
+          try { plaintext = await _selfDecrypt(latest.content); }
+          catch (err) { console.warn('[vault] decrypt failed', err); _vaultCache = { v: 1, updatedAt: 0, items: [] }; return _vaultCache; }
+          let parsed;
+          try { parsed = JSON.parse(plaintext); } catch { parsed = null; }
+          _vaultCache = parsed?.items
+            ? { v: parsed.v || 1, updatedAt: parsed.updatedAt || latest.created_at * 1000, items: parsed.items }
+            : { v: 1, updatedAt: 0, items: [] };
+          return _vaultCache;
+        } finally { _vaultLoadPromise = null; }
+      })();
+      return _vaultLoadPromise;
+    }
+
+    function _vaultMerge(base, additions) {
+      // Both `base` and `additions` are arrays of vault items. Merge by `a`
+      // (address coord), preferring the most recent `unlockedAt` and the
+      // union of receipts. Preserve unknown fields in case a future schema
+      // adds more.
+      const byA = new Map();
+      for (const arr of [base, additions]) {
+        for (const item of arr || []) {
+          if (!item?.a) continue;
+          const existing = byA.get(item.a);
+          if (!existing) { byA.set(item.a, { ...item }); continue; }
+          const merged = { ...existing, ...item };
+          // Receipts union (dedup by receiptId / preimage).
+          const seen = new Set();
+          merged.payment = merged.payment || {};
+          merged.payment.receipts = [
+            ...(existing.payment?.receipts || []),
+            ...(item.payment?.receipts || []),
+          ].filter((r) => {
+            const k = r.receiptId || r.preimage || `${r.recipientPubkey}|${r.amountSats}`;
+            if (seen.has(k)) return false;
+            seen.add(k); return true;
+          });
+          // Most recent unlock wins.
+          merged.unlockedAt = Math.max(existing.unlockedAt || 0, item.unlockedAt || 0);
+          byA.set(item.a, merged);
+        }
+      }
+      return [...byA.values()].sort((a, b) => (b.unlockedAt || 0) - (a.unlockedAt || 0));
+    }
+
+    async function _publishVault(vault) {
+      const plaintext = JSON.stringify(vault);
+      const content = await _selfEncrypt(plaintext);
+      const evt = {
+        kind: 30078,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [
+          ['d', VAULT_D_TAG],
+          ['client', 'Artstr Studio'],
+          ['encrypted', nostrEncryptCapability() || 'nip44'],
+        ],
+        content,
+      };
+      const signed = await publishCommunityEvent(evt);
+      _vaultCache = vault;
+      return signed;
+    }
+
+    async function upsertPurchaseVaultItem(item) {
+      if (!_supportsVault()) return null;
+      if (!state.community?.myPubkey) return null;
+      // Always refresh first to avoid stomping a concurrent device update.
+      const current = await loadPurchaseVault({ force: true });
+      const mergedItems = _vaultMerge(current.items || [], [item]);
+      const next = { v: 1, updatedAt: Date.now(), items: mergedItems };
+      try { return await _publishVault(next); }
+      catch (err) { console.warn('[vault] publish failed', err); return null; }
+    }
+
+    function _buildVaultItemForUnlock({ row, totalSats, creatorSats, platformSats, creatorPreimage, platformPreimage, payload }) {
+      return {
+        a: row.premium?.address || '',
+        eventId: row.e?.id || '',
+        creatorPubkey: row.e?.pubkey || '',
+        title: row.title || '',
+        mode: row.mode || '',
+        unlockedAt: Date.now(),
+        amountSats: totalSats,
+        previewJpegDataUrl: row.premium?.previewJpegDataUrl || '',
+        payload,
+        payment: {
+          mode: 'split-zap-v1',
+          receipts: [
+            { recipientPubkey: row.e?.pubkey || '', amountSats: creatorSats, preimage: creatorPreimage || '' },
+            { recipientPubkey: platform.getPubkeyHex(), amountSats: platformSats, preimage: platformPreimage || '' },
+          ],
+        },
+      };
+    }
+
+    // Hydrate localStorage UNLOCK_CACHE_KEY from the vault so feed cards
+    // come up as "unlocked" without a separate vault-vs-cache check.
+    async function hydrateUnlockedFromVault() {
+      try {
+        const vault = await loadPurchaseVault();
+        const items = vault?.items || [];
+        for (const it of items) {
+          if (!it?.eventId || isUnlockedLocally(it.eventId)) continue;
+          markUnlocked(it.eventId, {
+            source: 'vault',
+            address: it.a || '',
+            payload: it.payload || undefined,
+            previewJpegDataUrl: it.previewJpegDataUrl || undefined,
+            amountSats: it.amountSats,
+            unlockedAt: it.unlockedAt,
+          });
+        }
+      } catch (err) { console.warn('[vault] hydrate failed', err); }
+    }
+    function _rowFromVaultItem(item) {
+      // Build a synthetic row that buildFeedCard / forkRowIntoEditor /
+      // openDesignPreview can all consume. The payload here is the real
+      // decrypted design data from the vault, so Use/Fork imports it
+      // directly without re-fetching the original event.
+      const stubEvent = {
+        id: item.eventId || ('vault:' + (item.a || Math.random())),
+        pubkey: item.creatorPubkey || '',
+        kind: 30078,
+        created_at: Math.floor((item.unlockedAt || Date.now()) / 1000),
+        tags: [
+          ['d', (item.a || '').split(':').slice(2).join(':') || 'vault'],
+          ['title', item.title || ''],
+          ['t', 'casewrap-' + (item.mode || 'cover')],
+        ],
+        content: JSON.stringify(item.payload || { premium: true }),
+      };
+      const row = {
+        e: stubEvent,
+        payload: item.payload || { meta: { title: item.title }, templateMode: item.mode },
+        title: item.title || 'Untitled premium design',
+        imdb: '', category: '', language: 'en',
+        mode: item.mode || 'cover',
+        address: item.a || '',
+        preview: '',
+        reactions: 0,
+        createdAt: Math.floor((item.unlockedAt || Date.now()) / 1000),
+        trust: 'unknown',
+        // Mark premium-decrypted so the card uses the cached watermarked
+        // preview JPEG as the thumbnail AND the Use/Fork button is active
+        // (not the Unlock CTA).
+        premium: {
+          decrypted: true,
+          previewJpegDataUrl: item.previewJpegDataUrl || '',
+          envelope: null,
+          address: item.a || '',
+          dTag: (item.a || '').split(':').slice(2).join(':') || '',
+        },
+        softMod: null,
+      };
+      return row;
+    }
+
+    async function loadPurchasedDesignsIntoWall(wall) {
+      if (!_supportsVault()) {
+        wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Your Nostr extension doesn’t support encryption (NIP-44 / NIP-04), so the purchase vault is unavailable.</div>';
+        return;
+      }
+      wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading purchased designs…</div>';
+      try {
+        const vault = await loadPurchaseVault({ force: true });
+        const items = vault?.items || [];
+        wall.innerHTML = '';
+        if (!items.length) {
+          wall.innerHTML = '<div class="hint" style="grid-column:1/-1">No premium designs unlocked yet. Visit the feed and zap a premium template to start your collection.</div>';
+          return;
+        }
+        for (const item of items) {
+          const row = _rowFromVaultItem(item);
+          wall.appendChild(buildFeedCard(row, () => {
+            try { loadProjectFromText(JSON.stringify(row.payload)); }
+            catch (err) { toastError('Could not open: ' + (err?.message || err)); return; }
+            $('nostrModal').classList.remove('open');
+          }));
+        }
+      } catch (err) {
+        wall.innerHTML = `<div class="hint" style="grid-column:1/-1">Failed to load purchase vault: ${escapeHtml(err?.message || String(err))}</div>`;
+      }
+    }
+    // ---- end Purchase vault ------------------------------------------------
 
 
     // In-app toast — replaces all uses of native toastError(). Default type is
@@ -14407,6 +14661,13 @@
       syncCommunityInputs();
       updateNostrWidget();
       persistAutosave();
+      // Hydrate localStorage premium unlocks from the Nostr-synced
+      // purchase vault — runs in the background so login isn't blocked.
+      hydrateUnlockedFromVault().then(() => {
+        if (typeof _currentFeedRerender === 'function') {
+          try { _currentFeedRerender(); } catch {}
+        }
+      }).catch(() => {});
       if ($('nostrModal')?.classList.contains('open')) {
         await refreshCommunityView();
       }
@@ -20114,6 +20375,7 @@
       const typeFilter = _feedState.filterMine || 'any';
       const categoryFilter = _feedState.categoryMine || '';
       const languageFilter = _feedState.languageMine || '';
+      if (typeFilter === 'purchased') { return loadPurchasedDesignsIntoWall(wall); }
       wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading your designs…</div>';
       const relays = splitRelayList(state.community.relays);
       const events = await queryRelays(relays, {
