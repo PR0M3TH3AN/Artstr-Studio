@@ -715,7 +715,7 @@ Acceptance: Text appears at roughly correct positions, editable in
 Artstr; multi-line text imports with line breaks; speaker notes appear
 in Presenter Mode.
 
-### Phase 3: Image Placeholders + Unsupported-Object Placeholders
+### Phase 3: Image Placeholders + Unsupported-Object Placeholders — SHIPPED on `pptx-import` (commit `3237a69`)
 
 - Parse `p:pic`.
 - Read the embed-relationship to extract the original media filename
