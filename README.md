@@ -103,7 +103,12 @@ persists across reloads.
 
 Every design surface participates in the same Nostr-backed community feed.
 
-- **Identity** via NIP-07 (Alby, nos2x, etc.).
+- **Identity** via NIP-07 (Alby, nos2x, etc.). The Login button opens a
+  picker — NIP-07 today, NIP-46 remote signer and raw `nsec` paste
+  reserved as future options. Once signed in, the Nostr widget becomes
+  a dropdown with **View Profile**, **Settings**, and **Logout**.
+- **Settings modal** — the per-relay list, the WoT trust filters, the
+  NWC wallet connection, and the block-list management all live here.
 - **Templates and designs** publish as kind-30078 parameterized replaceable events tagged `casewrap-<mode>`, with the `d`-tag mode-prefixed so cover/disc/jewel/custom-art/disc-design designs for the same title don't collide.
 - **Community modal** browses New / Popular / Zapped / Search / My Designs with category and language filters, plus optional WoT trust filters when signed in.
 - **Profile pages** at `/u/<npub>` show the author's banner, avatar, NIP-05, npub (copyable), about, Lightning address, and the grid of their published designs. Profile state is cached per session.
@@ -116,12 +121,25 @@ Every design surface participates in the same Nostr-backed community feed.
 
 ## Lightning
 
-Two flavors of Lightning are wired in:
+Three flavors of Lightning are wired in:
 
 - **Tips** — pure LNURL-pay, no NWC required. Pick an amount (21 / 100 / 500 / 1k / 5k / 21k / Custom), the recipient's `lud16` or `lud06` resolves to an LNURL-pay endpoint, and you get a bolt11 invoice + QR + lightning: deep-link. If the recipient's wallet supports zap requests (`allowsNostr: true`), we also sign a NIP-57 kind-9734 zap request and pass it along, so a kind-9735 receipt lands on relays after settlement.
+- **NWC (NIP-47) wallet** — paste a `nostr+walletconnect://…` URI under Settings and Artstr can sign + send `pay_invoice` requests directly to your wallet (CoinOS-first onboarding, but any NWC-compatible wallet works). NWC powers one-click tips, premium unlocks, and the split-zap legs. The URI is **synced across logins** as an encrypted kind-30078 note keyed to your pubkey, so a new browser only needs your NIP-07 extension to reconnect the wallet.
 - **Tracked zaps** — kind-9735 receipts feed a per-event aggregate, surfaced as `⚡ <total>` on feed cards / previews / profile pages, and as a sortable **Zapped** tab in the Community modal.
 - **WebLN auto-pay** is offered as a one-click button when an extension is detected.
 - **Payment detection** — after a tracked invoice is issued, a poll watches for the receipt and auto-closes the tip modal when payment is confirmed.
+
+## Premium encrypted designs
+
+Creators can publish paid templates. The publish modal exposes a **Premium encrypted** toggle that requires a sat amount and a short "soft-gate, not strong DRM" acknowledgment.
+
+- **Static soft-gate.** The payload is AES-256-GCM encrypted in the browser with a key derived via HKDF-SHA256 from public event material plus an obfuscated per-epoch pepper baked into the static client. There is no server and no creator-online step. Honest framing: this raises friction against drive-by scraping but a determined reverse-engineer can recover the client pepper. Stronger DRM can swap in later without changing the buyer-side vault.
+- **Watermarked preview.** A low-resolution JPEG of the design is rendered pre-encrypt and embedded in the envelope, so the community browser still has something to show.
+- **Split-zap platform fee.** Every unlock is a Lightning split — creator 70 %, platform 30 % — both legs fired in parallel over NWC, with the platform leg's `lud16` resolved dynamically from the platform pubkey's kind-0 so it can change without a code release.
+- **Purchase vault.** Once both receipts confirm, Artstr derives the key locally, decrypts in place, and records the unlock in a NIP-44 self-encrypted kind-30078 vault (`d=artstr:purchase-vault:v1`). The vault auto-splits into per-item events when over 40 KB. A fresh browser hydrates the vault on Nostr login (toast: "Restored N unlocks ✓"). Edit-in-place is address-tolerant, so re-publishing a premium design doesn't invalidate prior unlocks.
+- **Premium browser tab.** New ⚡ **Premium** tab in the community modal lists encrypted designs; cards get a gradient stroke + PREMIUM ribbon. The **My Designs → Premium** sub-tab lists everything you've unlocked.
+
+Spec lives in `docs/PREMIUM_DESIGNS_FEATURE.md`.
 
 ## Save, share, restore
 
@@ -147,7 +165,7 @@ Two flavors of Lightning are wired in:
 
 - `src/index.html` — the complete single-file app. Open it directly in a browser, or serve it from any static host. Vercel rewrites in `vercel.json` map `/share/:id` and `/u/:npub` to the SPA entry.
 - `src/vendor/qrcode.min.js` — vendored QR encoder (used for Lightning tip invoices). The GIF89a encoder for pixel-art animation export is implemented inline in `index.html`.
-- `docs/` — feature specs. `PEN_TOOL_FEATURE.md` covers the shipped pen / pencil / vector tooling; `SLIDE_DECK_FEATURE.md` covers the shipped slide / deck / presenter system (Phases A–D; dual-window presenter is future); `PIXEL_ART_FEATURE.md` covers the shipped palette-indexed pixel-art system (Phases A–D). Badges, collections, NWC zaps, zap-gated templates, private publishing, and Stacks are still unbuilt.
+- `docs/` — feature specs. `PEN_TOOL_FEATURE.md` covers the shipped pen / pencil / vector tooling; `SLIDE_DECK_FEATURE.md` covers the shipped slide / deck / presenter system (Phases A–D; dual-window presenter is future); `PIXEL_ART_FEATURE.md` covers the shipped palette-indexed pixel-art system (Phases A–D); `PREMIUM_DESIGNS_FEATURE.md` covers the shipped premium-encrypted-designs system (NWC split-zap + soft-gate + purchase vault); the older `ZAP_GATED_PREMIUM_FEATURE.md` / `ZAP_GATED_TEMPLATES_FEATURE.md` / `ZAPS_NWC_FEATURE.md` carry "superseded" banners and remain for history. Badges, collections, private publishing (Phases 3–4), and Stacks are still unbuilt.
 - `TODO.md` — running list of deferred work and cleanup items.
 
 ## Schema

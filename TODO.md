@@ -66,28 +66,31 @@ toggle that fits the early-web aesthetic. Add new editor-UX items below.
 
 Each has a full spec in `docs/`.
 
-- **Premium encrypted designs (static soft-gate + purchase vault)** —
-  `docs/PREMIUM_DESIGNS_FEATURE.md`. **In-progress / current focus.**
-  Creators publish encrypted designs gated by a Lightning split zap
-  (creator 70% / platform 30%). Buyers unlock via NWC; the static
-  client derives the AES key locally after valid split-zap receipts
-  arrive on relays, decrypts the payload, and stores the key in a
-  NIP-44 self-encrypted purchase vault for cross-device re-open.
-  Honest "soft gate, not strong DRM" framing — determined reverse-
-  engineers can still extract the client pepper; the protection is
-  against casual copying / relay scraping.
-  Foundation already shipped: noble crypto bundle, NWC client +
-  wallet settings, platform-fee dual-zap orchestrator, NWC-default
-  Lightning tips, and a tag-only gate UI (still in place but now
-  superseded by the encrypted content envelope). See
-  `docs/ZAP_GATED_PREMIUM_FEATURE.md` for the Phases 0–3 history.
 - **Artstr Stacks** — `docs/STACKS_FEATURE.md`. Interactive fullscreen
   page/card stacks (HyperCard for Nostr) — the Slide Deck extended with
-  layer actions and an interactive viewer. Queued after zap-gated lands.
+  layer actions and an interactive viewer.
 - **Badges (NIP-58)** — `docs/BADGES_FEATURE.md`. Award / display Nostr
   badges on profile pages.
 - **Collections (NIP-51 sets)** — `docs/COLLECTIONS_FEATURE.md`. Let users
   organize favorite community templates into named sets.
+
+## Premium-templates polish
+
+The premium-encrypted-designs arc shipped in 2026-05; see
+`docs/PREMIUM_DESIGNS_FEATURE.md` for the canonical spec. Open
+follow-ups worth their own work:
+
+- **Phase 4 E2E test matrix** — real-money round-trip through CoinOS:
+  publish premium → unlock from another browser → vault sync. Plus
+  the edge-case matrix from §19 item 4 of the spec (wallet budget
+  exhausted, platform fail after creator paid, partial-pay resume,
+  missing lud16, cache wipe → relay fast-path).
+- **Confirm()-style modals** — the unlock confirm and a few other
+  premium-related prompts still use native `confirm()`. Replace with
+  the styled in-app modal pattern.
+- **Future-proofing** — when an epoch's soft-gate pepper gets reverse-
+  engineered we'll ship a new epoch. The infra is in place; the
+  rotation playbook should land as a SECURITY.md when we do it.
 
 ## Phase-3+ work on shipped features
 
@@ -100,6 +103,33 @@ Each has a full spec in `docs/`.
 
 ## Shipped (recent)
 
+- **Premium encrypted designs — static soft-gate + NWC split-zap +
+  purchase vault.** Spec lives in `docs/PREMIUM_DESIGNS_FEATURE.md`.
+  Creators tick "Premium encrypted" + a soft-gate ack in the publish
+  modal, set a minimum sat amount; we AES-256-GCM encrypt the
+  payload (HKDF over an obfuscated per-epoch pepper + per-design
+  salt + the event coordinate as AAD), render a watermarked low-res
+  JPEG preview embedded in the envelope, and emit the §5.1 tag set
+  with two zap-split tags (creator 70 % / platform 30 %).
+  Consumers see a gradient-stroked card + ⚡ PREMIUM ribbon with an
+  "Unlock for N sats" CTA on all three import paths (feed card,
+  preview pane Use/Fork, preview pane Save JSON). Unlock fires both
+  pay_invoice legs in parallel over NWC, derives the soft-gate key
+  locally on receipt confirmation, decrypts in place with a reveal
+  animation. Cross-device sync via a NIP-44 self-encrypted purchase
+  vault (kind-30078 `d=artstr:purchase-vault:v1`) that auto-splits
+  into per-item events when over 40 KB. Address-tolerant unlock
+  lookup so edit-in-place doesn't invalidate prior purchases.
+  Hydrates on Nostr login with a "Restored N unlocks ✓" toast.
+  Soft-gate framing is honest in every UI surface: it raises
+  friction against drive-by scraping, NOT strong DRM. Foundation
+  layers (noble bundle, NWC client + wallet settings UI with
+  CoinOS-first onboarding, platform-fee dual-zap orchestrator, NWC-
+  default Lightning tips, login-method picker, profile dropdown
+  menu with View Profile / Settings / Logout, the Settings modal
+  itself, the new Premium tab + mobile-friendly browser layout)
+  all shipped as part of the same arc. ~30 commits on the
+  `zap-gated` branch, merged into main 2026-05.
 - **Pixel-art dropdowns — no more sidebar clipping.** The pixel-editor
   resize-grid and PNG-export menus were `position: absolute; right: 0`
   inside their toolbar wrap. When the toolbar wrapped and the trigger

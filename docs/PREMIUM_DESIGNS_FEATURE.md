@@ -4,19 +4,46 @@
 
 ### Status
 
-Canonical spec for the encryption + key-delivery layer of premium templates.
-This supersedes the Phase 5/6 sketch in `ZAP_GATED_PREMIUM_FEATURE.md`,
-which described a creator-online NIP-04 DM key-delivery scheme. That
-approach is abandoned in favour of the **static soft-gate + buyer
-purchase vault** model below, which removes the creator-online
-requirement entirely.
+**Shipped on `zap-gated`, merged into `main` 2026-05-29.** This is the
+canonical spec for the encryption + key-delivery layer of premium
+templates. It supersedes the Phase 5/6 sketch in
+`ZAP_GATED_PREMIUM_FEATURE.md`, which described a creator-online
+NIP-04 DM key-delivery scheme. That approach was abandoned in favour
+of the **static soft-gate + buyer purchase vault** model below, which
+removes the creator-online requirement entirely.
+
+Implementation maps to §10 of this doc:
+
+- **Step 0 — Crypto bundle.** `src/noble-bundle.min.js` exposes
+  `@noble/secp256k1` v3.1.0 + `@noble/hashes` v2.2.0 as
+  `window.ArtstrNoble`.
+- **Step 1 — Soft-gate primitive.** The `Premium` IIFE in
+  `src/index.html` (`pepperBytesForEpoch`, `deriveKey`,
+  `encryptPayload`, `decryptPayload`).
+- **Step 2 — Watermarked preview pipeline.** Canvas-based JPEG
+  renderer that snapshots a low-res preview of the design pre-encrypt
+  and embeds it in the envelope's `preview.dataUrl`.
+- **Step 3 — Encrypted publish + premium consume.** Publish modal
+  premium controls + soft-gate ack, encrypted event emission with the
+  §5.1 tag set, and a feed/preview consume path that shows the
+  gradient-stroked card, ⚡ PREMIUM ribbon, and "Unlock for N sats" CTA
+  on the three import paths (feed card, preview Use/Fork, preview
+  Save JSON).
+- **Step 4 — Purchase vault + My Purchases tab.** NIP-44 self-
+  encrypted kind-30078 vault (`d=artstr:purchase-vault:v1`), auto-
+  splitting into per-item events (`d=artstr:purchase:<sha256(addr)>`)
+  when the manifest crosses 40 KB. Hydrates on login with a
+  "Restored N unlocks ✓" toast. The Premium tab in My Designs lists
+  purchased items address-tolerantly so an edit-in-place doesn't
+  invalidate a prior unlock.
 
 Phases 0–3 of `ZAP_GATED_PREMIUM_FEATURE.md` (the noble bundle, NWC
-client, platform-fee plumbing, and the existing tag-only UI) are
-already shipped on the `zap-gated` branch and are reused unchanged
-here. The remaining work is the soft-gate crypto, the encrypted
-event format, the watermarked preview pipeline, and the purchase
-vault.
+client, platform-fee plumbing, and the original tag-only UI) shipped
+earlier on the same branch and were reused for the encrypted version.
+
+Phase 4 (the real-money E2E test matrix from §19 item 4) is the only
+open work and now lives under "Premium-templates polish" in
+`TODO.md`.
 
 ### Goal
 
