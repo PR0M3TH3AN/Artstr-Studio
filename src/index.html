@@ -4210,6 +4210,38 @@
   </div>
 
 
+  <div class="modal" id="loginPickerModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:440px;position:relative">
+      <button type="button" id="loginPickerCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
+      <h2 style="font-size:1.05rem;margin:0 0 4px;font-family:inherit">Sign in with Nostr</h2>
+      <p class="hint" style="margin:0 0 16px">Choose how you want to sign events. NIP-07 browser extension is the only option ready today.</p>
+      <div id="loginPickerOptions" style="display:flex;flex-direction:column;gap:8px">
+        <button type="button" class="loginPickerOption" id="loginOptNip07" style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);text-align:left;cursor:pointer">
+          <span style="font-size:1.4rem;line-height:1">🧩</span>
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font-weight:700;font-size:.9rem">Browser extension <small style="color:var(--muted);font-weight:500">(NIP-07)</small></span>
+            <span class="hint" style="display:block;margin-top:2px">Sign with Alby, nos2x, Flamingo, or any other NIP-07 extension. Your nsec stays in the extension.</span>
+          </span>
+        </button>
+        <button type="button" class="loginPickerOption" id="loginOptNip46" aria-disabled="true" style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);text-align:left;cursor:pointer;opacity:.55">
+          <span style="font-size:1.4rem;line-height:1">📡</span>
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font-weight:700;font-size:.9rem">Remote signer <small style="color:var(--muted);font-weight:500">(NIP-46)</small> <em style="margin-left:6px;font-size:.7rem;background:var(--line);padding:1px 6px;border-radius:8px">Coming soon</em></span>
+            <span class="hint" style="display:block;margin-top:2px">Sign via a remote bunker like nsec.app or Amber. Your nsec stays on your phone or signing device.</span>
+          </span>
+        </button>
+        <button type="button" class="loginPickerOption" id="loginOptNsec" aria-disabled="true" style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);text-align:left;cursor:pointer;opacity:.55">
+          <span style="font-size:1.4rem;line-height:1">🔑</span>
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font-weight:700;font-size:.9rem">Paste private key <small style="color:var(--muted);font-weight:500">(nsec)</small> <em style="margin-left:6px;font-size:.7rem;background:var(--line);padding:1px 6px;border-radius:8px">Coming soon</em></span>
+            <span class="hint" style="display:block;margin-top:2px">Paste an nsec directly into Artstr. <strong>Least secure</strong> — the key lives in this browser; only use it for testing accounts.</span>
+          </span>
+        </button>
+      </div>
+      <p class="hint" style="margin:14px 0 0;font-size:.72rem">New to Nostr? <a href="https://nostr.how" target="_blank" rel="noopener">Get started at nostr.how</a> — pick a signer that fits your setup.</p>
+    </div>
+  </div>
+
   <div class="modal" id="reportModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:420px">
       <h2 style="font-size:1rem;margin:0 0 14px;font-family:inherit">Report template</h2>
@@ -20874,6 +20906,24 @@
       }
     }
 
+    // Login method picker. NIP-07 is the only enabled path today; NIP-46
+    // (remote signer) and direct nsec paste are tracked as future options
+    // so users see what's coming and don't think we just don't support
+    // their preferred signer.
+    function openLoginPicker() {
+      const modal = $('loginPickerModal');
+      if (!modal) { nostrLogin(); return; }  // defensive — fall back to direct login
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+      if (typeof bringModalToFront === 'function') bringModalToFront(modal);
+    }
+    function closeLoginPicker() {
+      const modal = $('loginPickerModal');
+      if (!modal) return;
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+    }
+
     async function loadMyDesigns() {
       const wall = $('feedWallMine');
       if (!state.community.myPubkey) {
@@ -24265,7 +24315,20 @@
       $("tabPremium").addEventListener("click", () => switchModalTab('Premium'));
       $("tabSearch").addEventListener("click", () => switchModalTab('Search'));
       $("tabMine").addEventListener("click", () => switchModalTab('Mine'));
-      $("nostrLoginBtn").addEventListener("click", nostrLogin);
+      $("nostrLoginBtn").addEventListener("click", openLoginPicker);
+      on('loginPickerCloseBtn', 'click', closeLoginPicker);
+      const loginPickerModalEl = $('loginPickerModal');
+      if (loginPickerModalEl) loginPickerModalEl.addEventListener('click', (e) => { if (e.target === loginPickerModalEl) closeLoginPicker(); });
+      on('loginOptNip07', 'click', () => {
+        closeLoginPicker();
+        nostrLogin();
+      });
+      on('loginOptNip46', 'click', () => {
+        toast('Remote signer (NIP-46) support is coming soon. For now, use a NIP-07 browser extension.');
+      });
+      on('loginOptNsec', 'click', () => {
+        toast('Direct nsec login is coming soon. For now, use a NIP-07 browser extension that holds the key for you.');
+      });
       $("nostrProfileBtn").addEventListener("click", () => {
         const pk = normalizePubkey(state.community?.myPubkey || '');
         if (pk) openProfilePage(pk);
