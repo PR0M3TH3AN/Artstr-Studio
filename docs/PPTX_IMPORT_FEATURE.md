@@ -748,7 +748,7 @@ backgrounds + shapes and light on text). Verified against
 `gallery_template_layout_set.pptx` (16 slides → 64 shape layers with
 correct source colors and positions, zero warnings).
 
-### Phase 5: Group Flattening
+### Phase 5: Group Flattening — SHIPPED on `pptx-import` (commit `6a731d5`)
 
 - Parse `p:grpSp` recursively.
 - Apply parent transform to child transforms.
