@@ -4595,6 +4595,180 @@
     // ---- end NWC crypto -----------------------------------------------------
 
 
+    // ---- Premium soft-gate crypto (PREMIUM_DESIGNS_FEATURE.md §6) -----------
+    // Static client-side decryption gate for premium designs. The AES key is
+    // derived from a per-design public salt + a client-side "pepper" + a
+    // discriminator string. The pepper is obfuscated (split into byte
+    // fragments held in unrelated-looking places); reconstructing it from a
+    // minified bundle is annoying-but-doable, which is honest about what this
+    // gives us: protection against drive-by scraping, not strong DRM. The
+    // spec calls this a "soft gate."
+    //
+    // Epoch rotation: every premium design records the epoch it was
+    // published under. When an epoch's pepper gets reverse-engineered we
+    // can ship a new epoch and rotate forward; old designs stay readable
+    // by anyone who knows the old derivation but new designs are protected
+    // by the new one. Adding a new epoch is "add one entry to
+    // `_softGatePepperParts`."
+    const Premium = (() => {
+      // 4-part pepper per epoch. Stored as four Uint8Arrays in this lookup
+      // table, indexed by epoch. Reconstruction concatenates them — the
+      // pieces don't look like anything individually. Each 8 bytes was
+      // generated from crypto.getRandomValues at spec-adoption time; comment
+      // calls them "palette seeds" to avoid an obvious "PREMIUM_KEY" string
+      // in the source. (Determined readers will still find this; we accept
+      // that — see PREMIUM_DESIGNS_FEATURE.md §2.)
+      const _softGatePepperParts = {
+        '2026-05': [
+          new Uint8Array([0x8c, 0x2b, 0xd1, 0x47, 0x9e, 0x60, 0x35, 0xaa]),  // palette seed I
+          new Uint8Array([0x14, 0xf3, 0x59, 0xb2, 0x7d, 0xc8, 0x06, 0xef]),  // palette seed II
+          new Uint8Array([0xa5, 0x71, 0x4e, 0x2c, 0x9b, 0x88, 0x33, 0xd0]),  // palette seed III
+          new Uint8Array([0x62, 0x09, 0xfd, 0x18, 0x4a, 0xe7, 0xc4, 0x95]),  // palette seed IV
+        ],
+      };
+      const SUPPORTED_EPOCHS = Object.freeze(Object.keys(_softGatePepperParts));
+      const CURRENT_EPOCH = '2026-05';
+      const PREMIUM_KDF_INFO = 'artstr-softgate-v1';
+
+      function pepperBytesForEpoch(epoch) {
+        const parts = _softGatePepperParts[epoch];
+        if (!parts) throw new Error(`Unsupported soft-gate epoch: ${epoch}`);
+        const total = parts.reduce((n, p) => n + p.length, 0);
+        const out = new Uint8Array(total);
+        let off = 0;
+        for (const p of parts) { out.set(p, off); off += p.length; }
+        return out;
+      }
+
+      // HKDF-SHA256 → 32-byte AES key. Inputs:
+      //   epoch              — string ("2026-05") from the envelope
+      //   creatorPubkey      — 64-hex
+      //   premiumAddress     — "30078:<creatorHex>:<dTag>"
+      //   schemaVersion      — number, e.g. 5
+      //   publicDesignSalt   — Uint8Array (from envelope)
+      //   puzzleNonce        — optional UTF-8 string mixed into info
+      function deriveKey({ epoch, creatorPubkey, premiumAddress, schemaVersion, publicDesignSalt, puzzleNonce }) {
+        if (!_softGatePepperParts[epoch]) throw new Error(`Unsupported soft-gate epoch: ${epoch}`);
+        const enc = new TextEncoder();
+        const infoStr = PREMIUM_KDF_INFO + '|' + epoch + '|' + creatorPubkey + '|' + premiumAddress + '|v' + schemaVersion
+          + (puzzleNonce ? '|p' + puzzleNonce : '');
+        return window.ArtstrNoble.hkdf(
+          window.ArtstrNoble.sha256,
+          pepperBytesForEpoch(epoch),  // IKM
+          publicDesignSalt,            // salt
+          enc.encode(infoStr),         // info
+          32,                          // length
+        );
+      }
+
+      // AAD binds ciphertext to the event coordinate so a copy-paste to a
+      // different event address fails authentication.
+      function encodeAad(creatorPubkey, dTag) {
+        return new TextEncoder().encode(`30078:${creatorPubkey}:${dTag}`);
+      }
+
+      const _bytesToB64 = (b) => { let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); };
+      const _b64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+
+      // Encrypt a Nostr design payload object → envelope (per spec §5.2).
+      // `coord` is { creatorPubkey, dTag, schemaVersion }. Generates a random
+      // 32-byte design salt + 12-byte IV. The returned envelope has the same
+      // shape the consumer expects, base64'd.
+      async function encryptPayload(payloadObj, coord, opts = {}) {
+        const epoch = opts.epoch || CURRENT_EPOCH;
+        const publicDesignSalt = crypto.getRandomValues(new Uint8Array(32));
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const premiumAddress = `30078:${coord.creatorPubkey}:${coord.dTag}`;
+        const keyBytes = deriveKey({
+          epoch,
+          creatorPubkey: coord.creatorPubkey,
+          premiumAddress,
+          schemaVersion: coord.schemaVersion,
+          publicDesignSalt,
+        });
+        const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
+        const aad = encodeAad(coord.creatorPubkey, coord.dTag);
+        const plaintext = new TextEncoder().encode(JSON.stringify(payloadObj));
+        const ct = new Uint8Array(await crypto.subtle.encrypt(
+          { name: 'AES-GCM', iv, additionalData: aad }, key, plaintext
+        ));
+        return {
+          v: 1,
+          enc: { alg: 'aes-256-gcm', kdf: PREMIUM_KDF_INFO, compression: 'none' },
+          aad: `30078:${coord.creatorPubkey}:${coord.dTag}`,
+          salt: _bytesToB64(publicDesignSalt),
+          iv: _bytesToB64(iv),
+          ciphertext: _bytesToB64(ct),
+          softgate: {
+            version: 1, epoch,
+            publicDesignSalt: _bytesToB64(publicDesignSalt),
+            purchaseScope: 'address',
+            puzzle: { enabled: false, difficultyBits: 0 },
+          },
+        };
+      }
+
+      // Decrypt an envelope back into the original payload object. Pulls
+      // epoch + salt out of the envelope; rebuilds the AAD from `coord`.
+      async function decryptPayload(envelope, coord) {
+        if (!envelope || envelope.enc?.alg !== 'aes-256-gcm') throw new Error('Unsupported envelope');
+        const epoch = envelope.softgate?.epoch || CURRENT_EPOCH;
+        const publicDesignSalt = _b64ToBytes(envelope.softgate?.publicDesignSalt || envelope.salt);
+        const iv = _b64ToBytes(envelope.iv);
+        const ct = _b64ToBytes(envelope.ciphertext);
+        const premiumAddress = `30078:${coord.creatorPubkey}:${coord.dTag}`;
+        const keyBytes = deriveKey({
+          epoch,
+          creatorPubkey: coord.creatorPubkey,
+          premiumAddress,
+          schemaVersion: coord.schemaVersion,
+          publicDesignSalt,
+        });
+        const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
+        const aad = encodeAad(coord.creatorPubkey, coord.dTag);
+        const pt = new Uint8Array(await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv, additionalData: aad }, key, ct
+        ));
+        return JSON.parse(new TextDecoder().decode(pt));
+      }
+
+      return {
+        SUPPORTED_EPOCHS, CURRENT_EPOCH, PREMIUM_KDF_INFO,
+        pepperBytesForEpoch, deriveKey, encodeAad,
+        encryptPayload, decryptPayload,
+      };
+    })();
+
+    // Phase-1 self-test for the soft-gate primitive. Round-trips a known
+    // payload + verifies that mismatched AAD (event coordinate copy-paste)
+    // fails the decrypt as the spec requires.
+    (async () => {
+      try {
+        if (!window.ArtstrNoble?.hkdf) throw new Error('HKDF missing from noble bundle');
+        const coord = {
+          creatorPubkey: 'a'.repeat(64),
+          dTag: 'premium:test:soft-gate-roundtrip',
+          schemaVersion: 5,
+        };
+        const payload = { version: 5, hello: 'world', layers: [{ id: 'l1', type: 'color' }] };
+        const env = await Premium.encryptPayload(payload, coord);
+        if (env.enc.alg !== 'aes-256-gcm') throw new Error('envelope alg wrong');
+        if (!env.softgate?.epoch) throw new Error('envelope missing epoch');
+        const round = await Premium.decryptPayload(env, coord);
+        if (JSON.stringify(round) !== JSON.stringify(payload)) throw new Error('round-trip mismatch');
+        // AAD mismatch must fail (different dTag → different AAD → AES-GCM rejects).
+        let aadFailed = false;
+        try {
+          await Premium.decryptPayload(env, { ...coord, dTag: 'attacker:rebound' });
+        } catch { aadFailed = true; }
+        if (!aadFailed) throw new Error('AAD mismatch did NOT fail decrypt — coordinate binding broken');
+      } catch (err) {
+        console.warn('[Artstr] Premium soft-gate self-test failed — premium publish/unlock will not work:', err);
+      }
+    })();
+    // ---- end Premium soft-gate crypto ---------------------------------------
+
+
     // ---- NWC client (Phase 1) ----------------------------------------------
     // RPC-style client for a single NIP-47 wallet connection. One WebSocket,
     // one persistent subscription for kind-23195 responses + kind-13194
