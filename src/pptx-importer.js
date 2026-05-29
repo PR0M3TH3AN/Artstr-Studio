@@ -158,6 +158,58 @@ window.ArtstrPptxImporter = (function () {
     return refs;
   }
 
+  // ---- Slide-level parsing ---------------------------------------------
+  // Read the slide's direct background. PPTX backgrounds can come from
+  // four places (slide, layout, master, theme). This handler covers only
+  // the direct slide background with a single solidFill — the common case
+  // for design-template decks. Layout / master / theme inheritance and
+  // gradient / picture fills are Phase 6.
+  //
+  // Returns either a CSS hex string like '#fbf8f0' or null if nothing
+  // usable was found (caller leaves slide.background at the default).
+  function readSlideBackground(slideDoc, slideIndex, report) {
+    const bg = slideDoc.getElementsByTagName('p:bg')[0]
+           || slideDoc.getElementsByTagNameNS('*', 'bg')[0];
+    if (!bg) return null;
+
+    // Direct background properties live in <p:bgPr>. <p:bgRef> means the
+    // slide inherits from its layout/master via a theme scheme — defer
+    // to Phase 6 with a warning.
+    const bgRef = bg.getElementsByTagName('p:bgRef')[0]
+              || bg.getElementsByTagNameNS('*', 'bgRef')[0];
+    if (bgRef) {
+      _warn(report, slideIndex, 'LAYOUT_INHERITANCE_PARTIAL',
+        `Slide ${slideIndex + 1}: background inherited from layout/master — not resolved in Phase 1.`);
+      return null;
+    }
+
+    const bgPr = bg.getElementsByTagName('p:bgPr')[0]
+             || bg.getElementsByTagNameNS('*', 'bgPr')[0];
+    if (!bgPr) return null;
+
+    // Only solidFill + srgbClr in Phase 1. gradFill, blipFill (picture),
+    // pattFill, and schemeClr-based fills land in Phase 6 with the rest
+    // of theme resolution.
+    const solid = bgPr.getElementsByTagName('a:solidFill')[0]
+              || bgPr.getElementsByTagNameNS('*', 'solidFill')[0];
+    if (!solid) {
+      _warn(report, slideIndex, 'THEME_COLOR_UNRESOLVED',
+        `Slide ${slideIndex + 1}: non-solid background fill (gradient / picture / scheme color) — left as default for now.`);
+      return null;
+    }
+
+    const srgb = solid.getElementsByTagName('a:srgbClr')[0]
+              || solid.getElementsByTagNameNS('*', 'srgbClr')[0];
+    if (!srgb) {
+      _warn(report, slideIndex, 'THEME_COLOR_UNRESOLVED',
+        `Slide ${slideIndex + 1}: background uses a scheme color — theme resolution is Phase 6.`);
+      return null;
+    }
+    const hex = (srgb.getAttribute('val') || '').trim().toLowerCase();
+    if (!/^[0-9a-f]{6}$/.test(hex)) return null;
+    return '#' + hex;
+  }
+
   function readPresentationInfo(files, report) {
     const presText = readZipText(files, 'ppt/presentation.xml');
     if (!presText) {
@@ -197,12 +249,34 @@ window.ArtstrPptxImporter = (function () {
       if (i && i % 10 === 0) {
         await new Promise((r) => requestAnimationFrame(r));
       }
+
+      // Try to read the slide's direct background. Anything we can't
+      // resolve (inherited, gradient, scheme color) leaves the default
+      // white — the user can edit it in the Deck Builder. Read failures
+      // are non-fatal: the slide still gets a shell.
+      let background = '#ffffff';
+      const slidePath = presentation.slideRefs[i].path;
+      const slideText = slidePath ? readZipText(files, slidePath) : null;
+      if (slideText) {
+        try {
+          const slideDoc = parseXml(slideText);
+          const bg = readSlideBackground(slideDoc, i, report);
+          if (bg) {
+            background = bg;
+            report.imported.backgrounds += 1;
+          }
+        } catch (err) {
+          _warn(report, i, 'SLIDE_PARSE_FAILED',
+            `Slide ${i + 1}: could not parse slide XML — left blank.`);
+        }
+      }
+
       slides.push({
         name: 'Slide ' + (i + 1),
         slide: {
           width: TARGET_W,
           height: TARGET_H,
-          background: '#ffffff',
+          background,
           notes: '',
         },
         layers: [],
@@ -245,6 +319,7 @@ window.ArtstrPptxImporter = (function () {
       readSlideSize,
       readSlideRefsInOrder,
       readPresentationInfo,
+      readSlideBackground,
     },
   };
 })();
