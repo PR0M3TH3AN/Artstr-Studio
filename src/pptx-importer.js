@@ -268,19 +268,75 @@ window.ArtstrPptxImporter = (function () {
   }
 
   // ---- Transform helpers ----------------------------------------------
-  function readXfrm(xfrmNode, scale) {
+  // A "group transform" maps child-EMU coordinates (the coord space
+  // inside a p:grpSp) into slide-EMU coordinates (the coord space the
+  // slide's own scale expects). The identity transform leaves EMU as-is
+  // — used when reading a top-level shape that has no ancestor group.
+  const IDENTITY_GROUP_XFRM = { offX: 0, offY: 0, sX: 1, sY: 1 };
+
+  // Compose a new group transform when entering a p:grpSp from inside
+  // the existing transform. PPTX semantics: the group's a:xfrm/a:off +
+  // a:ext say where the group sits + how big it is in its parent's
+  // child-coord space, while a:chOff + a:chExt define the child-coord
+  // space *inside* this group. The composed transform converts that
+  // inner space to slide-EMU.
+  function enterGroup(parentTransform, groupXfrmNode) {
+    if (!groupXfrmNode) return parentTransform;
+    const off = _directChild(groupXfrmNode, 'off');
+    const ext = _directChild(groupXfrmNode, 'ext');
+    if (!off || !ext) return parentTransform;
+    const px = Number(off.getAttribute('x')) || 0;
+    const py = Number(off.getAttribute('y')) || 0;
+    const pcx = Number(ext.getAttribute('cx')) || 0;
+    const pcy = Number(ext.getAttribute('cy')) || 0;
+    // Group's slide-EMU origin / size.
+    const groupSlideX = parentTransform.offX + px * parentTransform.sX;
+    const groupSlideY = parentTransform.offY + py * parentTransform.sY;
+    const groupExtCx  = pcx * parentTransform.sX;
+    const groupExtCy  = pcy * parentTransform.sY;
+    // Child-coord space defined by chOff / chExt (default to 0 / group ext).
+    const chOff = _directChild(groupXfrmNode, 'chOff');
+    const chExt = _directChild(groupXfrmNode, 'chExt');
+    const childOffX = chOff ? (Number(chOff.getAttribute('x')) || 0) : 0;
+    const childOffY = chOff ? (Number(chOff.getAttribute('y')) || 0) : 0;
+    const childExtCx = chExt ? (Number(chExt.getAttribute('cx')) || 0) : pcx;
+    const childExtCy = chExt ? (Number(chExt.getAttribute('cy')) || 0) : pcy;
+    if (!childExtCx || !childExtCy || !groupExtCx || !groupExtCy) return parentTransform;
+    const sX = groupExtCx / childExtCx;
+    const sY = groupExtCy / childExtCy;
+    return {
+      offX: groupSlideX - childOffX * sX,
+      offY: groupSlideY - childOffY * sY,
+      sX,
+      sY,
+    };
+  }
+
+  // readXfrm transforms an a:xfrm element to Artstr inches, going
+  // through any accumulated group transform first so a shape inside
+  // nested p:grpSp lands at the right slide-relative position.
+  function readXfrm(xfrmNode, scale, groupXfrm = IDENTITY_GROUP_XFRM) {
     if (!xfrmNode) return null;
     const off = _directChild(xfrmNode, 'off');
     const ext = _directChild(xfrmNode, 'ext');
     if (!off || !ext) return null;
-    const x = (Number(off.getAttribute('x')) || 0) * scale.x;
-    const y = (Number(off.getAttribute('y')) || 0) * scale.y;
-    const w = (Number(ext.getAttribute('cx')) || 0) * scale.x;
-    const h = (Number(ext.getAttribute('cy')) || 0) * scale.y;
-    // a:xfrm@rot is in 1/60000 degree units.
+    const childX = Number(off.getAttribute('x')) || 0;
+    const childY = Number(off.getAttribute('y')) || 0;
+    const childCx = Number(ext.getAttribute('cx')) || 0;
+    const childCy = Number(ext.getAttribute('cy')) || 0;
+    // child EMU → slide EMU → inches.
+    const slideX = groupXfrm.offX + childX * groupXfrm.sX;
+    const slideY = groupXfrm.offY + childY * groupXfrm.sY;
+    const slideCx = childCx * groupXfrm.sX;
+    const slideCy = childCy * groupXfrm.sY;
     const rotRaw = Number(xfrmNode.getAttribute('rot')) || 0;
-    const rotate = rotRaw / 60000;
-    return { x, y, w, h, rotate };
+    return {
+      x: slideX * scale.x,
+      y: slideY * scale.y,
+      w: slideCx * scale.x,
+      h: slideCy * scale.y,
+      rotate: rotRaw / 60000,
+    };
   }
 
   // ---- Slide-level parsing ---------------------------------------------
@@ -499,7 +555,7 @@ window.ArtstrPptxImporter = (function () {
   function convertPicture(picNode, ctx) {
     const spPr = _directChild(picNode, 'spPr');
     const xfrm = spPr ? _directChild(spPr, 'xfrm') : null;
-    const bounds = readXfrm(xfrm, ctx.scale);
+    const bounds = readXfrm(xfrm, ctx.scale, ctx.groupXfrm);
     if (!bounds || bounds.w <= 0 || bounds.h <= 0) return null;
 
     // Resolve the embed-relationship to the original media filename
@@ -548,7 +604,7 @@ window.ArtstrPptxImporter = (function () {
   function convertGraphicFrame(gfNode, ctx) {
     // graphicFrame puts xfrm directly under itself, not inside spPr.
     const xfrm = _directChild(gfNode, 'xfrm');
-    const bounds = readXfrm(xfrm, ctx.scale);
+    const bounds = readXfrm(xfrm, ctx.scale, ctx.groupXfrm);
     if (!bounds || bounds.w <= 0 || bounds.h <= 0) return null;
 
     const graphic = _directChild(gfNode, 'graphic');
@@ -620,7 +676,7 @@ window.ArtstrPptxImporter = (function () {
 
     const spPr = _directChild(spNode, 'spPr');
     const xfrm = spPr ? _directChild(spPr, 'xfrm') : null;
-    const bounds = xfrm ? readXfrm(xfrm, ctx.scale) : null;
+    const bounds = xfrm ? readXfrm(xfrm, ctx.scale, ctx.groupXfrm) : null;
     // A text shape without explicit xfrm usually inherits from a
     // placeholder on the layout/master. We don't resolve placeholders
     // until Phase 6 — flag and skip so we don't drop a 0x0 layer at
@@ -677,7 +733,7 @@ window.ArtstrPptxImporter = (function () {
     const prstGeom = _directChild(spPr, 'prstGeom');
     if (!xfrm || !prstGeom) return null;
 
-    const bounds = readXfrm(xfrm, ctx.scale);
+    const bounds = readXfrm(xfrm, ctx.scale, ctx.groupXfrm);
     if (!bounds || bounds.w <= 0 || bounds.h <= 0) return null;
 
     const prst = prstGeom.getAttribute('prst') || 'rect';
@@ -759,9 +815,19 @@ window.ArtstrPptxImporter = (function () {
           // graphicFrame counters live under report.placeholders.*;
           // convertGraphicFrame increments the appropriate one itself.
         }
+      } else if (ln === 'grpSp') {
+        // Flatten groups by recursing with a composed transform. The
+        // group node itself isn't an Artstr layer — its children
+        // become normal top-level layers with their geometry
+        // transformed into slide space.
+        const grpSpPr = _directChild(child, 'grpSpPr');
+        const groupXfrm = grpSpPr ? _directChild(grpSpPr, 'xfrm') : null;
+        const prevGroup = ctx.groupXfrm;
+        ctx.groupXfrm = enterGroup(prevGroup || IDENTITY_GROUP_XFRM, groupXfrm);
+        ctx.report.imported.groups += 1;
+        walkSpTree(child, ctx, layersOut);
+        ctx.groupXfrm = prevGroup;
       }
-      // Future phases:
-      //   - 'grpSp' → group (Phase 5 — recurse with combined xfrm)
     }
   }
 
@@ -896,7 +962,14 @@ window.ArtstrPptxImporter = (function () {
           const spTree = slideDoc.getElementsByTagName('p:spTree')[0]
                      || slideDoc.getElementsByTagNameNS('*', 'spTree')[0];
           const slideRels = readSlideRels(files, slidePath);
-          const ctx = { scale, slideIndex: i, report, nextZ: 0, slideRels };
+          const ctx = {
+            scale,
+            slideIndex: i,
+            report,
+            nextZ: 0,
+            slideRels,
+            groupXfrm: IDENTITY_GROUP_XFRM,
+          };
           walkSpTree(spTree, ctx, layers);
         } catch (err) {
           _warn(report, i, 'SLIDE_PARSE_FAILED',
@@ -969,6 +1042,8 @@ window.ArtstrPptxImporter = (function () {
       readFill,
       readStroke,
       readXfrm,
+      enterGroup,
+      IDENTITY_GROUP_XFRM,
       convertPresetShape,
       convertTextShape,
       convertPicture,
