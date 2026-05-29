@@ -2518,6 +2518,53 @@
       .previewShell { min-height: 420px; }
     }
 
+    /* Mobile polish (PASS: template browser, cards, design previews).
+       The editor itself is desktop-first; this pass targets the
+       community-browsing surfaces a phone user is most likely to hit. */
+    @media (max-width: 600px) {
+      /* Modal sizing — use the screen, don't waste edges */
+      .modalCard { padding:12px; width:min(98vw,640px); max-height:94vh; margin:2vh auto; }
+      #nostrModal .modalCard { padding:12px 44px 12px 12px; }
+      .modalInner { padding:14px; width:96vw; max-height:94vh; margin:2vh auto; box-sizing:border-box; }
+      .welcomeCloseBtn { top:6px; right:6px; }
+      #nostrClose { top:6px; right:6px; }
+
+      /* Modal header: stack title above actions on narrow screens so the
+         actions row doesn't squeeze the title into a tall column. */
+      #nostrModal .modalHeader { flex-direction:column; align-items:stretch; gap:8px; padding-right:32px; }
+      .previewActionsRow { justify-content:flex-start; gap:4px; }
+      .previewActionsRow button { font-size:.74rem; padding:4px 9px; }
+
+      /* Tab row → horizontal scroll. Avoids wrapping to 2-3 rows of tabs. */
+      .modalTabs { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; gap:4px; padding-bottom:6px; margin-bottom:8px; scrollbar-width:thin; }
+      .modalTabs::-webkit-scrollbar { height:4px; }
+      .modalTab { padding:5px 12px; font-size:.8rem; flex:0 0 auto; white-space:nowrap; }
+
+      /* Type filter chips → horizontal scroll; selects on a second row */
+      .feedTypeFilter { flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; gap:4px; padding-bottom:4px; margin-bottom:6px; scrollbar-width:thin; }
+      .feedTypeFilter::-webkit-scrollbar { height:4px; }
+      .feedTypeBtn { padding:3px 10px; font-size:.72rem; flex:0 0 auto; white-space:nowrap; }
+      .feedCategorySelect { flex:0 0 auto; min-width:130px; }
+      .feedTrustToggle { font-size:.72rem; flex:0 0 auto; }
+
+      /* Card grid: single column on phones (auto-fill at 240px goes to 1
+         col anyway, but this is explicit) and tighter gaps. */
+      .feedWall { grid-template-columns:1fr; gap:10px; }
+      /* Thumb gets a max height — keeps "empty" cards from being 360px+
+         tall just because they're square. Real previews fit inside. */
+      .feedCardThumb { aspect-ratio:auto; height:260px; max-height:60vw; }
+      .feedCardActions { gap:4px; padding:6px 7px; }
+      .feedCardActions button { font-size:.72rem; padding:3px 9px; }
+      .feedCardZapBadge { font-size:.66rem; padding:1px 6px; }
+      .feedCardTitle { font-size:.86rem; }
+      .feedCardSub { font-size:.72rem; }
+
+      /* Preview pane: tighter padding so the gradient ring doesn't eat
+         all the available preview area. */
+      #nostrPreviewPanel.premiumPreviewPane { padding:10px; border-radius:8px; }
+      .premiumPreviewRibbon { top:6px; left:6px; font-size:.62rem; padding:2px 7px; }
+    }
+
     body.exporting .slot,
     body.exporting .discSlot,
     body.exporting .jewelSlot {
