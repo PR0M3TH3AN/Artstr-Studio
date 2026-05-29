@@ -24,8 +24,17 @@ window.ArtstrPptxImporter = (function () {
   // when presentation.xml omits p:sldSz. Standard PowerPoint widescreen
   // template default.
   const DEFAULT_PPTX_SLIDE_SIZE = { cx: 12192000, cy: 6858000 };
+  // Artstr deck slides advertise their canvas as 1920x1080 (in slide.width
+  // / slide.height), but internally the engine converts that to inches by
+  // dividing by 96 — and *layer* coordinates (x/y/w/h, stroke width) live
+  // in those inches. So we keep TARGET_W/TARGET_H as the pixel-ish numbers
+  // that go into slide.width, and use TARGET_W_IN/TARGET_H_IN as the
+  // EMU→layer scale denominator.
   const TARGET_W = 1920;
   const TARGET_H = 1080;
+  const PX_PER_IN = 96;
+  const TARGET_W_IN = TARGET_W / PX_PER_IN; // 20
+  const TARGET_H_IN = TARGET_H / PX_PER_IN; // 11.25
   // Anything above this prints a friendly warning rather than crashing —
   // matches the spec's PPTX_MAX_SLIDES_WARN.
   const SLIDE_COUNT_WARN_AT = 100;
@@ -217,17 +226,18 @@ window.ArtstrPptxImporter = (function () {
     return { type: 'solid', color };
   }
 
-  // Read a:ln (line / stroke) from inside spPr. Stroke width is in EMU
-  // (a:ln@w); convert to px using the slide scale's geometric mean.
+  // Read a:ln (line / stroke) from inside spPr. PPTX a:ln@w is in EMU;
+  // convert through the slide scale (inches per EMU) to land in Artstr's
+  // inch-based layer coord system. Minimum visible width is ~1 pixel
+  // equivalent (1/96 inch) so a 0-width hairline still renders.
   function readStroke(spPrNode, scale) {
     if (!spPrNode) return null;
     const ln = _directChild(spPrNode, 'ln');
     if (!ln) return null;
     const wEmu = Number(ln.getAttribute('w')) || 0;
-    const pxScale = (scale.x + scale.y) / 2;
-    // PPTX line widths can be 0 (hairline) — fall back to 1 px so we
-    // don't render an invisible 0-width stroke.
-    const width = Math.max(1, Math.round(wEmu * pxScale));
+    const inPerEmu = (scale.x + scale.y) / 2;
+    const widthIn = wEmu * inPerEmu;
+    const width = Math.max(1 / PX_PER_IN, widthIn);
     // Explicit noFill on the line means "no stroke".
     const lnNoFill = _directChild(ln, 'noFill');
     if (lnNoFill) return { type: 'none', color: '#000000', width, dash: 'solid' };
@@ -445,9 +455,11 @@ window.ArtstrPptxImporter = (function () {
 
     const files = await readPptxPackage(file);
     const presentation = readPresentationInfo(files, report);
+    // EMU → Artstr layer inches. Layer x/y/w/h and stroke width all live
+    // in inches (the engine derives canvas dimensions via slide.width / 96).
     const scale = {
-      x: TARGET_W / presentation.slideSize.cx,
-      y: TARGET_H / presentation.slideSize.cy,
+      x: TARGET_W_IN / presentation.slideSize.cx,
+      y: TARGET_H_IN / presentation.slideSize.cy,
     };
     _layerIdCounter = 0;
 
