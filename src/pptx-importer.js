@@ -335,6 +335,121 @@ window.ArtstrPptxImporter = (function () {
     return '#' + hex;
   }
 
+  // ---- Text helpers ----------------------------------------------------
+  // PPTX alignment vocabulary -> Artstr alignment. Anything else maps to
+  // 'left'.
+  const PPTX_ALIGN_TO_ARTSTR = {
+    l: 'left',
+    ctr: 'center',
+    r: 'right',
+    just: 'justify',
+    dist: 'justify',
+  };
+
+  function _escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // Walk a:r (run) and a:br (line break) children of a paragraph,
+  // returning { text, firstRunStyle }. PPTX paragraphs can also contain
+  // a:fld (field) runs which we treat like a:r for text extraction.
+  function _readParagraphRuns(pNode) {
+    let text = '';
+    let firstRunStyle = null;
+    for (let i = 0; i < pNode.children.length; i++) {
+      const child = pNode.children[i];
+      const ln = child.localName;
+      if (ln === 'r' || ln === 'fld') {
+        const t = child.getElementsByTagName('a:t')[0]
+              || child.getElementsByTagNameNS('*', 't')[0];
+        if (t) text += t.textContent || '';
+        if (!firstRunStyle) {
+          const rPr = _directChild(child, 'rPr');
+          if (rPr) firstRunStyle = _readRunStyle(rPr);
+        }
+      } else if (ln === 'br') {
+        text += '\n';
+      }
+    }
+    return { text, firstRunStyle };
+  }
+
+  // Pull the inline style off an a:rPr (run properties) node:
+  // size (sz, hundredths of pt), bold (b), italic (i), color, and
+  // font family (latin@typeface). Theme-relative colours / fonts are
+  // resolved later in Phase 6 — for now we just take what's explicit.
+  function _readRunStyle(rPr) {
+    if (!rPr) return null;
+    const out = {};
+    const sz = rPr.getAttribute('sz');
+    if (sz) {
+      const pt = Number(sz) / 100;
+      if (Number.isFinite(pt) && pt > 0) out.fontSize = pt;
+    }
+    const b = rPr.getAttribute('b');
+    if (b === '1' || b === 'true') out.bold = true;
+    const i = rPr.getAttribute('i');
+    if (i === '1' || i === 'true') out.italic = true;
+    const fill = _directChild(rPr, 'solidFill');
+    if (fill) {
+      const c = convertColor(fill);
+      if (c) out.color = c;
+    }
+    const latin = _directChild(rPr, 'latin');
+    if (latin) {
+      const tf = latin.getAttribute('typeface') || '';
+      // Theme placeholders like '+mj-lt' / '+mn-lt' are theme references
+      // — leave fontFamily empty, the editor's default will apply.
+      if (tf && tf[0] !== '+') out.fontFamily = tf;
+    }
+    return out;
+  }
+
+  // Read p:txBody → Artstr text layer's html + dominant style.
+  // Phase 2 uses the first run's style for the whole text box; per-run
+  // rich text is a Phase 7 enhancement.
+  function _readTxBody(txBodyNode) {
+    if (!txBodyNode) return null;
+    const paragraphs = [];
+    let dominantStyle = null;
+    let alignFromFirstP = null;
+    for (let i = 0; i < txBodyNode.children.length; i++) {
+      const p = txBodyNode.children[i];
+      if (p.localName !== 'p') continue;
+      const { text, firstRunStyle } = _readParagraphRuns(p);
+      if (!dominantStyle && firstRunStyle) dominantStyle = firstRunStyle;
+      // alignment lives on the paragraph (a:pPr@algn); take the first
+      // paragraph's alignment as the layer's alignment.
+      if (alignFromFirstP === null) {
+        const pPr = _directChild(p, 'pPr');
+        const algn = pPr?.getAttribute('algn');
+        if (algn && PPTX_ALIGN_TO_ARTSTR[algn]) {
+          alignFromFirstP = PPTX_ALIGN_TO_ARTSTR[algn];
+        }
+      }
+      paragraphs.push(text);
+    }
+    const allText = paragraphs.join('\n').trim();
+    if (!allText) return null;
+    // Escape per-paragraph, then join with <br> (and inline-newline runs
+    // contribute their own <br> via the \n we inserted in
+    // _readParagraphRuns).
+    const html = paragraphs
+      .map((p) => _escapeHtml(p).replace(/\n/g, '<br>'))
+      .join('<br>');
+    return {
+      html,
+      align: alignFromFirstP || 'left',
+      dominantStyle: dominantStyle || {},
+      previewText: allText.slice(0, 60),
+    };
+  }
+
   // ---- Shape conversion -----------------------------------------------
   // Per-import counter so two consecutive imports don't generate
   // colliding layer ids. Reset at the start of importPptxFile.
@@ -344,13 +459,64 @@ window.ArtstrPptxImporter = (function () {
     return 'pptx-' + Date.now().toString(36) + '-' + _layerIdCounter;
   }
 
+  // Returns an Artstr text layer for a p:sp that carries a p:txBody.
+  // Phase 2 emits one text layer per shape; the dominant run's style
+  // (font size, color, bold, italic, family) is applied to the whole
+  // box. Per-run rich text spans are a Phase 7 enhancement.
+  function convertTextShape(spNode, ctx) {
+    const txBody = _directChild(spNode, 'txBody');
+    if (!txBody) return null;
+
+    const spPr = _directChild(spNode, 'spPr');
+    const xfrm = spPr ? _directChild(spPr, 'xfrm') : null;
+    const bounds = xfrm ? readXfrm(xfrm, ctx.scale) : null;
+    // A text shape without explicit xfrm usually inherits from a
+    // placeholder on the layout/master. We don't resolve placeholders
+    // until Phase 6 — flag and skip so we don't drop a 0x0 layer at
+    // (0, 0).
+    if (!bounds || bounds.w <= 0 || bounds.h <= 0) {
+      _warn(ctx.report, ctx.slideIndex, 'TEXT_STYLE_APPROXIMATED',
+        `Slide ${ctx.slideIndex + 1}: text shape inherits geometry from its layout — skipped in Phase 2.`);
+      return null;
+    }
+
+    const body = _readTxBody(txBody);
+    if (!body) return null; // empty placeholder text
+
+    const style = body.dominantStyle;
+    const cNvPr = spNode.getElementsByTagName('p:cNvPr')[0]
+              || spNode.getElementsByTagNameNS('*', 'cNvPr')[0];
+    const sourceName = cNvPr?.getAttribute('name') || '';
+    const label = body.previewText || 'Text';
+    const name = sourceName ? `Text (${sourceName}): ${label}` : `Text: ${label}`;
+
+    return {
+      id: _makePptxLayerId(),
+      type: 'text',
+      name,
+      target: 'canvas',
+      html: body.html,
+      x: bounds.x,
+      y: bounds.y,
+      w: bounds.w,
+      h: bounds.h,
+      rotate: bounds.rotate || 0,
+      opacity: 1,
+      z: ctx.nextZ++,
+      fontFamily: style.fontFamily || 'inherit',
+      fontSize: style.fontSize || 18,
+      color: style.color || '#111827',
+      align: body.align,
+      bold: !!style.bold,
+      italic: !!style.italic,
+    };
+  }
+
   // Returns an Artstr shape layer for a p:sp with a:prstGeom, or null
-  // if the shape should be skipped (text-bodied — Phase 2 handles it).
-  // Unknown preset names fall back to a rectangle with a warning.
+  // if the shape should be skipped (text-bodied — handled by
+  // convertTextShape). Unknown preset names fall back to a rectangle
+  // with a warning.
   function convertPresetShape(spNode, ctx) {
-    // Phase 4 doesn't try to convert text shapes — let Phase 2 turn
-    // those into text layers. A shape with both prstGeom and txBody is
-    // a text shape (e.g. a title placeholder), so skip here.
     const txBody = _directChild(spNode, 'txBody');
     if (txBody) return null;
 
@@ -411,10 +577,22 @@ window.ArtstrPptxImporter = (function () {
     for (let i = 0; i < spTreeNode.children.length; i++) {
       const child = spTreeNode.children[i];
       if (child.localName === 'sp') {
-        const layer = convertPresetShape(child, ctx);
-        if (layer) {
-          layersOut.push(layer);
-          ctx.report.imported.shapes += 1;
+        // A p:sp with p:txBody is a text shape; without it, it's a
+        // pure shape. Dispatch to the right converter and bump the
+        // matching counter.
+        const hasText = !!_directChild(child, 'txBody');
+        if (hasText) {
+          const layer = convertTextShape(child, ctx);
+          if (layer) {
+            layersOut.push(layer);
+            ctx.report.imported.text += 1;
+          }
+        } else {
+          const layer = convertPresetShape(child, ctx);
+          if (layer) {
+            layersOut.push(layer);
+            ctx.report.imported.shapes += 1;
+          }
         }
       }
       // Future phases:
@@ -422,6 +600,68 @@ window.ArtstrPptxImporter = (function () {
       //   - 'graphicFrame'  → chart / table / SmartArt placeholder (Phase 3)
       //   - 'grpSp'         → group (Phase 5 — recurse with combined xfrm)
     }
+  }
+
+  // Read the speaker notes for a given slide. The notes-slide
+  // relationship is in ppt/slides/_rels/slideN.xml.rels; we follow it,
+  // walk every text shape on the notes slide, and concatenate the
+  // plain text into a single string for slide.notes.
+  function readSlideNotes(files, slidePath, slideIndex, report) {
+    if (!slidePath) return '';
+    // Construct the rels path: ppt/slides/slide1.xml → ppt/slides/_rels/slide1.xml.rels
+    const m = slidePath.match(/^(.*\/)([^/]+)$/);
+    if (!m) return '';
+    const relsPath = `${m[1]}_rels/${m[2]}.rels`;
+    const relsText = readZipText(files, relsPath);
+    if (!relsText) return '';
+    let relsDoc;
+    try { relsDoc = parseXml(relsText); }
+    catch { return ''; }
+    const rels = relsDoc.getElementsByTagName('Relationship');
+    let notesTarget = '';
+    for (let i = 0; i < rels.length; i++) {
+      const type = rels[i].getAttribute('Type') || '';
+      if (type.endsWith('/notesSlide')) {
+        notesTarget = rels[i].getAttribute('Target') || '';
+        break;
+      }
+    }
+    if (!notesTarget) return '';
+    const notesPath = pptxTargetToZipPath(slidePath, notesTarget);
+    const notesText = readZipText(files, notesPath);
+    if (!notesText) return '';
+    let notesDoc;
+    try { notesDoc = parseXml(notesText); }
+    catch (err) {
+      _warn(report, slideIndex, 'NOTES_PARSE_FAILED',
+        `Slide ${slideIndex + 1}: notes XML could not be parsed.`);
+      return '';
+    }
+    const spTree = notesDoc.getElementsByTagName('p:spTree')[0]
+               || notesDoc.getElementsByTagNameNS('*', 'spTree')[0];
+    if (!spTree) return '';
+    const chunks = [];
+    for (let i = 0; i < spTree.children.length; i++) {
+      const sp = spTree.children[i];
+      if (sp.localName !== 'sp') continue;
+      const txBody = _directChild(sp, 'txBody');
+      if (!txBody) continue;
+      // Walk paragraphs and join with line breaks.
+      const paragraphs = [];
+      for (let j = 0; j < txBody.children.length; j++) {
+        const p = txBody.children[j];
+        if (p.localName !== 'p') continue;
+        const { text } = _readParagraphRuns(p);
+        if (text) paragraphs.push(text);
+      }
+      const joined = paragraphs.join('\n').trim();
+      // The notes slide also has a "slide image" placeholder shape that
+      // PowerPoint stamps with the slide number ("1", "2", …). Skip
+      // single-token numeric chunks so the imported notes don't get a
+      // stray slide number prepended.
+      if (joined && !/^\d+$/.test(joined)) chunks.push(joined);
+    }
+    return chunks.join('\n\n');
   }
 
   function readPresentationInfo(files, report) {
@@ -500,13 +740,25 @@ window.ArtstrPptxImporter = (function () {
         }
       }
 
+      // Speaker notes: follow the per-slide notesSlide relationship and
+      // extract the plain text. Empty string when the deck doesn't have
+      // notes for this slide (most decks won't).
+      let notes = '';
+      try {
+        notes = readSlideNotes(files, slidePath, i, report);
+        if (notes) report.imported.notes += 1;
+      } catch (err) {
+        _warn(report, i, 'NOTES_PARSE_FAILED',
+          `Slide ${i + 1}: speaker notes could not be read.`);
+      }
+
       slides.push({
         name: 'Slide ' + (i + 1),
         slide: {
           width: TARGET_W,
           height: TARGET_H,
           background,
-          notes: '',
+          notes,
         },
         layers,
         ignoreDeckTheme: true,
@@ -554,7 +806,9 @@ window.ArtstrPptxImporter = (function () {
       readStroke,
       readXfrm,
       convertPresetShape,
+      convertTextShape,
       walkSpTree,
+      readSlideNotes,
     },
   };
 })();
