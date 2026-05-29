@@ -758,7 +758,7 @@ Acceptance: Objects inside PowerPoint groups appear in the right
 approximate position; the import does not need to preserve grouping
 semantics.
 
-### Phase 6: Theme / Layout / Master Improvements
+### Phase 6: Theme / Layout / Master Improvements — SHIPPED on `pptx-import` (commit `a448afc`)
 
 - Parse slide-layout and slide-master relationships.
 - Parse theme XML.
