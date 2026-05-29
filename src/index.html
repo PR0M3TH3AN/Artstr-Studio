@@ -21117,6 +21117,24 @@
     }
 
     // Card factory used by both the initial render and the streaming-update diff.
+    // Encode the bits of a row that affect what gets drawn into the card,
+    // so diffWallCards can detect when an existing card needs to be
+    // rebuilt rather than reused. Most importantly: the author's profile
+    // (and therefore the Tip button's presence) arrives async AFTER the
+    // initial card render — without this stamp, the card stays in its
+    // tip-less state forever.
+    function _feedCardStateStamp(row) {
+      const pk = row?.e?.pubkey || '';
+      const profile = _feedCache.profiles?.[pk] || null;
+      const hasLn = !!(profile?.lud16 || profile?.lud06);
+      const reactions = row?.reactions || 0;
+      const zapBucket = Math.floor((zapTotalForEvent(row?.e?.id || '') || 0) / 1000);
+      const premiumDecrypted = !!(row?.premium && row.premium.decrypted);
+      const premiumGated = !!(row?.zapGate && row.zapGate.gated && !row.zapGate.unlocked);
+      const broken = isPreviewBroken(row) ? 1 : 0;
+      return `ln=${hasLn ? 1 : 0}|rx=${reactions}|z=${zapBucket}|pd=${premiumDecrypted ? 1 : 0}|pg=${premiumGated ? 1 : 0}|b=${broken}`;
+    }
+
     function buildFeedCardForRow(row) {
       const card = buildFeedCard(row, () => {
         if (tryDesignLayerImportRow(row)) return;
@@ -21135,6 +21153,7 @@
         $('nostrModal').classList.remove('open');
       });
       card.dataset.eventId = row.e?.id || '';
+      card.dataset.cardStamp = _feedCardStateStamp(row);
       return card;
     }
 
@@ -21158,6 +21177,18 @@
         let card = existing.get(id);
         if (card) {
           existing.delete(id);
+          // Rebuild the card if its state stamp changed (e.g. the author's
+          // profile finally arrived → tip button now applicable). The
+          // stamp is set by buildFeedCardForRow; absent on cards built
+          // through a different path → always reuse those, to preserve
+          // legacy behaviour.
+          const currentStamp = card.dataset?.cardStamp;
+          const newStamp = (typeof _feedCardStateStamp === 'function') ? _feedCardStateStamp(row) : currentStamp;
+          if (currentStamp && newStamp && currentStamp !== newStamp) {
+            const fresh = buildCardFn(row);
+            card.replaceWith(fresh);
+            card = fresh;
+          }
         } else {
           card = buildCardFn(row);
         }
