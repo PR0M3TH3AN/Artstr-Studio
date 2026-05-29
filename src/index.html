@@ -6117,30 +6117,76 @@
       return row;
     }
 
-    async function loadPurchasedDesignsIntoWall(wall) {
+    function _renderVaultItemsIntoWall(wall, items, hadError = false, opts = {}) {
+      wall.innerHTML = '';
+      // Top toolbar: count + refresh button. Refresh forces a relay re-
+      // query in case the user just bought something on another device.
+      const topBar = document.createElement('div');
+      topBar.style.cssText = 'grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;font-size:.78rem;color:var(--muted)';
+      const count = document.createElement('span');
+      count.textContent = items.length
+        ? `${items.length} unlocked design${items.length === 1 ? '' : 's'}`
+        : (hadError ? 'Vault load failed' : 'No premium designs unlocked yet');
+      const refreshBtn = document.createElement('button');
+      refreshBtn.type = 'button';
+      refreshBtn.textContent = '↻ Refresh';
+      refreshBtn.title = 'Re-query relays for the latest vault';
+      refreshBtn.addEventListener('click', () => loadPurchasedDesignsIntoWall(wall, { force: true }));
+      topBar.append(count, refreshBtn);
+      wall.appendChild(topBar);
+      if (!items.length) {
+        const empty = document.createElement('div');
+        empty.className = 'hint';
+        empty.style.cssText = 'grid-column:1/-1';
+        empty.textContent = hadError
+          ? 'Couldn’t load your purchase vault from relays. Try refresh.'
+          : 'Visit the feed and zap a premium template to start your collection.';
+        wall.appendChild(empty);
+        return;
+      }
+      for (const item of items) {
+        const row = _rowFromVaultItem(item);
+        const card = buildFeedCard(row, () => {
+          if (item._missing) {
+            toastError('This vault entry is missing its per-item event on relays. Try Refresh, or re-unlock from the feed.');
+            return;
+          }
+          try { loadProjectFromText(JSON.stringify(row.payload)); }
+          catch (err) { toastError('Could not open: ' + (err?.message || err)); return; }
+          $('nostrModal').classList.remove('open');
+        });
+        if (item._missing) card.style.opacity = '0.55';
+        wall.appendChild(card);
+      }
+    }
+
+    async function loadPurchasedDesignsIntoWall(wall, opts = {}) {
       if (!_supportsVault()) {
         wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Your Nostr extension doesn’t support encryption (NIP-44 / NIP-04), so the purchase vault is unavailable.</div>';
         return;
       }
-      wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading purchased designs…</div>';
+      // Render the in-memory cache immediately if we have one — feels
+      // instant. Then re-fetch in the background and re-render with the
+      // latest from relays. If we have no cache, show a placeholder while
+      // the first fetch happens.
+      const cached = _vaultCache;
+      if (cached?.items?.length) {
+        _renderVaultItemsIntoWall(wall, cached.items, false);
+      } else {
+        wall.innerHTML = '<div class="hint" style="grid-column:1/-1">Loading purchased designs…</div>';
+      }
       try {
-        const vault = await loadPurchaseVault({ force: true });
-        const items = vault?.items || [];
-        wall.innerHTML = '';
-        if (!items.length) {
-          wall.innerHTML = '<div class="hint" style="grid-column:1/-1">No premium designs unlocked yet. Visit the feed and zap a premium template to start your collection.</div>';
-          return;
-        }
-        for (const item of items) {
-          const row = _rowFromVaultItem(item);
-          wall.appendChild(buildFeedCard(row, () => {
-            try { loadProjectFromText(JSON.stringify(row.payload)); }
-            catch (err) { toastError('Could not open: ' + (err?.message || err)); return; }
-            $('nostrModal').classList.remove('open');
-          }));
-        }
+        const vault = await loadPurchaseVault({ force: opts.force !== false });
+        _renderVaultItemsIntoWall(wall, vault?.items || [], false);
       } catch (err) {
-        wall.innerHTML = `<div class="hint" style="grid-column:1/-1">Failed to load purchase vault: ${escapeHtml(err?.message || String(err))}</div>`;
+        console.warn('[purchased tab] load failed', err);
+        // Keep whatever we had cached on the wall; only fall back to the
+        // error placeholder if we never had any cache.
+        if (!cached?.items?.length) {
+          _renderVaultItemsIntoWall(wall, [], true);
+        } else {
+          if (typeof toastError === 'function') toastError('Vault refresh failed: ' + (err?.message || err));
+        }
       }
     }
     // ---- end Purchase vault ------------------------------------------------
@@ -18375,6 +18421,13 @@
 
     function isPreviewBroken(row) {
       if (!row) return false;
+      // Premium rows carry their own watermarked-JPEG preview embedded in
+      // the envelope (or the cached decrypted payload's mini-preview).
+      // They never count as "broken" — without this exception, premium
+      // cover/disc/jewel rows (whose synthesised stub has no slot art so
+      // row.preview is '') would always sort to the back of the New tab
+      // and get hidden past the chunk-size cutoff.
+      if (row.premium) return false;
       const preview = row.preview;
       // No URL at all + this mode expects one → effectively a missing image.
       if (!preview && MODES_REQUIRE_IMAGE.has(row.mode)) return true;
@@ -21061,11 +21114,20 @@
       btn.title = 'React to this template on Nostr';
       btn.addEventListener('click', async e => {
         e.stopPropagation();
+        if (btn.disabled || btn.classList.contains('reacted')) return;
+        // Optimistic update so the button feels responsive even when the
+        // relay publish takes a few seconds. We roll back on failure.
+        const prevText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '⋯';
         const ok = await reactToNostrEvent(row.e.id, row.e.pubkey);
+        btn.disabled = false;
         if (ok) {
           row.reactions = _feedCache.reactions[row.e.id] || 1;
           btn.textContent = `▲ ${row.reactions}`;
           btn.classList.add('reacted');
+        } else {
+          btn.textContent = prevText;
         }
       });
       return btn;
