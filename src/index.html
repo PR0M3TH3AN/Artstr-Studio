@@ -2130,6 +2130,30 @@
       box-shadow:0 1px 3px rgba(15,23,42,.25);
       pointer-events:none;
     }
+    /* Same gradient stroke + ribbon for the larger preview pane that
+       opens when a feed card is clicked. Inherits the look from
+       .feedCardPremium so premium designs stay visually consistent
+       between the wall view and the preview view. */
+    #nostrPreviewPanel.premiumPreviewPane{
+      position:relative;
+      border:2px solid transparent;
+      border-radius:10px;
+      padding:14px;
+      background-image:linear-gradient(#fff,#fff),linear-gradient(135deg,#ffd166 0%,#ef476f 50%,#06d6a0 100%);
+      background-origin:border-box;background-clip:padding-box,border-box;
+      box-shadow:0 0 0 1px rgba(239,71,111,.10), 0 6px 22px rgba(239,71,111,.12);
+    }
+    body.dark #nostrPreviewPanel.premiumPreviewPane{
+      background-image:linear-gradient(var(--panel),var(--panel)),linear-gradient(135deg,#ffd166 0%,#ef476f 50%,#06d6a0 100%);
+    }
+    #nostrPreviewPanel .premiumPreviewRibbon{
+      position:absolute;top:10px;left:10px;z-index:7;
+      font-size:.72rem;font-weight:800;letter-spacing:.04em;
+      color:#fff;padding:4px 10px;border-radius:12px;
+      background:linear-gradient(135deg,#ef476f,#ffd166);
+      box-shadow:0 1px 4px rgba(15,23,42,.30);
+      pointer-events:none;
+    }
     .feedCardThumb{width:100%;aspect-ratio:1;background:#f1f5f9;position:relative;display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
     .feedCardThumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1}
     .feedCardThumb.feedCardThumbDisc img{inset:10%;width:80%;height:80%;border-radius:50%}
@@ -21637,6 +21661,19 @@
       const content = $('nostrPreviewPanel');
       content.innerHTML = '';
       content._row = row;
+      // Premium preview gets the gradient-stroke ring + corner ribbon for
+      // visual consistency with the feed card. Strip the class on
+      // non-premium rows so the styling doesn't stick from a previous
+      // preview.
+      if (row.premium) {
+        content.classList.add('premiumPreviewPane');
+        const ribbon = document.createElement('span');
+        ribbon.className = 'premiumPreviewRibbon';
+        ribbon.textContent = row.premium.decrypted ? '⚡ UNLOCKED' : '⚡ PREMIUM';
+        content.appendChild(ribbon);
+      } else {
+        content.classList.remove('premiumPreviewPane');
+      }
 
       const p = row.payload || {};
       const mode = normalizeTemplateMode(p);
