@@ -20240,6 +20240,18 @@
     // Two events with the same fingerprint represent the exact same design.
     function designFingerprint(payload) {
       if (!payload) return '';
+      // Premium events publish an encrypted envelope, so the fingerprint
+      // function can't see the real design — every still-locked stub of
+      // the same templateMode would otherwise hash to the same value and
+      // dedupByFingerprint would collapse them all into one feed row.
+      // Treat each premium row as unique (empty fingerprint = "skip dedup"
+      // in dedupByFingerprint). Once unlocked, payload becomes the real
+      // decrypted JSON and dedup falls through normally.
+      if (payload.premium === true && !payload.layers && !payload.slide && !payload.customArt
+        && !payload.coverTemplate && !payload.discTemplate && !payload.jewelTemplate
+        && !payload.discDesign && !payload.deck && !payload.pixelArt) {
+        return '';
+      }
       const mode = normalizeTemplateMode(payload);
       const j = (v) => JSON.stringify(v ?? null);
       const fields = [mode];
