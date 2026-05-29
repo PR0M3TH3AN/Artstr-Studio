@@ -666,7 +666,7 @@ MASTER_INHERITANCE_PARTIAL
 
 ## 14. Implementation Plan
 
-### Phase 0: Prep
+### Phase 0: Prep — SHIPPED on `pptx-import` (commit `d710b84`)
 
 - Vendor `fflate.min.js` at `src/vendor/fflate.min.js`.
 - Add empty `src/pptx-importer.js` exporting
@@ -679,6 +679,10 @@ MASTER_INHERITANCE_PARTIAL
 Deliverable: User can click Import PPTX, scripts load, file picker
 opens, file extension is validated, importer stub returns "not
 implemented yet."
+
+Status: shipped. Phase 1+ paused while we work on a purchase-vault
+fix on `main`. Branch `pptx-import` retains the Phase 0 commit so
+work can resume here without setup.
 
 ### Phase 1: Deck Shell
 
