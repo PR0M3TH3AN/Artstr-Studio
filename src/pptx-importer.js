@@ -45,13 +45,27 @@ window.ArtstrPptxImporter = (function () {
   // Preset-shape mapping. Anything not in this table falls back to
   // 'rect' with an UNSUPPORTED_SHAPE_APPROXIMATED warning. Phase 6 can
   // add a:custGeom → custom SVG-path conversion for finer fidelity.
+  const _LINE_DEFAULTS = { kind: 'line', x1: 0, y1: 50, x2: 100, y2: 50, strokeWidth: 6 };
   const PPTX_PRST_TO_ARTSTR = {
     rect: { kind: 'rect' },
     roundRect: { kind: 'rounded-rect', cornerRadius: 12 },
     ellipse: { kind: 'ellipse' },
     triangle: { kind: 'triangle' },
-    line: { kind: 'line', x1: 0, y1: 50, x2: 100, y2: 50, strokeWidth: 6 },
-    straightConnector1: { kind: 'line', x1: 0, y1: 50, x2: 100, y2: 50, strokeWidth: 6 },
+    line: { ..._LINE_DEFAULTS },
+    straightConnector1: { ..._LINE_DEFAULTS },
+    // Bent + curved connectors are approximated as straight lines for
+    // now; the per-segment joints / curve handles need a:gd guide
+    // resolution which is a future enhancement. The convertPresetShape
+    // path emits an UNSUPPORTED_CONNECTOR_APPROXIMATED warning when it
+    // hits one of these.
+    bentConnector2: { ..._LINE_DEFAULTS },
+    bentConnector3: { ..._LINE_DEFAULTS },
+    bentConnector4: { ..._LINE_DEFAULTS },
+    bentConnector5: { ..._LINE_DEFAULTS },
+    curvedConnector2: { ..._LINE_DEFAULTS },
+    curvedConnector3: { ..._LINE_DEFAULTS },
+    curvedConnector4: { ..._LINE_DEFAULTS },
+    curvedConnector5: { ..._LINE_DEFAULTS },
     star5: { kind: 'star', points: 5, innerRadiusRatio: 0.45 },
     hexagon: { kind: 'polygon', sides: 6 },
     pentagon: { kind: 'polygon', sides: 5 },
@@ -63,10 +77,24 @@ window.ArtstrPptxImporter = (function () {
     triangle: 'Triangle',
     line: 'Line',
     straightConnector1: 'Line',
+    bentConnector2: 'Bent connector',
+    bentConnector3: 'Bent connector',
+    bentConnector4: 'Bent connector',
+    bentConnector5: 'Bent connector',
+    curvedConnector2: 'Curved connector',
+    curvedConnector3: 'Curved connector',
+    curvedConnector4: 'Curved connector',
+    curvedConnector5: 'Curved connector',
     star5: 'Star',
     hexagon: 'Hexagon',
     pentagon: 'Pentagon',
   };
+  // Presets we approximate as a single straight line — warn the user so
+  // they know the imported shape is a placeholder for richer geometry.
+  const APPROXIMATED_AS_LINE = new Set([
+    'bentConnector2', 'bentConnector3', 'bentConnector4', 'bentConnector5',
+    'curvedConnector2', 'curvedConnector3', 'curvedConnector4', 'curvedConnector5',
+  ]);
 
   // ---- Report -----------------------------------------------------------
   function makePptxImportReport(fileName) {
@@ -1005,7 +1033,7 @@ window.ArtstrPptxImporter = (function () {
     if (!xfrm || !prstGeom) return null;
 
     const bounds = readXfrm(xfrm, ctx.scale, ctx.groupXfrm);
-    if (!bounds || bounds.w <= 0 || bounds.h <= 0) return null;
+    if (!bounds) return null;
 
     const prst = prstGeom.getAttribute('prst') || 'rect';
     let shape = PPTX_PRST_TO_ARTSTR[prst];
@@ -1019,11 +1047,16 @@ window.ArtstrPptxImporter = (function () {
     // Shallow-clone so subsequent shapes don't mutate the shared template.
     shape = { ...shape };
 
+    // Zero-area filter: lines are allowed to have cx=0 (vertical) or
+    // cy=0 (horizontal) — the bounding box is a degenerate segment but
+    // the stroke still renders a visible line. Non-line shapes with
+    // zero area are dropped (nothing to render).
+    if (shape.kind !== 'line' && (bounds.w <= 0 || bounds.h <= 0)) return null;
+
     // PPTX lines and straight connectors go corner-to-corner of their
-    // bounding box; flipH / flipV choose which diagonal. The default
-    // line-shape template ships as a horizontal segment, which looks
-    // right for thin horizontal bounds but flat for diagonals — fix by
-    // honouring the flips here.
+    // bounding box; flipH / flipV choose which diagonal. Bent and
+    // curved connectors get a straight-line approximation (Phase 7
+    // doesn't resolve the per-segment a:gd guides yet).
     if (shape.kind === 'line') {
       const flipH = xfrm.getAttribute('flipH') === '1';
       const flipV = xfrm.getAttribute('flipV') === '1';
@@ -1032,6 +1065,22 @@ window.ArtstrPptxImporter = (function () {
       if (flipH) { x1 = 100; x2 = 0; }
       if (flipV) { y1 = (y1 === 0 ? 100 : 0); y2 = (y2 === 0 ? 100 : 0); }
       shape.x1 = x1; shape.y1 = y1; shape.x2 = x2; shape.y2 = y2;
+
+      // Horizontal lines arrive with cy=0 and vertical with cx=0. The
+      // Artstr renderer scales an inner SVG into the layer's actual
+      // pixel box, so a zero-thickness layer renders nothing even
+      // though the stroke would otherwise stick out via overflow:
+      // visible. Expand the degenerate dimension to a small minimum
+      // so the layer has rendering surface for the stroke. The line
+      // itself stays at the source coordinate within the expanded box.
+      const MIN_LINE_THICKNESS_IN = 2 / PX_PER_IN; // ~2px
+      if (bounds.w <= 0) bounds.w = MIN_LINE_THICKNESS_IN;
+      if (bounds.h <= 0) bounds.h = MIN_LINE_THICKNESS_IN;
+
+      if (APPROXIMATED_AS_LINE.has(prst)) {
+        _warn(ctx.report, ctx.slideIndex, 'UNSUPPORTED_CONNECTOR_APPROXIMATED',
+          `Slide ${ctx.slideIndex + 1}: ${prst} approximated as a straight line — joints / curves not resolved.`);
+      }
     }
 
     // Name the layer with PowerPoint's <p:cNvPr name="..."> if present so
@@ -1041,8 +1090,21 @@ window.ArtstrPptxImporter = (function () {
     const sourceName = cNvPr?.getAttribute('name') || '';
     const name = sourceName ? `${label || 'Shape'} (${sourceName})` : (label || 'Shape');
 
-    const fill = readFill(spPr, ctx.theme) || { type: 'none' };
+    let fill = readFill(spPr, ctx.theme) || { type: 'none' };
     const stroke = readStroke(spPr, ctx.scale, ctx.theme) || { type: 'none', color: '#000000', width: 1, dash: 'solid' };
+
+    // Quirk of the renderer: for shape.kind === 'line' the inner SVG
+    // <line> uses the layer's *fill* paint as the stroke colour, not
+    // the layer's `stroke` field. PPTX puts the line's colour on
+    // a:ln, so for lines we copy the stroke colour over to fill. The
+    // shape.strokeWidth from _LINE_DEFAULTS (6 viewBox units) drives
+    // the on-screen thickness; deriving from a:ln@w would need to
+    // account for preserveAspectRatio="none" distortion which is
+    // out of scope here. If lines come out too thick / thin the user
+    // can adjust strokeWidth on the layer.
+    if (shape.kind === 'line' && stroke.type === 'solid') {
+      fill = { type: 'solid', color: stroke.color };
+    }
 
     return {
       id: _makePptxLayerId(),
