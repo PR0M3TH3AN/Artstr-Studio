@@ -1096,14 +1096,20 @@ window.ArtstrPptxImporter = (function () {
     // Quirk of the renderer: for shape.kind === 'line' the inner SVG
     // <line> uses the layer's *fill* paint as the stroke colour, not
     // the layer's `stroke` field. PPTX puts the line's colour on
-    // a:ln, so for lines we copy the stroke colour over to fill. The
-    // shape.strokeWidth from _LINE_DEFAULTS (6 viewBox units) drives
-    // the on-screen thickness; deriving from a:ln@w would need to
-    // account for preserveAspectRatio="none" distortion which is
-    // out of scope here. If lines come out too thick / thin the user
-    // can adjust strokeWidth on the layer.
+    // a:ln, so for lines we copy the stroke colour over to fill.
+    //
+    // Thickness: the renderer's viewBox is 0..100 (x) × 0..vbH (y)
+    // where vbH = 100·lh/lw, deliberately picking vbH so both axes
+    // share the same in/unit scale (lw/100 in per viewBox unit). So
+    // shape.strokeWidth = (stroke.width_inches / lw_inches) · 100
+    // gives an on-screen stroke that matches the source PPTX a:ln@w.
+    // The renderer's hard clamp to [0.5, 50] viewBox units becomes
+    // the effective floor / ceiling for very wide or very narrow
+    // layers (a hairline on a 5"-wide line floors at ~0.5px thick).
     if (shape.kind === 'line' && stroke.type === 'solid') {
       fill = { type: 'solid', color: stroke.color };
+      const refW = bounds.w || bounds.h || 1;
+      shape.strokeWidth = (stroke.width / refW) * 100;
     }
 
     return {
