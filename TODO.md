@@ -66,14 +66,6 @@ toggle that fits the early-web aesthetic. Add new editor-UX items below.
 
 Each has a full spec in `docs/`.
 
-- **PPTX import** — `docs/PPTX_IMPORT_FEATURE.md`. Phased editable
-  importer that converts a `.pptx` package into an Artstr deck.
-  Images and unsupported objects (charts, SmartArt, tables, video)
-  land as placeholder image layers pointing at a hardcoded URL;
-  user replaces each placeholder by editing the layer's src. No
-  Blossom prereq, no base64 bloat, decks publish to Nostr normally.
-  fflate vendored bundle + a lazy-loaded `src/pptx-importer.js`
-  module so the main app weight doesn't grow.
 - **Artstr Stacks** — `docs/STACKS_FEATURE.md`. Interactive fullscreen
   page/card stacks (HyperCard for Nostr) — the Slide Deck extended with
   layer actions and an interactive viewer.
@@ -99,6 +91,46 @@ follow-ups worth their own work:
 - **Future-proofing** — when an epoch's soft-gate pepper gets reverse-
   engineered we'll ship a new epoch. The infra is in place; the
   rotation playbook should land as a SECURITY.md when we do it.
+
+## PPTX import polish
+
+Phases 0–6 of `docs/PPTX_IMPORT_FEATURE.md` shipped on the
+`pptx-import` branch (deck shell, slide backgrounds, text + speaker
+notes, image / chart / table / SmartArt placeholders, basic preset
+shapes with fills + strokes, group flattening, theme color
+resolution + master/layout bg inheritance + line flip handling).
+Branch still needs a merge into `main` once we're done testing.
+Open follow-ups:
+
+- **Phase 7 polish — per-run rich text spans.** Today a text box
+  takes the first run's style as its dominant style; mid-paragraph
+  bold / color / size changes get lost. Real fix is to emit Artstr
+  rich-text HTML with inline `<b>` / `<i>` / `<span style="...">`
+  per run instead of a flat dominant style.
+- **Phase 7 polish — richer report modal.** Per-slide warning
+  summary, group counts, theme-resolution stats. The data already
+  lands in `report.warnings` and `report.imported`; just needs UI.
+- **Native chart support.** Charts currently land as placeholder
+  images. Real support means rendering OOXML chart XML
+  (`ppt/charts/chartN.xml`) into native Artstr layers — text labels
+  for axes / titles / legends, shape layers for bars / columns / pie
+  slices / line segments. Likely its own multi-phase arc: start
+  with bar / column / pie, defer scatter / area / 3D / combo charts.
+  Alternative scoping: extract the underlying data table and let
+  the user rebuild the chart manually.
+- **Phase 6+ inheritance gaps.** Gradient slide backgrounds
+  (`a:gradFill`), picture / blipFill backgrounds, font scheme
+  resolution (`+mj-lt` / `+mn-lt` → the theme's actual font),
+  placeholder geometry inheritance (text shapes that inherit xfrm
+  from a layout placeholder currently warn + skip).
+- **Unsupported preset shapes.** Anything outside the rect /
+  roundRect / ellipse / triangle / line / star5 / hexagon / pentagon
+  / straightConnector1 set falls back to a rectangle with a warning.
+  Phase 6 in the spec includes `a:custGeom` → custom SVG-path
+  conversion for arbitrary geometry.
+- **Test deck library.** Build the 10 test decks from spec §19.1
+  under `test/pptx/` so future-phase regressions are caught
+  automatically.
 
 ## Phase-3+ work on shipped features
 
