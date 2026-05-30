@@ -1573,8 +1573,13 @@
 
     .freeLayer {
       position: absolute;
-      min-width: .25in;
-      min-height: .18in;
+      /* min-* used to be .25in / .18in to give every layer a clickable
+         target, but it inflated thin imported lines (PPTX hairlines
+         landed as 17px-tall rects instead of ~1.6px). 1px is small
+         enough to render hairlines faithfully and still big enough to
+         prevent zero-area collapse. */
+      min-width: 1px;
+      min-height: 1px;
       transform-origin: center center;
       pointer-events: auto;
       cursor: move;
