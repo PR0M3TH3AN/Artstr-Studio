@@ -1053,52 +1053,73 @@ window.ArtstrPptxImporter = (function () {
     // zero area are dropped (nothing to render).
     if (shape.kind !== 'line' && (bounds.w <= 0 || bounds.h <= 0)) return null;
 
-    // PPTX lines come in three flavours determined by the SOURCE
-    // bounding-box extents: horizontal (cy=0), vertical (cx=0), and
-    // diagonal (both > 0). Earlier versions always used corner-to-
-    // corner endpoints (0,0)→(100,100), which gave a 0.26° slope
-    // across a 2px-clamped degenerate axis — i.e. slightly-tilted
-    // "horizontal" lines. Detect the source extents and pick endpoints
-    // that stay flat for horizontal / vertical, only using the
-    // diagonal for genuinely diagonal lines.
+    // Read fill + stroke now so the line branch below can use the
+    // PPTX a:ln colour + width directly. For non-line shapes these
+    // become the layer.fill / layer.stroke fields as-is.
+    let fill = readFill(spPr, ctx.theme) || { type: 'none' };
+    let stroke = readStroke(spPr, ctx.scale, ctx.theme) || { type: 'none', color: '#000000', width: 1, dash: 'solid' };
+
+    // Lines have three flavours by source extents: horizontal (cy=0),
+    // vertical (cx=0), and diagonal (both > 0). The Artstr line
+    // renderer has a hard floor of 0.5 viewBox units on stroke-width,
+    // which on a 5"-wide line bottoms out at ~2.5px — way too thick
+    // for a hairline. Workaround: render straight horizontal /
+    // vertical lines as a thin filled `rect` with bounds.h (or w)
+    // equal to the source a:ln@w. That gives pixel-perfect thickness
+    // and bypasses the line renderer's floor entirely. Diagonal lines
+    // keep `kind: 'line'` because they can't be represented as an
+    // axis-aligned rect.
     if (shape.kind === 'line') {
       const flipH = xfrm.getAttribute('flipH') === '1';
       const flipV = xfrm.getAttribute('flipV') === '1';
-      const offNode = _directChild(xfrm, 'off');
       const extNode = _directChild(xfrm, 'ext');
       const srcCx = Number(extNode?.getAttribute('cx')) || 0;
       const srcCy = Number(extNode?.getAttribute('cy')) || 0;
       const isHorizontal = srcCy === 0 && srcCx > 0;
       const isVertical = srcCx === 0 && srcCy > 0;
-      let x1, y1, x2, y2;
-      if (isHorizontal) {
-        // Flat: both endpoints at vertical midpoint.
-        x1 = 0; y1 = 50; x2 = 100; y2 = 50;
-        if (flipH) { x1 = 100; x2 = 0; }
-      } else if (isVertical) {
-        // Flat: both endpoints at horizontal midpoint.
-        x1 = 50; y1 = 0; x2 = 50; y2 = 100;
-        if (flipV) { y1 = 100; y2 = 0; }
+      const strokeColor = (stroke?.type === 'solid' && stroke.color) ? stroke.color : '#000000';
+      const strokeWidthIn = (stroke?.type === 'solid' && stroke.width > 0)
+        ? stroke.width
+        : 1 / PX_PER_IN;
+
+      if (isHorizontal || isVertical) {
+        // Switch representation: thin filled rectangle.
+        shape = { kind: 'rect' };
+        fill = { type: 'solid', color: strokeColor };
+        stroke = { type: 'none', color: '#000000', width: 1, dash: 'solid' };
+        if (isHorizontal) {
+          // Centre vertically on the source y so the visible line sits
+          // exactly where PowerPoint placed it.
+          bounds.y = bounds.y + bounds.h / 2 - strokeWidthIn / 2;
+          bounds.h = strokeWidthIn;
+        } else {
+          bounds.x = bounds.x + bounds.w / 2 - strokeWidthIn / 2;
+          bounds.w = strokeWidthIn;
+        }
       } else {
-        // Diagonal: corner-to-corner with flip handling.
-        x1 = 0; y1 = 0; x2 = 100; y2 = 100;
+        // Diagonal: corner-to-corner with flip handling. Use the line
+        // shape and pre-clamp degenerate axes (shouldn't fire for true
+        // diagonals but defensive).
+        let x1 = 0, y1 = 0, x2 = 100, y2 = 100;
         if (flipH) { x1 = 100; x2 = 0; }
         if (flipV) { [y1, y2] = [y2, y1]; }
-      }
-      shape.x1 = x1; shape.y1 = y1; shape.x2 = x2; shape.y2 = y2;
+        shape.x1 = x1; shape.y1 = y1; shape.x2 = x2; shape.y2 = y2;
 
-      // Expand a degenerate-axis bounding box to a small minimum so
-      // the layer has render surface (a 0-pixel-tall DOM box renders
-      // nothing even with overflow:visible). Centre the expansion on
-      // the source axis so the line stays at its original position.
-      const MIN_LINE_THICKNESS_IN = 1 / PX_PER_IN; // ~1px
-      if (bounds.w <= 0) {
-        bounds.x -= MIN_LINE_THICKNESS_IN / 2;
-        bounds.w = MIN_LINE_THICKNESS_IN;
-      }
-      if (bounds.h <= 0) {
-        bounds.y -= MIN_LINE_THICKNESS_IN / 2;
-        bounds.h = MIN_LINE_THICKNESS_IN;
+        const MIN_LINE_THICKNESS_IN = 1 / PX_PER_IN;
+        if (bounds.w <= 0) {
+          bounds.x -= MIN_LINE_THICKNESS_IN / 2;
+          bounds.w = MIN_LINE_THICKNESS_IN;
+        }
+        if (bounds.h <= 0) {
+          bounds.y -= MIN_LINE_THICKNESS_IN / 2;
+          bounds.h = MIN_LINE_THICKNESS_IN;
+        }
+        // Diagonals also use the fill-as-stroke-color quirk; thickness
+        // derived from source a:ln@w but subject to the renderer floor.
+        fill = { type: 'solid', color: strokeColor };
+        stroke = { type: 'none', color: '#000000', width: 1, dash: 'solid' };
+        const refW = bounds.w || bounds.h || 1;
+        shape.strokeWidth = (strokeWidthIn / refW) * 100;
       }
 
       if (APPROXIMATED_AS_LINE.has(prst)) {
@@ -1113,28 +1134,6 @@ window.ArtstrPptxImporter = (function () {
               || spNode.getElementsByTagNameNS('*', 'cNvPr')[0];
     const sourceName = cNvPr?.getAttribute('name') || '';
     const name = sourceName ? `${label || 'Shape'} (${sourceName})` : (label || 'Shape');
-
-    let fill = readFill(spPr, ctx.theme) || { type: 'none' };
-    const stroke = readStroke(spPr, ctx.scale, ctx.theme) || { type: 'none', color: '#000000', width: 1, dash: 'solid' };
-
-    // Quirk of the renderer: for shape.kind === 'line' the inner SVG
-    // <line> uses the layer's *fill* paint as the stroke colour, not
-    // the layer's `stroke` field. PPTX puts the line's colour on
-    // a:ln, so for lines we copy the stroke colour over to fill.
-    //
-    // Thickness: the renderer's viewBox is 0..100 (x) × 0..vbH (y)
-    // where vbH = 100·lh/lw, deliberately picking vbH so both axes
-    // share the same in/unit scale (lw/100 in per viewBox unit). So
-    // shape.strokeWidth = (stroke.width_inches / lw_inches) · 100
-    // gives an on-screen stroke that matches the source PPTX a:ln@w.
-    // The renderer's hard clamp to [0.5, 50] viewBox units becomes
-    // the effective floor / ceiling for very wide or very narrow
-    // layers (a hairline on a 5"-wide line floors at ~0.5px thick).
-    if (shape.kind === 'line' && stroke.type === 'solid') {
-      fill = { type: 'solid', color: stroke.color };
-      const refW = bounds.w || bounds.h || 1;
-      shape.strokeWidth = (stroke.width / refW) * 100;
-    }
 
     return {
       id: _makePptxLayerId(),
