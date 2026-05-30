@@ -896,6 +896,308 @@ window.ArtstrPptxImporter = (function () {
     };
   }
 
+  // ---- Native chart import (CHART_IMPORT_FEATURE.md Phase 1) ----------
+  // Default Office accent palette — fallback for c:ser entries that
+  // don't carry an explicit c:spPr/a:solidFill. Matches the colours
+  // PowerPoint applies in series-index order.
+  const CHART_DEFAULT_PALETTE = [
+    '#4472C4', '#ED7D31', '#A5A5A5', '#FFC000',
+    '#5B9BD5', '#70AD47',
+  ];
+
+  // Pull category labels out of c:cat. PPTX wraps these in either a
+  // single-level c:strRef (flat list) or a c:multiLvlStrRef (nested
+  // when categories span multiple hierarchy levels — we collapse to
+  // the deepest level). Returns string[].
+  function readCategoryLabels(catNode) {
+    if (!catNode) return [];
+    const out = [];
+    const single = _directChild(catNode, 'strRef');
+    const multi = _directChild(catNode, 'multiLvlStrRef');
+    const cache = (single && _directChild(single, 'strCache'))
+              || (multi  && _directChild(multi,  'multiLvlStrCache'));
+    if (!cache) return [];
+    // multiLvlStrCache nests a:lvl children; strCache has c:pt directly.
+    // Either way we want the c:pt > c:v values.
+    const lvls = [];
+    for (let i = 0; i < cache.children.length; i++) {
+      if (cache.children[i].localName === 'lvl') lvls.push(cache.children[i]);
+    }
+    const ptHost = lvls.length ? lvls[0] : cache;
+    for (let i = 0; i < ptHost.children.length; i++) {
+      const pt = ptHost.children[i];
+      if (pt.localName !== 'pt') continue;
+      const idx = Number(pt.getAttribute('idx')) || 0;
+      const v = _directChild(pt, 'v');
+      out[idx] = v ? (v.textContent || '') : '';
+    }
+    // Fill any sparse gaps with empty strings so the index space is
+    // contiguous for the bar-layout math.
+    for (let i = 0; i < out.length; i++) if (out[i] == null) out[i] = '';
+    return out;
+  }
+
+  // Pull numeric values out of c:val/c:numRef/c:numCache. Returns number[].
+  function readSeriesValues(valNode) {
+    if (!valNode) return [];
+    const ref = _directChild(valNode, 'numRef');
+    const cache = ref ? _directChild(ref, 'numCache') : null;
+    if (!cache) return [];
+    const out = [];
+    for (let i = 0; i < cache.children.length; i++) {
+      const pt = cache.children[i];
+      if (pt.localName !== 'pt') continue;
+      const idx = Number(pt.getAttribute('idx')) || 0;
+      const v = _directChild(pt, 'v');
+      out[idx] = v ? Number(v.textContent) || 0 : 0;
+    }
+    for (let i = 0; i < out.length; i++) if (out[i] == null) out[i] = 0;
+    return out;
+  }
+
+  // Pull the series display name out of c:tx/c:strRef/c:strCache (or
+  // c:tx/c:v for the rare inline case). Returns string or ''.
+  function readSeriesName(txNode) {
+    if (!txNode) return '';
+    const ref = _directChild(txNode, 'strRef');
+    if (ref) {
+      const cache = _directChild(ref, 'strCache');
+      if (cache) {
+        for (let i = 0; i < cache.children.length; i++) {
+          const pt = cache.children[i];
+          if (pt.localName === 'pt') {
+            const v = _directChild(pt, 'v');
+            if (v) return v.textContent || '';
+          }
+        }
+      }
+    }
+    const inlineV = _directChild(txNode, 'v');
+    return inlineV ? (inlineV.textContent || '') : '';
+  }
+
+  // Resolve the fill colour for a c:ser. Series colour priority:
+  //   1. c:ser/c:spPr/a:solidFill (srgbClr or schemeClr+theme).
+  //   2. Office default palette indexed by series order.
+  function readSeriesColor(serNode, theme, fallbackIdx) {
+    const spPr = _directChild(serNode, 'spPr');
+    if (spPr) {
+      const solid = _directChild(spPr, 'solidFill');
+      if (solid) {
+        const c = convertColor(solid, theme);
+        if (c) return c;
+      }
+    }
+    return CHART_DEFAULT_PALETTE[fallbackIdx % CHART_DEFAULT_PALETTE.length];
+  }
+
+  // Build an array of Artstr shape + text layers for a clustered
+  // c:barChart (col or bar direction). Returns null when the chart
+  // is empty (no series, no values, etc.) so the caller can fall
+  // through to the placeholder behaviour.
+  function buildBarChartLayers(barChartNode, gfBounds, chartLabel, ctx) {
+    const dirNode = _directChild(barChartNode, 'barDir');
+    const direction = dirNode?.getAttribute('val') || 'col'; // 'col' or 'bar'
+    const grouping = _directChild(barChartNode, 'grouping')?.getAttribute('val') || 'clustered';
+    // Phase 1: clustered only. Stacked variants emit a warning and
+    // fall back to placeholder (caller handles).
+    if (grouping !== 'clustered' && grouping !== 'standard') return null;
+
+    // Collect series in document order; PPTX guarantees they're in
+    // visual order so we don't need to sort by c:order.
+    const serNodes = [];
+    for (let i = 0; i < barChartNode.children.length; i++) {
+      if (barChartNode.children[i].localName === 'ser') serNodes.push(barChartNode.children[i]);
+    }
+    if (!serNodes.length) return null;
+
+    let categories = [];
+    const series = [];
+    for (let i = 0; i < serNodes.length; i++) {
+      const s = serNodes[i];
+      const cat = _directChild(s, 'cat');
+      // Categories are usually duplicated across series; first one wins.
+      if (!categories.length && cat) categories = readCategoryLabels(cat);
+      const valNode = _directChild(s, 'val');
+      const values = readSeriesValues(valNode);
+      const name = readSeriesName(_directChild(s, 'tx'));
+      const color = readSeriesColor(s, ctx.theme, i);
+      series.push({ name, color, values });
+    }
+    if (!series.length) return null;
+
+    const N = categories.length || series[0].values.length;
+    if (!N) return null;
+    const S = series.length;
+
+    // Plot area: fixed inset for now (manualLayout is Phase 4 polish).
+    const pa = {
+      x: gfBounds.x + gfBounds.w * 0.05,
+      y: gfBounds.y + gfBounds.h * 0.05,
+      w: gfBounds.w * 0.90,
+      h: gfBounds.h * 0.80, // leaves 15% gap at the bottom for category labels
+    };
+
+    // Auto-scale to data max. Negative values aren't handled in Phase 1.
+    let maxV = 0;
+    for (const s of series) {
+      for (const v of s.values) if (v > maxV) maxV = v;
+    }
+    if (maxV <= 0) maxV = 1;
+
+    const layers = [];
+
+    // ---- Bars ----
+    if (direction === 'col') {
+      // Vertical columns: categories along X, value extends up.
+      const catW = pa.w / N;
+      const gap  = catW * 0.15;       // ~15 % gap between category groups
+      const barW = (catW - gap) / S;
+      for (let c = 0; c < N; c++) {
+        for (let si = 0; si < S; si++) {
+          const v = series[si].values[c] || 0;
+          if (v <= 0) continue;
+          const hBar = pa.h * (v / maxV);
+          const xBar = pa.x + c * catW + gap / 2 + si * barW;
+          const yBar = pa.y + pa.h - hBar;
+          layers.push({
+            id: _makePptxLayerId(),
+            type: 'shape',
+            name: `${chartLabel} / Bar [${categories[c] || c + 1}, ${series[si].name || `Series ${si + 1}`}]`,
+            target: 'canvas',
+            x: xBar, y: yBar, w: barW, h: hBar,
+            rotate: 0, opacity: 1, z: ctx.nextZ++,
+            shape: { kind: 'rect' },
+            fill: { type: 'solid', color: series[si].color },
+            stroke: { type: 'none', color: '#000000', width: 1, dash: 'solid' },
+          });
+        }
+      }
+    } else {
+      // Horizontal bars: categories along Y, value extends right.
+      const catH = pa.h / N;
+      const gap  = catH * 0.15;
+      const barH = (catH - gap) / S;
+      for (let c = 0; c < N; c++) {
+        for (let si = 0; si < S; si++) {
+          const v = series[si].values[c] || 0;
+          if (v <= 0) continue;
+          const wBar = pa.w * (v / maxV);
+          const xBar = pa.x;
+          const yBar = pa.y + c * catH + gap / 2 + si * barH;
+          layers.push({
+            id: _makePptxLayerId(),
+            type: 'shape',
+            name: `${chartLabel} / Bar [${categories[c] || c + 1}, ${series[si].name || `Series ${si + 1}`}]`,
+            target: 'canvas',
+            x: xBar, y: yBar, w: wBar, h: barH,
+            rotate: 0, opacity: 1, z: ctx.nextZ++,
+            shape: { kind: 'rect' },
+            fill: { type: 'solid', color: series[si].color },
+            stroke: { type: 'none', color: '#000000', width: 1, dash: 'solid' },
+          });
+        }
+      }
+    }
+
+    // ---- Category labels ----
+    // Below the plot area for column charts; to the left for bar charts.
+    if (direction === 'col') {
+      const labelW = pa.w / N;
+      const labelH = gfBounds.h * 0.10;
+      for (let c = 0; c < N; c++) {
+        const label = categories[c] || '';
+        if (!label) continue;
+        layers.push({
+          id: _makePptxLayerId(),
+          type: 'text',
+          name: `${chartLabel} / Category label: ${label}`,
+          target: 'canvas',
+          html: _escapeHtml(label),
+          x: pa.x + c * labelW,
+          y: pa.y + pa.h + (gfBounds.h * 0.02),
+          w: labelW, h: labelH,
+          rotate: 0, opacity: 1, z: ctx.nextZ++,
+          fontFamily: 'inherit',
+          fontSize: 12,
+          color: '#333333',
+          align: 'center',
+          bold: false, italic: false,
+        });
+      }
+    } else {
+      const labelH = pa.h / N;
+      const labelW = gfBounds.w * 0.12;
+      for (let c = 0; c < N; c++) {
+        const label = categories[c] || '';
+        if (!label) continue;
+        layers.push({
+          id: _makePptxLayerId(),
+          type: 'text',
+          name: `${chartLabel} / Category label: ${label}`,
+          target: 'canvas',
+          html: _escapeHtml(label),
+          x: pa.x - labelW - (gfBounds.w * 0.01),
+          y: pa.y + c * labelH,
+          w: labelW, h: labelH,
+          rotate: 0, opacity: 1, z: ctx.nextZ++,
+          fontFamily: 'inherit',
+          fontSize: 12,
+          color: '#333333',
+          align: 'right',
+          bold: false, italic: false,
+        });
+      }
+    }
+
+    return layers;
+  }
+
+  // Dispatch on the chart type inside c:chartSpace/c:chart/c:plotArea.
+  // Returns an array of Artstr layers or null when the chart type
+  // isn't natively supported (caller falls back to placeholder).
+  function convertChart(chartDoc, gfBounds, chartLabel, ctx) {
+    if (!chartDoc) return null;
+    const plotArea = chartDoc.getElementsByTagName('c:plotArea')[0]
+                  || chartDoc.getElementsByTagNameNS('*', 'plotArea')[0];
+    if (!plotArea) return null;
+    // First chart-type child wins. Combo charts (multiple chart types
+    // in one plot area) are Phase 6.
+    for (let i = 0; i < plotArea.children.length; i++) {
+      const ch = plotArea.children[i];
+      if (ch.localName === 'barChart') {
+        return buildBarChartLayers(ch, gfBounds, chartLabel, ctx);
+      }
+      // Phase 2: pieChart / doughnutChart
+      // Phase 3: lineChart
+      // Phase 5: bar3DChart, line3DChart, etc.
+    }
+    return null;
+  }
+
+  // Resolve the chart's relationship from the slide rels, read the
+  // chart XML out of the package, and parse it. Returns the parsed
+  // Document or null if anything's missing.
+  function _readChartDocFromGraphicFrame(gfNode, ctx) {
+    const graphic = _directChild(gfNode, 'graphic');
+    const graphicData = graphic ? _directChild(graphic, 'graphicData') : null;
+    if (!graphicData) return null;
+    let chartRef = null;
+    for (let i = 0; i < graphicData.children.length; i++) {
+      if (graphicData.children[i].localName === 'chart') { chartRef = graphicData.children[i]; break; }
+    }
+    if (!chartRef) return null;
+    const rId = chartRef.getAttributeNS(RELATIONSHIPS_NS, 'id')
+             || chartRef.getAttribute('r:id') || '';
+    if (!rId) return null;
+    const rel = ctx.slideRels?.get(rId);
+    if (!rel) return null;
+    const chartPath = pptxTargetToZipPath(ctx.slidePath || 'ppt/slides/x.xml', rel.target);
+    const text = readZipText(ctx.files, chartPath);
+    if (!text) return null;
+    try { return parseXml(text); } catch { return null; }
+  }
+
   // p:graphicFrame → typed placeholder image layer (chart / table /
   // SmartArt / unknown). We don't try to render the chart or rebuild
   // the table; the user replaces each placeholder with their own
@@ -935,12 +1237,38 @@ window.ArtstrPptxImporter = (function () {
     const cNvPr = gfNode.getElementsByTagName('p:cNvPr')[0]
               || gfNode.getElementsByTagNameNS('*', 'cNvPr')[0];
     const sourceName = cNvPr?.getAttribute('name') || '';
+
+    // Native chart import — try this BEFORE emitting the placeholder.
+    // If it returns a layer array we use it; null means the chart type
+    // isn't supported yet and we fall through to the placeholder path
+    // (existing UNSUPPORTED_CHART_PLACEHOLDER behaviour).
+    if (kind === 'chart') {
+      const chartDoc = _readChartDocFromGraphicFrame(gfNode, ctx);
+      if (chartDoc) {
+        const chartLabel = sourceName ? `Chart: ${sourceName}` : 'Chart';
+        const chartLayers = convertChart(chartDoc, bounds, chartLabel, ctx);
+        if (Array.isArray(chartLayers) && chartLayers.length) {
+          // Bump the bucketed counters so the import report reflects
+          // shapes + text added natively rather than placing a
+          // placeholder.
+          for (const layer of chartLayers) {
+            if (layer.type === 'shape') ctx.report.imported.shapes += 1;
+            else if (layer.type === 'text') ctx.report.imported.text += 1;
+          }
+          return chartLayers;
+        }
+        // Recognised file but type not yet supported (Phase 2+).
+        _warn(ctx.report, ctx.slideIndex, 'CHART_TYPE_UNSUPPORTED',
+          `Slide ${ctx.slideIndex + 1}: chart type not yet natively imported — kept as a placeholder.`);
+      }
+    }
+
     const detail = sourceName ? `${label} placeholder: ${sourceName}` : `${label} placeholder`;
     warnMsg = `Slide ${ctx.slideIndex + 1}: ${label.toLowerCase()} was imported as a placeholder image.`;
     _warn(ctx.report, ctx.slideIndex, warnCode, warnMsg);
     ctx.report.placeholders[counterKey] += 1;
 
-    return {
+    return [{
       id: _makePptxLayerId(),
       type: 'image',
       name: detail,
@@ -953,7 +1281,7 @@ window.ArtstrPptxImporter = (function () {
       rotate: bounds.rotate || 0,
       opacity: 1,
       z: ctx.nextZ++,
-    };
+    }];
   }
 
   // ---- Shape conversion -----------------------------------------------
@@ -1186,12 +1514,14 @@ window.ArtstrPptxImporter = (function () {
           ctx.report.imported.images += 1;
         }
       } else if (ln === 'graphicFrame') {
-        const layer = convertGraphicFrame(child, ctx);
-        if (layer) {
-          layersOut.push(layer);
-          // graphicFrame counters live under report.placeholders.*;
-          // convertGraphicFrame increments the appropriate one itself.
+        // convertGraphicFrame can return multiple layers — a native
+        // chart turns into several rect + text layers. Other graphic
+        // frames return a single-element array (the placeholder).
+        const result = convertGraphicFrame(child, ctx);
+        if (Array.isArray(result) && result.length) {
+          layersOut.push(...result);
         }
+        // counters are bumped inside convertGraphicFrame.
       } else if (ln === 'grpSp') {
         // Flatten groups by recursing with a composed transform. The
         // group node itself isn't an Artstr layer — its children
@@ -1356,6 +1686,8 @@ window.ArtstrPptxImporter = (function () {
             report,
             nextZ: 0,
             slideRels,
+            slidePath,
+            files,
             groupXfrm: IDENTITY_GROUP_XFRM,
             theme,
           };
@@ -1439,6 +1771,12 @@ window.ArtstrPptxImporter = (function () {
       convertTextShape,
       convertPicture,
       convertGraphicFrame,
+      readCategoryLabels,
+      readSeriesValues,
+      readSeriesName,
+      readSeriesColor,
+      buildBarChartLayers,
+      convertChart,
       walkSpTree,
       readSlideRels,
       readSlideNotes,
