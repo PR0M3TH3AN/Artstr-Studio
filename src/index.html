@@ -6437,6 +6437,183 @@
       }
     }
 
+    // ---- Linked design resolver (LINKED_DESIGNS_FEATURE.md) -----------
+    // Resolves `design.kind: 'linked'` layer refs to their current
+    // source payload by querying relays. Session-scoped cache with a
+    // 5-minute TTL; manual Refresh button can force a re-fetch.
+    // Multi-relay union (user relays + DEFAULT_NOSTR_RELAYS) mirrors
+    // the purchase-vault read path so a linked source published to
+    // any common relay is reachable.
+    //
+    // Safety rails:
+    //   - per-event content size cap (256 KB) — adversarial source
+    //     can't bloat a host render
+    //   - per-host-render tree cap (1 MB) — coordinated fan-out DOS
+    //     across deep nesting is rejected mid-walk
+    //   - cycle + depth-3 detection — visited Set short-circuits
+    //     A→B→A, depth counter caps at MAX_LINK_DEPTH
+    const LINKED_DESIGN_TTL_MS = 5 * 60 * 1000;
+    const LINKED_DESIGN_MAX_EVENT_BYTES = 256 * 1024;
+    const LINKED_DESIGN_MAX_TREE_BYTES = 1024 * 1024;
+    const LINKED_DESIGN_MAX_DEPTH = 3;
+    const linkedDesigns = (() => {
+      const cache = new Map();          // key (address or eventId) → { payload, fetchedAt, sourceEvent }
+      const inflight = new Map();       // key → Promise (deduplicates parallel resolves)
+
+      // Parse a NIP-01 addressable-event coord ("kind:pubkey:dTag")
+      // into its parts, returning null on malformed input.
+      function _parseAddressCoord(ref) {
+        if (typeof ref !== 'string') return null;
+        const parts = ref.split(':');
+        if (parts.length < 3) return null;
+        const kind = Number(parts[0]);
+        const pubkey = parts[1];
+        const dTag = parts.slice(2).join(':');
+        if (!Number.isFinite(kind) || kind < 0) return null;
+        if (!/^[0-9a-f]{64}$/i.test(pubkey)) return null;
+        return { kind, pubkey, dTag };
+      }
+
+      function _cacheKey({ ref, pinnedEventId }) {
+        return pinnedEventId || ref || '';
+      }
+
+      function _now() { return Date.now(); }
+
+      function _fromCache(key) {
+        const entry = cache.get(key);
+        if (!entry) return null;
+        if (_now() - entry.fetchedAt > LINKED_DESIGN_TTL_MS) {
+          cache.delete(key);
+          return null;
+        }
+        return entry;
+      }
+
+      async function _fetchPayload({ ref, pinnedEventId }) {
+        const relays = typeof _vaultRelayUnion === 'function' ? _vaultRelayUnion() : splitRelayList(state.community?.relays || '');
+        let filter = null;
+        if (pinnedEventId) {
+          if (!/^[0-9a-f]{64}$/i.test(pinnedEventId)) return null;
+          filter = { ids: [pinnedEventId], limit: 1 };
+        } else {
+          const coord = _parseAddressCoord(ref);
+          if (!coord) return null;
+          filter = {
+            kinds: [coord.kind],
+            authors: [coord.pubkey],
+            '#d': [coord.dTag],
+            limit: 5,
+          };
+        }
+        let events;
+        try {
+          events = await queryRelays(relays, filter, { timeoutMs: 4500 });
+        } catch (err) {
+          console.warn('[linked-designs] relay query failed', err);
+          return null;
+        }
+        if (!events || !events.length) return null;
+        // Pick the latest by created_at — relays should retain only
+        // the latest addressable event per address, but defensively
+        // sort in case more than one slipped through.
+        events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        const ev = events[0];
+        if (!ev?.content || ev.content.length > LINKED_DESIGN_MAX_EVENT_BYTES) {
+          return null;
+        }
+        let payload;
+        try { payload = JSON.parse(ev.content); }
+        catch { return null; }
+        return { payload, sourceEvent: ev, contentBytes: ev.content.length };
+      }
+
+      // Public: resolve a single linked layer's spec ({ ref, pinnedEventId }).
+      // Returns { payload, sourceEvent, fetchedAt } or null when not
+      // resolvable. Coalesces concurrent calls for the same key into
+      // one network round-trip via the inflight map.
+      async function resolveLinked(linkSpec) {
+        if (!linkSpec) return null;
+        const key = _cacheKey(linkSpec);
+        if (!key) return null;
+        const cached = _fromCache(key);
+        if (cached) return cached;
+        if (inflight.has(key)) return inflight.get(key);
+        const p = (async () => {
+          const fetched = await _fetchPayload(linkSpec);
+          if (!fetched) return null;
+          const entry = {
+            payload: fetched.payload,
+            sourceEvent: fetched.sourceEvent,
+            contentBytes: fetched.contentBytes,
+            fetchedAt: _now(),
+          };
+          cache.set(key, entry);
+          return entry;
+        })().finally(() => { inflight.delete(key); });
+        inflight.set(key, p);
+        return p;
+      }
+
+      // Walk a payload's layers, collecting distinct linked-design
+      // refs. Used by the publish path to (a) gather the contributor
+      // set for attribution `p` tags and (b) enforce the per-tree
+      // size cap. `visited` carries cache keys already crawled so a
+      // cycle bottoms out instead of looping.
+      async function walkLinkedTree(payload, { depth = 0, visited = new Set(), totalBytes = 0, onLink } = {}) {
+        if (!payload || depth > LINKED_DESIGN_MAX_DEPTH) return { totalBytes, exceeded: false };
+        const layers = Array.isArray(payload.layers) ? payload.layers : [];
+        // Decks: walk every slide's layers too.
+        const deckSlides = Array.isArray(payload.deck?.slides) ? payload.deck.slides : [];
+        let exceeded = false;
+        const visit = async (l) => {
+          if (exceeded) return;
+          if (l?.type !== 'design' || l.design?.kind !== 'linked') return;
+          const spec = { ref: l.design.ref, pinnedEventId: l.design.pinnedEventId };
+          const key = _cacheKey(spec);
+          if (!key || visited.has(key)) return;
+          visited.add(key);
+          const entry = await resolveLinked(spec);
+          if (typeof onLink === 'function') onLink({ spec, entry, depth });
+          if (!entry) return;
+          totalBytes += entry.contentBytes;
+          if (totalBytes > LINKED_DESIGN_MAX_TREE_BYTES) {
+            exceeded = true;
+            return;
+          }
+          const r = await walkLinkedTree(entry.payload, { depth: depth + 1, visited, totalBytes, onLink });
+          totalBytes = r.totalBytes;
+          exceeded = exceeded || r.exceeded;
+        };
+        for (const l of layers) await visit(l);
+        for (const s of deckSlides) {
+          for (const l of (s.layers || [])) await visit(l);
+        }
+        return { totalBytes, exceeded };
+      }
+
+      // Public: enumerate the distinct contributor pubkeys reachable
+      // from a host payload via linked layers (up to depth 3, cycle-
+      // safe). Used at publish time to emit `p` attribution tags.
+      async function walkContributors(payload) {
+        const contributors = new Set();
+        await walkLinkedTree(payload, {
+          onLink: ({ entry }) => {
+            const pk = entry?.sourceEvent?.pubkey;
+            if (pk && /^[0-9a-f]{64}$/i.test(pk)) contributors.add(pk);
+          },
+        });
+        return contributors;
+      }
+
+      function clearCache(key) {
+        if (key) cache.delete(key);
+        else cache.clear();
+      }
+
+      return { resolveLinked, walkLinkedTree, walkContributors, clearCache, _parseAddressCoord, _cacheKey };
+    })();
+
     // ---- NWC sync (cross-device wallet credential sharing) -----------------
     // Stores the NWC connection URI in a NIP-44-self-encrypted kind-30078
     // event with d=artstr:nwc-connection:v1. Mirrors the purchase-vault
