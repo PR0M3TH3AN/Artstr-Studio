@@ -22308,8 +22308,10 @@
       }
 
       // Decks get a Start Presentation button — present straight from the
-      // browser without forking.
-      if (mode === 'deck') {
+      // browser without forking. Locked premium decks only carry the
+      // watermarked previews, not the full slide data, so hide the
+      // button until unlock.
+      if (mode === 'deck' && !lockedPremium) {
         const presentBtn = document.createElement('button');
         presentBtn.type = 'button';
         presentBtn.textContent = '▶ Start Presentation';
@@ -22378,7 +22380,10 @@
         actionsDiv.insertBefore(dlBtn, saveJsonBtn);
       }
 
-      if (isDiscDesign) {
+      // Mode-specific import / print actions all depend on the
+      // design data, so hide them on locked premium rows — the
+      // envelope only carries watermarked previews until unlock.
+      if (isDiscDesign && !lockedPremium) {
         const import1Btn = document.createElement('button');
         import1Btn.type = 'button';
         import1Btn.textContent = 'Import into Disc 1';
@@ -22409,10 +22414,12 @@
 
         actionsDiv.insertBefore(import1Btn, saveJsonBtn);
         actionsDiv.insertBefore(import2Btn, saveJsonBtn);
-      } else if (mode !== 'pixelart') {
+      } else if (mode !== 'pixelart' && !lockedPremium) {
         // Pixel-art designs have their own PNG / GIF download button
         // a few lines up — Print / Save PDF doesn't make sense for
-        // raster sprites at small native resolutions.
+        // raster sprites at small native resolutions. Locked premium
+        // rows skip print too: the printable content is encrypted
+        // until the buyer pays.
         const printBtn = document.createElement('button');
         printBtn.type = 'button';
         printBtn.textContent = 'Print / Save PDF';
