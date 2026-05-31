@@ -991,6 +991,55 @@ window.ArtstrPptxImporter = (function () {
     return CHART_DEFAULT_PALETTE[fallbackIdx % CHART_DEFAULT_PALETTE.length];
   }
 
+  // ---- Data-label helpers (Phase 4b) ----------------------------------
+  // Read c:dLbls flags into a plain options object. Returns null when
+  // the node is missing entirely.
+  function _readDataLabelOpts(dLblsNode) {
+    if (!dLblsNode) return null;
+    const opts = { showVal: false, showCatName: false, showPercent: false, showSerName: false, position: null };
+    for (let i = 0; i < dLblsNode.children.length; i++) {
+      const ch = dLblsNode.children[i];
+      const v = ch.getAttribute('val');
+      if (ch.localName === 'showVal' && v === '1') opts.showVal = true;
+      else if (ch.localName === 'showCatName' && v === '1') opts.showCatName = true;
+      else if (ch.localName === 'showPercent' && v === '1') opts.showPercent = true;
+      else if (ch.localName === 'showSerName' && v === '1') opts.showSerName = true;
+      else if (ch.localName === 'dLblPos') opts.position = ch.getAttribute('val');
+    }
+    return opts;
+  }
+
+  // Series-level dLbls overrides chart-type-level for each flag.
+  // Returns null when neither layer turned any show* flag on.
+  function _resolveDataLabelOpts(serNode, chartTypeNode) {
+    const s = _readDataLabelOpts(_directChild(serNode, 'dLbls')) || {};
+    const c = _readDataLabelOpts(_directChild(chartTypeNode, 'dLbls')) || {};
+    const merged = {
+      showVal: s.showVal || c.showVal || false,
+      showCatName: s.showCatName || c.showCatName || false,
+      showPercent: s.showPercent || c.showPercent || false,
+      showSerName: s.showSerName || c.showSerName || false,
+      position: s.position || c.position || null,
+    };
+    if (!merged.showVal && !merged.showCatName && !merged.showPercent && !merged.showSerName) {
+      return null;
+    }
+    return merged;
+  }
+
+  // Format a single data-point's label text per the show* flags.
+  // Multiple flags get joined with a newline → rendered as <br>.
+  function _formatDataLabelText(opts, value, categoryLabel, totalValue, seriesName) {
+    const parts = [];
+    if (opts.showCatName && categoryLabel) parts.push(String(categoryLabel));
+    if (opts.showSerName && seriesName) parts.push(String(seriesName));
+    if (opts.showVal) parts.push(String(value));
+    if (opts.showPercent && totalValue > 0) {
+      parts.push(`${Math.round((value / totalValue) * 100)}%`);
+    }
+    return parts.join('\n');
+  }
+
   // ---- Chart polish helpers (Phase 4) ---------------------------------
   // Read the chart title text from c:chart/c:title/c:tx/c:rich, walking
   // a:p paragraphs and a:r runs. Returns '' when no title or when
@@ -1218,14 +1267,19 @@ window.ArtstrPptxImporter = (function () {
     }
     if (maxV <= 0) maxV = 1;
 
+    // Per-series data-label options (Phase 4b). Series overrides
+    // chart-type-level c:dLbls.
+    const dlOptsBySeries = serNodes.map((sn) => _resolveDataLabelOpts(sn, barChartNode));
+
     const layers = [];
 
-    // ---- Bars ----
+    // ---- Bars + per-bar data labels ----
     if (direction === 'col') {
       // Vertical columns: categories along X, value extends up.
       const catW = pa.w / N;
       const gap  = catW * 0.15;       // ~15 % gap between category groups
       const barW = (catW - gap) / S;
+      const labelH = pa.h * 0.05;
       for (let c = 0; c < N; c++) {
         for (let si = 0; si < S; si++) {
           const v = series[si].values[c] || 0;
@@ -1244,6 +1298,30 @@ window.ArtstrPptxImporter = (function () {
             fill: { type: 'solid', color: series[si].color },
             stroke: { type: 'none', color: '#000000', width: 1, dash: 'solid' },
           });
+          const dl = dlOptsBySeries[si];
+          if (dl) {
+            const text = _formatDataLabelText(dl, v, categories[c], 0, series[si].name);
+            if (text) {
+              layers.push({
+                id: _makePptxLayerId(),
+                type: 'text',
+                name: `${chartLabel} / Data label [${categories[c] || c + 1}, ${series[si].name || `Series ${si + 1}`}]`,
+                target: 'canvas',
+                html: _escapeHtml(text).replace(/\n/g, '<br>'),
+                // Default position: above the bar ("outEnd" in PPTX).
+                x: xBar - barW * 0.1,
+                y: Math.max(pa.y, yBar - labelH - 0.02),
+                w: barW * 1.2,
+                h: labelH,
+                rotate: 0, opacity: 1, z: ctx.nextZ++,
+                fontFamily: 'inherit',
+                fontSize: 10,
+                color: '#222',
+                align: 'center',
+                bold: false, italic: false,
+              });
+            }
+          }
         }
       }
     } else {
@@ -1269,6 +1347,31 @@ window.ArtstrPptxImporter = (function () {
             fill: { type: 'solid', color: series[si].color },
             stroke: { type: 'none', color: '#000000', width: 1, dash: 'solid' },
           });
+          const dl = dlOptsBySeries[si];
+          if (dl) {
+            const text = _formatDataLabelText(dl, v, categories[c], 0, series[si].name);
+            if (text) {
+              const labelW = pa.w * 0.10;
+              layers.push({
+                id: _makePptxLayerId(),
+                type: 'text',
+                name: `${chartLabel} / Data label [${categories[c] || c + 1}, ${series[si].name || `Series ${si + 1}`}]`,
+                target: 'canvas',
+                html: _escapeHtml(text).replace(/\n/g, '<br>'),
+                // Default position: to the right of the bar's end.
+                x: Math.min(pa.x + pa.w - labelW, xBar + wBar + 0.02),
+                y: yBar,
+                w: labelW,
+                h: barH,
+                rotate: 0, opacity: 1, z: ctx.nextZ++,
+                fontFamily: 'inherit',
+                fontSize: 10,
+                color: '#222',
+                align: 'left',
+                bold: false, italic: false,
+              });
+            }
+          }
         }
       }
     }
@@ -1449,18 +1552,27 @@ window.ArtstrPptxImporter = (function () {
     const innerR = isDoughnut ? outerR * (holePct / 100) : 0;
     let angle = -Math.PI / 2 + (firstAngleDeg * Math.PI / 180);
 
+    // Data-label options (Phase 4b). Pie charts have a single c:ser,
+    // so series + chart-type-level dLbls collapse to one resolved set.
+    const dlOpts = _resolveDataLabelOpts(serNode, pieChartNode);
+
     const layers = [];
     const legendSeries = []; // for the legend builder — one entry per slice
+    const labelInfos = [];    // collected for emission after slice paths
     for (let i = 0; i < values.length; i++) {
       const v = Math.max(0, Number(values[i]) || 0);
       if (v <= 0) continue;
       const sweep = (Math.PI * 2) * (v / total);
       const d = _sliceArcPath(cx, cy, outerR, angle, angle + sweep, innerR);
+      const midAngle = angle + sweep / 2;
       angle += sweep;
       if (!d) continue;
       const color = _readPieSliceColor(serNode, i, varyColors, ctx.theme);
       const catLabel = categories[i] || `Slice ${i + 1}`;
       legendSeries.push({ name: catLabel, color });
+      if (dlOpts) {
+        labelInfos.push({ value: v, category: catLabel, midAngle });
+      }
       layers.push({
         id: _makePptxLayerId(),
         type: 'shape',
@@ -1481,6 +1593,37 @@ window.ArtstrPptxImporter = (function () {
         fill: { type: 'solid', color },
         stroke: { type: 'none', color: '#000000', width: 1, dash: 'solid' },
       });
+    }
+
+    // Phase 4b: data labels at slice bisectors. Skip if no flags set.
+    // Positioned 65% of the way out from the centre to the rim along
+    // the slice's angular midpoint — readable for most slice sizes.
+    if (dlOpts && labelInfos.length) {
+      const labelSizeFrac = 0.18; // fraction of side per label box
+      const labelW = sliceBounds.w * labelSizeFrac;
+      const labelH = sliceBounds.h * 0.06;
+      for (const info of labelInfos) {
+        const lx = sliceBounds.x + sliceBounds.w / 2
+          + (sliceBounds.w * 0.5) * 0.65 * Math.cos(info.midAngle) - labelW / 2;
+        const ly = sliceBounds.y + sliceBounds.h / 2
+          + (sliceBounds.h * 0.5) * 0.65 * Math.sin(info.midAngle) - labelH / 2;
+        const text = _formatDataLabelText(dlOpts, info.value, info.category, total, '');
+        if (!text) continue;
+        layers.push({
+          id: _makePptxLayerId(),
+          type: 'text',
+          name: `${chartLabel} / Data label [${info.category}]`,
+          target: 'canvas',
+          html: _escapeHtml(text).replace(/\n/g, '<br>'),
+          x: lx, y: ly, w: labelW, h: labelH,
+          rotate: 0, opacity: 1, z: ctx.nextZ++,
+          fontFamily: 'inherit',
+          fontSize: 10,
+          color: '#111',
+          align: 'center',
+          bold: false, italic: false,
+        });
+      }
     }
 
     // Phase 4 polish: title + legend. Pie legend lists slice
@@ -1578,7 +1721,10 @@ window.ArtstrPptxImporter = (function () {
         }
       }
 
-      series.push({ name, color, values, lineWidth: lineWidthIn, markerEnabled, markerSizeIn, markerColor });
+      // Data-label opts per series (Phase 4b).
+      const dlOpts = _resolveDataLabelOpts(s, lineChartNode);
+
+      series.push({ name, color, values, lineWidth: lineWidthIn, markerEnabled, markerSizeIn, markerColor, dlOpts });
     }
 
     // Plot area: shared insets-from-chart-polish helper (Phase 4).
@@ -1633,14 +1779,14 @@ window.ArtstrPptxImporter = (function () {
         },
       });
 
-      // ---- Markers ----
-      if (s.markerEnabled) {
-        for (let c = 0; c < N; c++) {
-          const v = Number(s.values[c]) || 0;
-          const cxFrac = N > 1 ? (c / (N - 1)) : 0.5;
-          const cxIn = pa.x + cxFrac * pa.w;
-          const cyIn = pa.y + pa.h - (v / maxV) * pa.h;
-          // Centred at the data point, square layer of marker size.
+      // ---- Markers + per-point data labels ----
+      const dl = s.dlOpts;
+      for (let c = 0; c < N; c++) {
+        const v = Number(s.values[c]) || 0;
+        const cxFrac = N > 1 ? (c / (N - 1)) : 0.5;
+        const cxIn = pa.x + cxFrac * pa.w;
+        const cyIn = pa.y + pa.h - (v / maxV) * pa.h;
+        if (s.markerEnabled) {
           layers.push({
             id: _makePptxLayerId(),
             type: 'shape',
@@ -1655,6 +1801,31 @@ window.ArtstrPptxImporter = (function () {
             fill: { type: 'solid', color: s.markerColor },
             stroke: { type: 'none', color: '#000000', width: 1, dash: 'solid' },
           });
+        }
+        if (dl) {
+          const text = _formatDataLabelText(dl, v, categories[c], 0, s.name);
+          if (text) {
+            const labelW = pa.w * 0.10;
+            const labelH = pa.h * 0.05;
+            layers.push({
+              id: _makePptxLayerId(),
+              type: 'text',
+              name: `${chartLabel} / Data label [${categories[c] || c + 1}, ${s.name || `Series ${si + 1}`}]`,
+              target: 'canvas',
+              html: _escapeHtml(text).replace(/\n/g, '<br>'),
+              // Default: above the marker (PPTX dLblPos 't').
+              x: cxIn - labelW / 2,
+              y: Math.max(pa.y, cyIn - labelH - 0.02),
+              w: labelW,
+              h: labelH,
+              rotate: 0, opacity: 1, z: ctx.nextZ++,
+              fontFamily: 'inherit',
+              fontSize: 10,
+              color: '#222',
+              align: 'center',
+              bold: false, italic: false,
+            });
+          }
         }
       }
     }
@@ -2331,6 +2502,9 @@ window.ArtstrPptxImporter = (function () {
       _readChartTitle,
       _readChartLegend,
       _computePlotInsets,
+      _readDataLabelOpts,
+      _resolveDataLabelOpts,
+      _formatDataLabelText,
       convertChart,
       walkSpTree,
       readSlideRels,
