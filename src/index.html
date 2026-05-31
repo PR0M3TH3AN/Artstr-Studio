@@ -23230,16 +23230,63 @@
     // reads as a deck at a glance.
     function renderDeckPreviewDOM(container, payload, opts = {}) {
       const slides = payload?.deck?.slides || [];
-      const first = slides[0];
-      const composed = first
-        ? composeSlideForDeck(first, payload?.deck?.theme)
-        : { slide: { width: 1920, height: 1080, background: '#ffffff' }, layers: [] };
-      renderCustomArtPreviewDOM(container, composed, opts);
-      if (!container.style.position) container.style.position = 'relative';
-      const badge = document.createElement('div');
-      badge.className = 'deckCountBadge';
-      badge.textContent = slides.length === 1 ? '1 slide' : `${slides.length} slides`;
-      container.appendChild(badge);
+      const compact = !!opts.compact;
+
+      // Compact thumbnails (feed cards, profile grid, etc.) keep the
+      // old single-slide-1 + badge render — pagination would be too
+      // fiddly at small size. Single-slide decks also use the simple
+      // path since there's nothing to page through.
+      if (compact || slides.length <= 1) {
+        const first = slides[0];
+        const composed = first
+          ? composeSlideForDeck(first, payload?.deck?.theme)
+          : { slide: { width: 1920, height: 1080, background: '#ffffff' }, layers: [] };
+        renderCustomArtPreviewDOM(container, composed, opts);
+        if (!container.style.position) container.style.position = 'relative';
+        const badge = document.createElement('div');
+        badge.className = 'deckCountBadge';
+        badge.textContent = slides.length === 1 ? '1 slide' : `${slides.length} slides`;
+        container.appendChild(badge);
+        return;
+      }
+
+      // Multi-slide deck in the preview pane → paginated viewer so the
+      // user (creator or buyer) can flip through every slide in the
+      // unlocked deck. Mirrors the locked-premium pager UX.
+      container.style.position = container.style.position || 'relative';
+      const stage = document.createElement('div');
+      stage.style.cssText = 'width:100%;display:flex;justify-content:center';
+      const bar = document.createElement('div');
+      bar.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;font-size:.9rem;color:var(--ink);padding:6px 0';
+      const prev = document.createElement('button');
+      prev.type = 'button';
+      prev.textContent = '‹ Prev';
+      prev.style.cssText = 'padding:4px 12px;cursor:pointer';
+      const counter = document.createElement('span');
+      counter.style.cssText = 'min-width:10em;text-align:center;font-variant-numeric:tabular-nums';
+      const next = document.createElement('button');
+      next.type = 'button';
+      next.textContent = 'Next ›';
+      next.style.cssText = 'padding:4px 12px;cursor:pointer';
+      bar.append(prev, counter, next);
+      container.append(stage, bar);
+      let idx = 0;
+      function renderSlide() {
+        stage.innerHTML = '';
+        const entry = slides[idx];
+        const composed = composeSlideForDeck(entry, payload?.deck?.theme);
+        renderCustomArtPreviewDOM(stage, composed, { compact: false });
+        counter.textContent = `Slide ${idx + 1} of ${slides.length}`;
+      }
+      prev.addEventListener('click', () => {
+        idx = (idx - 1 + slides.length) % slides.length;
+        renderSlide();
+      });
+      next.addEventListener('click', () => {
+        idx = (idx + 1) % slides.length;
+        renderSlide();
+      });
+      renderSlide();
     }
 
     // Preview a standalone pixel-art design — the grid rendered crisp.
