@@ -11204,10 +11204,57 @@
     // Render a pixel-art layer into its freeLayer element (crisp scaling).
     function renderPixelArtIntoElement(el, layer) {
       el.innerHTML = '';
+      const pa = layer.pixelArt || {};
       try {
-        const cv = renderPixelGridToCanvas(layer.pixelArt || {});
-        cv.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges;pointer-events:none';
-        el.appendChild(cv);
+        const frames = Array.isArray(pa.frames) ? pa.frames : [];
+        const animate = frames.length > 1;
+        if (animate) {
+          // Multi-frame pixel-art layer: pre-render every frame to its
+          // own native-size canvas, then animate by blitting onto a
+          // display canvas. Mirrors the standalone-preview animation
+          // path (renderPixelArtPreviewDOM). The RAF self-stops when
+          // the host canvas leaves the DOM (cv.isConnected === false)
+          // so a re-render of the editor doesn't leak loops.
+          const fps = Math.max(1, Math.min(60, (pa.fps | 0) || 8));
+          const loop = pa.loop !== false;
+          const w = (pa.width | 0) || 32;
+          const h = (pa.height | 0) || 32;
+          const cached = frames.map((_, i) => renderPixelGridToCanvas(pa, i));
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges;pointer-events:none';
+          const ctx = cv.getContext('2d');
+          ctx.drawImage(cached[0], 0, 0);
+          let frameIdx = 0;
+          let lastTs = 0, acc = 0;
+          const tick = (ts) => {
+            if (!cv.isConnected) return;
+            const dt = lastTs ? (ts - lastTs) : 0;
+            lastTs = ts;
+            acc += dt;
+            const msPerFrame = 1000 / fps;
+            let ended = false;
+            while (acc >= msPerFrame) {
+              acc -= msPerFrame;
+              const next = frameIdx + 1;
+              if (next >= cached.length) {
+                if (loop) frameIdx = 0;
+                else { frameIdx = cached.length - 1; ended = true; break; }
+              } else {
+                frameIdx = next;
+              }
+            }
+            ctx.clearRect(0, 0, w, h);
+            ctx.drawImage(cached[frameIdx], 0, 0);
+            if (!ended) requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+          el.appendChild(cv);
+        } else {
+          const cv = renderPixelGridToCanvas(pa);
+          cv.style.cssText = 'width:100%;height:100%;display:block;image-rendering:pixelated;image-rendering:crisp-edges;pointer-events:none';
+          el.appendChild(cv);
+        }
       } catch (e) {}
     }
 
