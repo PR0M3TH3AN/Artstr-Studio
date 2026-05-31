@@ -14839,8 +14839,22 @@
       const myPubkey = state.community?.myPubkey;
       if (!myPubkey) throw new Error('Sign in with Nostr before publishing premium.');
       // Generate the preview FIRST so a too-large artboard bails before we
-      // build any event.
-      const preview = await renderPremiumPreviewDataUrl();
+      // build any event. Decks get one watermarked JPEG per slide (capped)
+      // so buyers can flip through what they'd unlock; everything else gets
+      // the existing single image.
+      let preview = null;
+      let deckPreview = null;
+      if (mode === 'deck') {
+        deckPreview = await renderDeckPremiumPreviewSlides();
+        if (!deckPreview) {
+          throw new Error('Add at least one slide before publishing a premium deck.');
+        }
+        // Mirror the first slide into `preview` for downstream
+        // single-image consumers (card thumbnails, vault entries).
+        preview = deckPreview.slides[0];
+      } else {
+        preview = await renderPremiumPreviewDataUrl();
+      }
       // Stable d-tag with a `premium:` prefix so it can't collide with an
       // existing non-premium event from the same author. Edit-in-place
       // reuses the original.
@@ -14854,12 +14868,29 @@
       const envelope = await Premium.encryptPayload(payload, coord);
       envelope.payloadSchemaVersion = 5;
       envelope.premiumMode = 'softgate-v1';
-      envelope.preview = {
-        kind: 'watermarked-image',
-        dataUrl: preview.dataUrl,
-        width: preview.width,
-        height: preview.height,
-      };
+      // Single-image envelope for non-decks; multi-slide envelope for
+      // decks. Buyers detect via `kind` and either render a paginated
+      // viewer (decks) or the single watermarked JPEG (everything else).
+      if (deckPreview) {
+        envelope.preview = {
+          kind: 'watermarked-deck',
+          slides: deckPreview.slides,
+          totalSlides: deckPreview.totalSlides,
+          // Keep dataUrl/width/height pointing at slide 1 so the
+          // existing single-image card / vault path renders the deck's
+          // "cover".
+          dataUrl: preview.dataUrl,
+          width: preview.width,
+          height: preview.height,
+        };
+      } else {
+        envelope.preview = {
+          kind: 'watermarked-image',
+          dataUrl: preview.dataUrl,
+          width: preview.width,
+          height: preview.height,
+        };
+      }
       // Build the §5.1 tag set. Discovery tags (title/category/language/
       // mode) stay public; encrypted-only data lives in `content`.
       const zapMin = Math.max(10, Math.floor(Number(state.publish?.zapMin) || 100));
@@ -17993,6 +18024,29 @@
       return canvas.toDataURL('image/jpeg', quality);
     }
 
+    // Watermark + JPEG-encode a source canvas under a byte budget,
+    // shrinking on each retry until it fits or we hit
+    // MIN_LONG_AXIS_PX. Returns { dataUrl, bytes, width, height } on
+    // success or null when the source can't be reduced under budget.
+    function _encodeWatermarkedUnderBudget(src, maxBytes, startLong) {
+      let targetLong = startLong || PREMIUM_PREVIEW.MAX_LONG_AXIS_PX;
+      let lastBytes = 0;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const watermarked = _composeWatermarkedCanvas(src, targetLong);
+        let dataUrl;
+        try { dataUrl = _canvasToJpegDataUrl(watermarked, PREMIUM_PREVIEW.QUALITY); }
+        catch { return null; }
+        const bytes = Math.ceil((dataUrl.length - dataUrl.indexOf(',') - 1) * 3 / 4);
+        lastBytes = bytes;
+        if (bytes <= maxBytes) {
+          return { dataUrl, bytes, width: watermarked.width, height: watermarked.height };
+        }
+        targetLong = Math.round(targetLong * 0.78);
+        if (targetLong < PREMIUM_PREVIEW.MIN_LONG_AXIS_PX) break;
+      }
+      return { dataUrl: null, bytes: lastBytes };
+    }
+
     // Public: render the current artboard as a watermarked JPEG data URL,
     // budget-bounded. Throws if the artboard can't be reduced under MAX_BYTES
     // even at MIN_LONG_AXIS_PX, so the publish modal can surface a precise
@@ -18001,34 +18055,60 @@
       _exportFailedImages.clear();
       const mode = state.templateMode;
       const longestInches = _premiumPreviewLongAxisInches(mode) || 11;
-      // Pick a DPI such that long-axis pixels ≈ MAX_LONG_AXIS_PX.
-      let targetLong = PREMIUM_PREVIEW.MAX_LONG_AXIS_PX;
-      let lastSize = 0;
-      let lastSrc = null;
-      for (let attempt = 0; attempt < 4; attempt++) {
-        // Render only on the first attempt; subsequent attempts re-tile +
-        // re-encode the same source at a smaller dimension cap.
-        if (!lastSrc) {
-          const dpi = Math.max(36, Math.round(targetLong / longestInches));
-          lastSrc = await _renderModeToExportCanvas(mode, dpi);
+      const startLong = PREMIUM_PREVIEW.MAX_LONG_AXIS_PX;
+      const dpi = Math.max(36, Math.round(startLong / longestInches));
+      const src = await _renderModeToExportCanvas(mode, dpi);
+      if (_exportFailedImages.size > 0) {
+        throw new Error('Some images on the artboard could not be embedded (CORS / missing). Make them local or remove them before publishing premium.');
+      }
+      const encoded = _encodeWatermarkedUnderBudget(src, PREMIUM_PREVIEW.MAX_BYTES, startLong);
+      if (encoded && encoded.dataUrl) return encoded;
+      throw new Error(`Premium preview is too large (${(encoded?.bytes || 0).toLocaleString()} bytes after retries). Simplify the design (smaller image layers, fewer fills) and try again.`);
+    }
+
+    // Per-deck preview limits — cap slides previewed at 6 and per-slide
+    // budget at 40 KB so a typical 6-slide preview stays under ~240 KB
+    // even before relay encoding overhead.
+    const PREMIUM_PREVIEW_DECK = Object.freeze({
+      MAX_SLIDES: 6,
+      PER_SLIDE_BYTES: 40 * 1024,
+    });
+
+    // Render up to PREMIUM_PREVIEW_DECK.MAX_SLIDES watermarked
+    // previews — one per deck slide — for the buyer's pre-purchase
+    // viewer. Returns { slides: [{ dataUrl, width, height }, ...],
+    // totalSlides } or null when the deck has no slides at all.
+    // Slides that can't shrink under the per-slide budget get skipped
+    // rather than failing the whole publish.
+    async function renderDeckPremiumPreviewSlides() {
+      _exportFailedImages.clear();
+      const deck = state.deck || {};
+      const slides = Array.isArray(deck.slides) ? deck.slides : [];
+      if (!slides.length) return null;
+      const totalSlides = slides.length;
+      const cap = Math.min(slides.length, PREMIUM_PREVIEW_DECK.MAX_SLIDES);
+      const previews = [];
+      const savedIdx = deck.editingIndex;
+      try {
+        const longestInches = _premiumPreviewLongAxisInches('deck') || 11.25;
+        const startLong = PREMIUM_PREVIEW.MAX_LONG_AXIS_PX;
+        const dpi = Math.max(36, Math.round(startLong / longestInches));
+        for (let i = 0; i < cap; i++) {
+          deck.editingIndex = i;
+          const src = await renderDeckToExportCanvas(dpi);
           if (_exportFailedImages.size > 0) {
-            throw new Error('Some images on the artboard could not be embedded (CORS / missing). Make them local or remove them before publishing premium.');
+            throw new Error('Some images on the deck could not be embedded (CORS / missing). Make them local or remove them before publishing premium.');
+          }
+          const enc = _encodeWatermarkedUnderBudget(src, PREMIUM_PREVIEW_DECK.PER_SLIDE_BYTES, startLong);
+          if (enc && enc.dataUrl) {
+            previews.push({ dataUrl: enc.dataUrl, width: enc.width, height: enc.height });
           }
         }
-        const watermarked = _composeWatermarkedCanvas(lastSrc, targetLong);
-        let dataUrl;
-        try { dataUrl = _canvasToJpegDataUrl(watermarked, PREMIUM_PREVIEW.QUALITY); }
-        catch (err) { throw new Error('Could not encode preview JPEG: ' + (err?.message || err)); }
-        const approxBytes = Math.ceil((dataUrl.length - dataUrl.indexOf(',') - 1) * 3 / 4);
-        lastSize = approxBytes;
-        if (approxBytes <= PREMIUM_PREVIEW.MAX_BYTES) {
-          return { dataUrl, bytes: approxBytes, width: watermarked.width, height: watermarked.height };
-        }
-        // Shrink and retry.
-        targetLong = Math.round(targetLong * 0.78);
-        if (targetLong < PREMIUM_PREVIEW.MIN_LONG_AXIS_PX) break;
+      } finally {
+        deck.editingIndex = savedIdx;
       }
-      throw new Error(`Premium preview is too large (${lastSize.toLocaleString()} bytes after retries). Simplify the design (smaller image layers, fewer fills) and try again.`);
+      if (!previews.length) return null;
+      return { slides: previews, totalSlides };
     }
     // ---- end watermarked premium preview -----------------------------------
 
@@ -20800,9 +20880,23 @@
         if (isPremium) {
           const addressCoord = premiumAddressCoord(e);
           const cached = findUnlockedEntry(e.id, addressCoord);
+          // Multi-slide deck previews use envelope.preview.kind ===
+          // 'watermarked-deck' with a `slides` array; everything else
+          // (the existing 'watermarked-image' shape) carries a single
+          // dataUrl. previewJpegDataUrl always points at slide 1 / the
+          // single image so the card thumbnail stays uniform.
+          const _envPreview = premiumEnvelope?.preview || {};
+          const previewSlides = _envPreview.kind === 'watermarked-deck'
+            && Array.isArray(_envPreview.slides) && _envPreview.slides.length
+            ? _envPreview.slides
+            : null;
           row.premium = {
             envelope: premiumEnvelope,
-            previewJpegDataUrl: premiumEnvelope?.preview?.dataUrl || '',
+            previewJpegDataUrl: _envPreview.dataUrl
+              || previewSlides?.[0]?.dataUrl
+              || '',
+            previewSlides,
+            previewTotalSlides: _envPreview.totalSlides || previewSlides?.length || 0,
             decrypted: !!cached?.payload,
             address: addressCoord,
             dTag: premiumEventDTag(e),
@@ -20944,12 +21038,60 @@
       }
 
       // Mini-preview: for premium *locked* rows, show the watermarked JPEG
-      // embedded in the envelope. Otherwise re-render the design DOM at its
-      // natural size and CSS-scale to fit (WYSIWYG with the preview pane).
+      // embedded in the envelope. For locked premium DECKS, paginate
+      // through each slide preview so the buyer can flip through what
+      // they'd unlock. Otherwise re-render the design DOM at its natural
+      // size and CSS-scale to fit (WYSIWYG with the preview pane).
       const previewWrap = document.createElement('div');
       previewWrap.className = 'miniPreviewWrap';
       const isLockedPremium = !!(row.premium && !row.premium.decrypted);
-      if (isLockedPremium && row.premium.previewJpegDataUrl) {
+      const lockedDeckSlides = isLockedPremium && Array.isArray(row.premium.previewSlides)
+        ? row.premium.previewSlides
+        : null;
+      if (lockedDeckSlides && lockedDeckSlides.length > 1) {
+        // Paginated deck viewer: image + prev/next buttons + counter.
+        previewWrap.style.cssText = 'width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;gap:6px;background:#fff';
+        const img = document.createElement('img');
+        img.alt = row.title || 'Premium deck preview';
+        img.style.cssText = 'flex:1;min-height:0;width:100%;object-fit:contain;display:block;background:#fff';
+        const bar = document.createElement('div');
+        bar.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;padding:4px 8px;font-size:.8rem;color:var(--ink);background:rgba(255,255,255,.92);border-top:1px solid var(--line);width:100%';
+        const prev = document.createElement('button');
+        prev.type = 'button';
+        prev.textContent = '‹';
+        prev.title = 'Previous slide';
+        prev.style.cssText = 'padding:2px 10px;font-size:1rem;line-height:1;cursor:pointer';
+        const counter = document.createElement('span');
+        counter.style.cssText = 'min-width:9em;text-align:center;font-variant-numeric:tabular-nums';
+        const next = document.createElement('button');
+        next.type = 'button';
+        next.textContent = '›';
+        next.title = 'Next slide';
+        next.style.cssText = 'padding:2px 10px;font-size:1rem;line-height:1;cursor:pointer';
+        bar.append(prev, counter, next);
+        previewWrap.append(img, bar);
+        const totalDeckSlides = row.premium.previewTotalSlides || lockedDeckSlides.length;
+        let idx = 0;
+        function render() {
+          const slide = lockedDeckSlides[idx];
+          img.src = slide?.dataUrl || '';
+          const shown = lockedDeckSlides.length;
+          counter.textContent = totalDeckSlides > shown
+            ? `Slide ${idx + 1} of ${shown} · ${totalDeckSlides} in deck`
+            : `Slide ${idx + 1} of ${shown}`;
+        }
+        prev.addEventListener('click', (e) => {
+          e.stopPropagation();
+          idx = (idx - 1 + lockedDeckSlides.length) % lockedDeckSlides.length;
+          render();
+        });
+        next.addEventListener('click', (e) => {
+          e.stopPropagation();
+          idx = (idx + 1) % lockedDeckSlides.length;
+          render();
+        });
+        render();
+      } else if (isLockedPremium && row.premium.previewJpegDataUrl) {
         const img = document.createElement('img');
         img.src = row.premium.previewJpegDataUrl;
         img.alt = row.title || 'Premium template preview';
