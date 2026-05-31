@@ -7832,8 +7832,30 @@
       render();
     }
 
+    // Map a template / app mode to the canonical mediaCategories value
+    // that makes sense for it. Physical-media modes (cover / disc /
+    // jewel / disc-design) return '' so the user picks DVD / Blu-ray /
+    // PS3 / etc. — there's no single right answer there.
+    function defaultCategoryForMode(mode) {
+      switch (mode) {
+        case 'slide':    return 'slide';
+        case 'deck':     return 'slide-deck';
+        case 'pixelart': return 'pixel-art';
+        case 'customart':return 'custom-art';
+        default:         return '';
+      }
+    }
+
     function syncInputs() {
       const isDesignerApp = state.appMode === 'designer';
+      // Auto-fill the category when it's empty and the current mode has
+      // a canonical default. Applies to brand-new templates created via
+      // applyLayout AND to imports / forks that arrived without a
+      // category set. Idempotent: leaves a user-picked category alone.
+      if (state.meta && !state.meta.category) {
+        const def = defaultCategoryForMode(isDesignerApp ? 'disc-design' : state.templateMode);
+        if (def) state.meta.category = def;
+      }
       const layoutActive = {
         cover: !isDesignerApp && state.templateMode === 'cover',
         disc: !isDesignerApp && state.templateMode === 'disc',
@@ -24250,14 +24272,15 @@
         state.preset = 'dvd';
         Object.assign(state, presets.dvd);
       }
-      // First time into Custom Art / Slide, default the category and (for a
-      // slide) lock the canvas to a 16:9 resolution.
-      // Slides and decks always classify under their own category; Custom
-      // Art just gets a default the user can override.
-      if (layout === 'slide') state.meta.category = 'slide';
-      else if (layout === 'deck') state.meta.category = 'slide-deck';
-      else if (layout === 'pixelart') state.meta.category = 'pixel-art';
-      else if (layout === 'customart' && !state.meta.category) state.meta.category = 'custom-art';
+      // First time into Custom Art / Slide / Deck / Pixel Art, default
+      // the category based on the layout (slide / slide-deck / pixel-art
+      // / custom-art). Only fills when empty so a user-picked category
+      // sticks across switches. Lock the canvas to 16:9 for slides
+      // below.
+      if (!state.meta.category) {
+        const def = defaultCategoryForMode(layout);
+        if (def) state.meta.category = def;
+      }
       if (layout === 'pixelart' && !state.pixelArt) state.pixelArt = defaultPixelArt(32, 32);
       if (layout === 'slide') {
         const ca = state.customArt || {};
