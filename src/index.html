@@ -5780,6 +5780,43 @@
     // sent for gated templates. Matching receipts auto-unlock without
     // re-payment, so a cache wipe / private window / new device feels
     // seamless.
+
+    // Premium events authored by the current user should appear unlocked
+    // automatically — a creator should never have to zap themselves to
+    // open their own design. The soft-gate KDF is deterministic from
+    // public material + the static client pepper, so we can decrypt
+    // locally without involving relays / receipts.
+    async function autoUnlockSelfAuthoredPremium(gatedEvents) {
+      if (!Array.isArray(gatedEvents) || !gatedEvents.length) return;
+      const myPubkey = normalizePubkey(state.community?.myPubkey || '');
+      if (!myPubkey) return;
+      for (const ev of gatedEvents) {
+        if (normalizePubkey(ev.pubkey) !== myPubkey) continue;
+        if (!isPremiumEvent(ev)) continue;
+        if (isUnlockedLocally(ev.id)) continue;
+        let envelope = null;
+        let decryptedPayload = null;
+        try {
+          envelope = JSON.parse(ev.content || '{}');
+          decryptedPayload = await Premium.decryptPayload(envelope, {
+            creatorPubkey: ev.pubkey,
+            dTag: premiumEventDTag(ev),
+            schemaVersion: envelope?.payloadSchemaVersion || 5,
+          });
+        } catch (err) {
+          console.warn('[premium] self-author auto-decrypt failed for', ev.id, err);
+          continue;
+        }
+        const addressCoord = premiumAddressCoord(ev);
+        markUnlocked(ev.id, {
+          source: 'self-authored',
+          address: addressCoord,
+          payload: decryptedPayload,
+          previewJpegDataUrl: envelope?.preview?.dataUrl || undefined,
+        });
+      }
+    }
+
     // Relay fast-path. Premium designs use address-based purchase scope
     // (PREMIUM_DESIGNS_FEATURE.md §13.2) so a creator's edit-in-place
     // doesn't invalidate prior unlocks. We query by `#a` first, then `#e`
@@ -19180,6 +19217,9 @@
           // tag-only events fall back to event-id receipts.
           const gatedEvents = templateEvents.filter((e) => isPremiumEvent(e) || isZapGated(e));
           if (gatedEvents.length && state.community?.myPubkey) {
+            // Self-authored auto-unlock + receipt fast-path run in
+            // parallel — they target different events (mine vs. paid-for).
+            autoUnlockSelfAuthoredPremium(gatedEvents).then(() => notifyFeedProgress()).catch(() => {});
             relayFastPathUnlockCheck(gatedEvents).then(() => notifyFeedProgress()).catch(() => {});
           }
         }
@@ -22311,17 +22351,62 @@
       content.style.display = '';
 
       // Locked premium row → render the watermarked JPEG instead of the
-      // (unavailable) plaintext design. Add an honest "soft-gate" note.
+      // (unavailable) plaintext design. For deck premium with multiple
+      // slide previews, paginate so the buyer can flip through.
       if (row.premium && !row.premium.decrypted) {
         const wrap = document.createElement('div');
         wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px';
-        if (row.premium.previewJpegDataUrl) {
+
+        const previewSlides = Array.isArray(row.premium.previewSlides)
+          ? row.premium.previewSlides
+          : null;
+
+        if (previewSlides && previewSlides.length > 1) {
+          // Paginated viewer for deck premium previews.
+          const img = document.createElement('img');
+          img.alt = row.title || 'Premium deck preview';
+          img.style.cssText = 'max-width:100%;height:auto;border:1px solid var(--line);background:#fff';
+          const bar = document.createElement('div');
+          bar.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;font-size:.9rem;color:var(--ink);padding:4px 0';
+          const prev = document.createElement('button');
+          prev.type = 'button';
+          prev.textContent = '‹ Prev';
+          prev.style.cssText = 'padding:4px 12px;cursor:pointer';
+          const counter = document.createElement('span');
+          counter.style.cssText = 'min-width:11em;text-align:center;font-variant-numeric:tabular-nums';
+          const next = document.createElement('button');
+          next.type = 'button';
+          next.textContent = 'Next ›';
+          next.style.cssText = 'padding:4px 12px;cursor:pointer';
+          bar.append(prev, counter, next);
+          wrap.append(img, bar);
+          const totalDeckSlides = row.premium.previewTotalSlides || previewSlides.length;
+          let idx = 0;
+          function render() {
+            const slide = previewSlides[idx];
+            img.src = slide?.dataUrl || '';
+            const shown = previewSlides.length;
+            counter.textContent = totalDeckSlides > shown
+              ? `Slide ${idx + 1} of ${shown} · ${totalDeckSlides} in deck`
+              : `Slide ${idx + 1} of ${shown}`;
+          }
+          prev.addEventListener('click', () => {
+            idx = (idx - 1 + previewSlides.length) % previewSlides.length;
+            render();
+          });
+          next.addEventListener('click', () => {
+            idx = (idx + 1) % previewSlides.length;
+            render();
+          });
+          render();
+        } else if (row.premium.previewJpegDataUrl) {
           const img = document.createElement('img');
           img.src = row.premium.previewJpegDataUrl;
           img.alt = row.title || 'Premium template preview';
           img.style.cssText = 'max-width:100%;height:auto;border:1px solid var(--line);background:#fff';
           wrap.appendChild(img);
         }
+
         const note = document.createElement('p');
         note.className = 'hint';
         note.style.cssText = 'margin:0;text-align:center;max-width:520px';
