@@ -3374,6 +3374,27 @@
             <p class="hint" style="font-size:.72rem;margin:4px 0 0">Design objects keep the imported design editable inside this layer. Double-clicking the layer opens it too.</p>
           </div>
 
+          <div id="linkedDesignLayerControls" style="display:none">
+            <div class="hint" style="font-size:.72rem;margin:0 0 6px;line-height:1.35">
+              <div><strong>🔗 Linked source</strong></div>
+              <div id="linkedDesignSourceTitle" style="margin-top:2px">—</div>
+              <div style="margin-top:2px"><span style="color:#666">by</span> <span id="linkedDesignSourceCreator" style="font-family:monospace;font-size:.7rem">—</span></div>
+              <div style="margin-top:2px"><span style="color:#666">Last resolved</span> <span id="linkedDesignResolvedAt">—</span></div>
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:.78rem;margin:4px 0;cursor:pointer">
+              <input type="checkbox" id="linkedDesignPinToggle">
+              <span>📌 Pin to current version</span>
+            </label>
+            <div class="buttonRow">
+              <button type="button" id="linkedDesignRefreshBtn">Refresh</button>
+              <button type="button" id="linkedDesignReplaceBtn">Replace link…</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="linkedDesignUnlinkBtn">Unlink to embed</button>
+            </div>
+            <p class="hint" style="font-size:.7rem;margin:4px 0 0">Linked layers re-fetch the source on each load. Pin to freeze to the current version.</p>
+          </div>
+
           <div id="qrLayerControls" style="display:none">
             <label for="qrData">QR data (URL or text)</label>
             <textarea id="qrData" rows="2" placeholder="https://example.com" style="resize:vertical;width:100%"></textarea>
@@ -10955,8 +10976,11 @@
       try { closeNostrPreview(); } catch (e) {}
       $('nostrModal')?.classList.remove('open');
       const mode = state._designLayerImportMode === 'link' ? 'link' : 'embed';
+      const replaceId = state._designLayerReplaceId || '';
       let success = false;
-      if (mode === 'link') {
+      if (mode === 'link' && replaceId) {
+        success = replaceLinkedDesignLayerFromRow(replaceId, row);
+      } else if (mode === 'link') {
         success = addLinkedDesignLayerFromRow(row, state._designLayerImportTarget);
       } else {
         success = addDesignLayerFromPayload(payload, state._designLayerImportTarget);
@@ -10965,11 +10989,125 @@
       state._designLayerImportMode = 'embed';
       state._designLayerReplaceId = '';
       if (success) {
-        toastSuccess(mode === 'link'
-          ? '🔗 Linked — renders the latest version of the source on each refresh.'
-          : 'Design imported as an editable object layer.');
+        toastSuccess(
+          mode === 'link' && replaceId
+            ? '🔗 Link replaced.'
+            : mode === 'link'
+              ? '🔗 Linked — renders the latest version of the source on each refresh.'
+              : 'Design imported as an editable object layer.'
+        );
       }
       return true;
+    }
+
+    // Swap an existing linked layer's source for the row the user just
+    // picked in the community browser. Keeps the layer's position +
+    // size; only the design.ref / pinnedEventId / mode / name change.
+    function replaceLinkedDesignLayerFromRow(layerId, row) {
+      const layer = getLayer(layerId);
+      if (!layer || layer.type !== 'design' || layer.design?.kind !== 'linked') {
+        toastError('Original linked layer not found.');
+        return false;
+      }
+      const ev = row?.e;
+      if (!ev || !ev.pubkey || !Number.isFinite(ev.kind)) {
+        toastError('Cannot link this design — source event metadata missing.');
+        return false;
+      }
+      const dTag = (ev.tags || []).find((t) => t[0] === 'd' && t[1])?.[1] || '';
+      if (!dTag) {
+        toastError('Cannot link this design — source has no d-tag (legacy event?).');
+        return false;
+      }
+      const payload = row.payload || {};
+      if (!isDesignPayload(payload)) {
+        toastError('That result is not an Artstr design.');
+        return false;
+      }
+      const ref = `${ev.kind}:${ev.pubkey}:${dTag}`;
+      const mode = normalizeTemplateMode(payload);
+      pushHistory('replace linked source');
+      layer.name = '🔗 ' + designObjectTitle(payload);
+      layer.design = { kind: 'linked', ref, mode, pinnedEventId: null };
+      try { linkedDesigns.resolveLinked({ ref, pinnedEventId: null }); } catch {}
+      render();
+      return true;
+    }
+
+    function refreshSelectedLinkedDesignLayer() {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'design' || layer.design?.kind !== 'linked') return;
+      const spec = { ref: layer.design.ref, pinnedEventId: layer.design.pinnedEventId };
+      const key = linkedDesigns.keyFor(spec);
+      if (key) linkedDesigns.clearCache(key);
+      layer.design.lastResolvedAt = 0;
+      render();
+      // Kick off a fresh resolve so the renderer can paint on completion.
+      (async () => {
+        try { await linkedDesigns.resolveLinked(spec); render(); syncLinkedDesignLayerInputs(layer); } catch {}
+      })();
+      toastSuccess('🔗 Refreshing linked source…');
+    }
+
+    // Toggle pinned-vs-latest. When pinning, snapshot the currently-
+    // resolved event id so the layer freezes to that exact version.
+    function togglePinSelectedLinkedDesignLayer(shouldPin) {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'design' || layer.design?.kind !== 'linked') return;
+      if (shouldPin) {
+        const spec = { ref: layer.design.ref, pinnedEventId: null };
+        const cached = linkedDesigns.peek(spec);
+        const pinId = cached?.sourceEvent?.id;
+        if (!pinId) {
+          toastError('Pin failed — refresh the layer first so we know which version to pin.');
+          const pinEl = $('linkedDesignPinToggle');
+          if (pinEl) pinEl.checked = false;
+          return;
+        }
+        pushHistory('pin linked source');
+        layer.design.pinnedEventId = pinId;
+        toastSuccess('📌 Pinned to current version.');
+      } else {
+        pushHistory('unpin linked source');
+        layer.design.pinnedEventId = null;
+        toastSuccess('🔗 Following latest version.');
+      }
+      render();
+      syncLinkedDesignLayerInputs(layer);
+    }
+
+    function replaceSelectedLinkedDesignLayer() {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'design' || layer.design?.kind !== 'linked') return;
+      state._designLayerImportTarget = layer.target;
+      state._designLayerImportMode = 'link';
+      state._designLayerReplaceId = layer.id;
+      const typeEl = $('nostrType'); if (typeEl) typeEl.value = 'any';
+      const queryEl = $('nostrQuery'); if (queryEl) queryEl.value = '';
+      const catEl = $('nostrCategory'); if (catEl) catEl.value = state.meta.category || '';
+      $('nostrModal')?.classList.add('open');
+      if (typeof switchModalTab === 'function') switchModalTab('Search');
+      runNostrSearch();
+    }
+
+    // Snapshot the currently-resolved source payload into an embedded
+    // layer and drop the link. Requires a successful prior resolve —
+    // we can't snapshot what we can't see.
+    function unlinkSelectedDesignLayer() {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'design' || layer.design?.kind !== 'linked') return;
+      const spec = { ref: layer.design.ref, pinnedEventId: layer.design.pinnedEventId };
+      const cached = linkedDesigns.peek(spec);
+      const payload = cached?.payload;
+      if (!payload) {
+        toastError('Unlink needs the latest source — click Refresh, then try again.');
+        return;
+      }
+      pushHistory('unlink design to embed');
+      layer.name = (layer.name || '').replace(/^🔗\s*/, '') || designObjectTitle(payload);
+      layer.design = { mode: normalizeTemplateMode(payload), payload: clonePayload(payload) };
+      render();
+      toastSuccess('Unlinked — source payload snapshotted into this layer.');
     }
 
     function handleDesignLayerFileImport(event) {
@@ -16500,6 +16638,53 @@
       const bgChk = $('qrBgTransparent'); if (bgChk) bgChk.checked = bgTransparent;
     }
 
+    function _relativeTimeShort(ts) {
+      if (!ts) return null;
+      const delta = Math.max(0, Date.now() - ts);
+      if (delta < 60_000) return 'just now';
+      if (delta < 3_600_000) return `${Math.floor(delta / 60_000)} min ago`;
+      if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)} h ago`;
+      return `${Math.floor(delta / 86_400_000)} d ago`;
+    }
+
+    function syncLinkedDesignLayerInputs(layer) {
+      if (!layer || layer.design?.kind !== 'linked') return;
+      const d = layer.design;
+      const spec = { ref: d.ref, pinnedEventId: d.pinnedEventId };
+      const cached = linkedDesigns.peek(spec);
+      const titleEl = $('linkedDesignSourceTitle');
+      const creatorEl = $('linkedDesignSourceCreator');
+      const resolvedEl = $('linkedDesignResolvedAt');
+      const pinEl = $('linkedDesignPinToggle');
+      if (titleEl) {
+        let t = '';
+        if (cached?.payload) {
+          try { t = designObjectTitle(cached.payload); } catch {}
+        }
+        if (!t) t = (layer.name || '').replace(/^🔗\s*/, '') || 'Linked design';
+        titleEl.textContent = t;
+      }
+      if (creatorEl) {
+        const pk = cached?.sourceEvent?.pubkey
+          || linkedDesigns._parseAddressCoord(d.ref)?.pubkey
+          || '';
+        if (pk) {
+          let np = '';
+          try { np = encodeNpub(pk); } catch {}
+          creatorEl.textContent = np ? (np.slice(0, 12) + '…' + np.slice(-6)) : (pk.slice(0, 10) + '…');
+          creatorEl.title = np || pk;
+        } else {
+          creatorEl.textContent = '—';
+          creatorEl.title = '';
+        }
+      }
+      if (resolvedEl) {
+        const at = d.lastResolvedAt || cached?.fetchedAt || 0;
+        resolvedEl.textContent = _relativeTimeShort(at) || '⟳ resolving…';
+      }
+      if (pinEl) pinEl.checked = !!d.pinnedEventId;
+    }
+
     function updateQrField(field, value) {
       const layer = selectedLayer();
       if (!layer || layer.type !== 'qr') return;
@@ -16853,8 +17038,12 @@
       if (layer && layer.type === 'qr') syncQrLayerInputs(layer);
       const pixelPanel = $('pixelLayerControls');
       if (pixelPanel) pixelPanel.style.display = layer && layer.type === 'pixelart' ? 'block' : 'none';
+      const isLinkedDesign = !!(layer && layer.type === 'design' && layer.design?.kind === 'linked');
       const designPanel = $('designLayerControls');
-      if (designPanel) designPanel.style.display = layer && layer.type === 'design' ? 'block' : 'none';
+      if (designPanel) designPanel.style.display = layer && layer.type === 'design' && !isLinkedDesign ? 'block' : 'none';
+      const linkedDesignPanel = $('linkedDesignLayerControls');
+      if (linkedDesignPanel) linkedDesignPanel.style.display = isLinkedDesign ? 'block' : 'none';
+      if (isLinkedDesign) syncLinkedDesignLayerInputs(layer);
       if (layer) syncLayerClipInputs(layer);
       const layerNameRow = $('layerName');
       const layerNameLabel = layerNameRow?.previousElementSibling;
@@ -25112,6 +25301,12 @@
       });
       $('replaceDesignLayerBtn')?.addEventListener('click', replaceSelectedDesignLayerFromFile);
       $('designLayerFile')?.addEventListener('change', handleDesignLayerFileImport);
+      $('linkedDesignRefreshBtn')?.addEventListener('click', refreshSelectedLinkedDesignLayer);
+      $('linkedDesignReplaceBtn')?.addEventListener('click', replaceSelectedLinkedDesignLayer);
+      $('linkedDesignUnlinkBtn')?.addEventListener('click', unlinkSelectedDesignLayer);
+      $('linkedDesignPinToggle')?.addEventListener('change', (e) => {
+        togglePinSelectedLinkedDesignLayer(!!e.target.checked);
+      });
       $('designObjectDoneBtn')?.addEventListener('click', () => finishDesignObjectEdit(true));
       $('designObjectCancelBtn')?.addEventListener('click', () => finishDesignObjectEdit(false));
       $('pixelEditorDoneBtn')?.addEventListener('click', () => closePixelEditor(true));
