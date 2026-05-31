@@ -991,11 +991,188 @@ window.ArtstrPptxImporter = (function () {
     return CHART_DEFAULT_PALETTE[fallbackIdx % CHART_DEFAULT_PALETTE.length];
   }
 
+  // ---- Chart polish helpers (Phase 4) ---------------------------------
+  // Read the chart title text from c:chart/c:title/c:tx/c:rich, walking
+  // a:p paragraphs and a:r runs. Returns '' when no title or when
+  // c:autoTitleDeleted="1".
+  function _readChartTitle(chartDoc) {
+    const chart = chartDoc.getElementsByTagName('c:chart')[0]
+               || chartDoc.getElementsByTagNameNS('*', 'chart')[0];
+    if (!chart) return '';
+    const autoDel = _directChild(chart, 'autoTitleDeleted');
+    if (autoDel && autoDel.getAttribute('val') === '1') return '';
+    const title = _directChild(chart, 'title');
+    if (!title) return '';
+    const tx = _directChild(title, 'tx');
+    const rich = tx ? _directChild(tx, 'rich') : null;
+    if (!rich) return '';
+    const parts = [];
+    for (let i = 0; i < rich.children.length; i++) {
+      const p = rich.children[i];
+      if (p.localName !== 'p') continue;
+      let s = '';
+      for (let j = 0; j < p.children.length; j++) {
+        const r = p.children[j];
+        if (r.localName !== 'r') continue;
+        const t = _directChild(r, 't');
+        if (t) s += t.textContent || '';
+      }
+      if (s) parts.push(s);
+    }
+    return parts.join(' ');
+  }
+
+  // Read legend metadata; returns { position } or null. Position is
+  // PPTX's c:legendPos@val ('r' / 'l' / 't' / 'b' / 'tr'), default 'r'.
+  function _readChartLegend(chartDoc) {
+    const chart = chartDoc.getElementsByTagName('c:chart')[0]
+               || chartDoc.getElementsByTagNameNS('*', 'chart')[0];
+    if (!chart) return null;
+    const legend = _directChild(chart, 'legend');
+    if (!legend) return null;
+    const posNode = _directChild(legend, 'legendPos');
+    return { position: posNode?.getAttribute('val') || 'r' };
+  }
+
+  // Compute plot-area inset fractions accounting for title / legend /
+  // axis space. hasAxes = true for bar/line charts (which need a
+  // bottom strip for category labels and a left strip for the value
+  // axis), false for pie/doughnut (which don't have axes).
+  function _computePlotInsets(chartDoc, hasAxes) {
+    const insets = { top: 0.05, right: 0.05, bottom: 0.05, left: 0.05 };
+    if (hasAxes) {
+      insets.bottom = 0.15;
+      insets.left = 0.08;
+    }
+    if (_readChartTitle(chartDoc)) insets.top = 0.15;
+    const legend = _readChartLegend(chartDoc);
+    if (legend) {
+      const pos = legend.position;
+      if (pos === 'r' || pos === 'tr') insets.right += 0.18;
+      else if (pos === 'l') insets.left += 0.18;
+      else if (pos === 'b') insets.bottom += 0.08;
+      else if (pos === 't') insets.top += 0.08;
+    }
+    return insets;
+  }
+
+  function _plotAreaFromInsets(gfBounds, insets) {
+    return {
+      x: gfBounds.x + gfBounds.w * insets.left,
+      y: gfBounds.y + gfBounds.h * insets.top,
+      w: gfBounds.w * (1 - insets.left - insets.right),
+      h: gfBounds.h * (1 - insets.top - insets.bottom),
+    };
+  }
+
+  // Emit a title text layer above the plot area when one is present.
+  function _buildTitleLayer(chartDoc, gfBounds, chartLabel, ctx) {
+    const text = _readChartTitle(chartDoc);
+    if (!text) return null;
+    return {
+      id: _makePptxLayerId(),
+      type: 'text',
+      name: `${chartLabel} / Title`,
+      target: 'canvas',
+      html: _escapeHtml(text),
+      x: gfBounds.x + gfBounds.w * 0.05,
+      y: gfBounds.y + gfBounds.h * 0.02,
+      w: gfBounds.w * 0.90,
+      h: gfBounds.h * 0.10,
+      rotate: 0, opacity: 1, z: ctx.nextZ++,
+      fontFamily: 'inherit',
+      fontSize: 16,
+      color: '#111111',
+      align: 'center',
+      bold: true, italic: false,
+    };
+  }
+
+  // Emit one (colour-swatch rect + series-name text) pair per series
+  // in the position requested by c:legendPos. Returns array of layers.
+  function _buildLegendLayers(chartDoc, gfBounds, chartLabel, series, ctx) {
+    const legend = _readChartLegend(chartDoc);
+    if (!legend || !series || !series.length) return [];
+    const layers = [];
+    const pos = legend.position;
+    const minSide = Math.min(gfBounds.w, gfBounds.h);
+    const swatch = minSide * 0.025;
+    const rowH = swatch * 1.6;
+    const pad = swatch * 0.5;
+
+    function emit(swatchX, swatchY, textX, textY, textW, name, color) {
+      layers.push({
+        id: _makePptxLayerId(),
+        type: 'shape',
+        name: `${chartLabel} / Legend swatch: ${name}`,
+        target: 'canvas',
+        x: swatchX, y: swatchY, w: swatch, h: swatch,
+        rotate: 0, opacity: 1, z: ctx.nextZ++,
+        shape: { kind: 'rect' },
+        fill: { type: 'solid', color },
+        stroke: { type: 'none', color: '#000', width: 1, dash: 'solid' },
+      });
+      layers.push({
+        id: _makePptxLayerId(),
+        type: 'text',
+        name: `${chartLabel} / Legend label: ${name}`,
+        target: 'canvas',
+        html: _escapeHtml(name),
+        x: textX, y: textY, w: textW, h: rowH,
+        rotate: 0, opacity: 1, z: ctx.nextZ++,
+        fontFamily: 'inherit',
+        fontSize: 10,
+        color: '#333',
+        align: 'left',
+        bold: false, italic: false,
+      });
+    }
+
+    if (pos === 'r' || pos === 'tr' || pos === 'l') {
+      const blockH = series.length * rowH;
+      const colX = pos === 'l'
+        ? gfBounds.x + gfBounds.w * 0.02
+        : gfBounds.x + gfBounds.w * 0.82;
+      const startY = pos === 'tr'
+        ? gfBounds.y + gfBounds.h * 0.10
+        : gfBounds.y + (gfBounds.h - blockH) / 2;
+      const textW = gfBounds.w * 0.14;
+      for (let i = 0; i < series.length; i++) {
+        const s = series[i];
+        const name = s.name || `Series ${i + 1}`;
+        const rowY = startY + i * rowH;
+        emit(
+          colX, rowY + (rowH - swatch) / 2,
+          colX + swatch + pad, rowY,
+          textW, name, s.color
+        );
+      }
+    } else if (pos === 'b' || pos === 't') {
+      const colW = (gfBounds.w * 0.90) / series.length;
+      const startX = gfBounds.x + gfBounds.w * 0.05;
+      const baseY = pos === 'b'
+        ? gfBounds.y + gfBounds.h * 0.92
+        : gfBounds.y + gfBounds.h * 0.02;
+      const textW = colW - swatch - pad * 2;
+      for (let i = 0; i < series.length; i++) {
+        const s = series[i];
+        const name = s.name || `Series ${i + 1}`;
+        const colX = startX + i * colW;
+        emit(
+          colX, baseY + (rowH - swatch) / 2,
+          colX + swatch + pad, baseY,
+          textW, name, s.color
+        );
+      }
+    }
+    return layers;
+  }
+
   // Build an array of Artstr shape + text layers for a clustered
   // c:barChart (col or bar direction). Returns null when the chart
   // is empty (no series, no values, etc.) so the caller can fall
   // through to the placeholder behaviour.
-  function buildBarChartLayers(barChartNode, gfBounds, chartLabel, ctx) {
+  function buildBarChartLayers(barChartNode, chartDoc, gfBounds, chartLabel, ctx) {
     const dirNode = _directChild(barChartNode, 'barDir');
     const direction = dirNode?.getAttribute('val') || 'col'; // 'col' or 'bar'
     const grouping = _directChild(barChartNode, 'grouping')?.getAttribute('val') || 'clustered';
@@ -1030,13 +1207,9 @@ window.ArtstrPptxImporter = (function () {
     if (!N) return null;
     const S = series.length;
 
-    // Plot area: fixed inset for now (manualLayout is Phase 4 polish).
-    const pa = {
-      x: gfBounds.x + gfBounds.w * 0.05,
-      y: gfBounds.y + gfBounds.h * 0.05,
-      w: gfBounds.w * 0.90,
-      h: gfBounds.h * 0.80, // leaves 15% gap at the bottom for category labels
-    };
+    // Plot area: insets adjust for title / legend / axes via the
+    // shared _computePlotInsets helper (Phase 4 polish).
+    const pa = _plotAreaFromInsets(gfBounds, _computePlotInsets(chartDoc, true));
 
     // Auto-scale to data max. Negative values aren't handled in Phase 1.
     let maxV = 0;
@@ -1150,6 +1323,11 @@ window.ArtstrPptxImporter = (function () {
       }
     }
 
+    // Phase 4 polish: title + legend.
+    const title = _buildTitleLayer(chartDoc, gfBounds, chartLabel, ctx);
+    if (title) layers.push(title);
+    layers.push(..._buildLegendLayers(chartDoc, gfBounds, chartLabel, series, ctx));
+
     return layers;
   }
 
@@ -1227,7 +1405,7 @@ window.ArtstrPptxImporter = (function () {
   // one per slice. All slices share a common square sub-bounds
   // centred in the chart's graphicFrame area so the pie renders
   // circular even when the chart's overall bounds are rectangular.
-  function buildPieChartLayers(pieChartNode, gfBounds, chartLabel, ctx, opts) {
+  function buildPieChartLayers(pieChartNode, chartDoc, gfBounds, chartLabel, ctx, opts) {
     const isDoughnut = !!(opts && opts.isDoughnut);
     const varyColorsNode = _directChild(pieChartNode, 'varyColors');
     const varyColors = varyColorsNode
@@ -1255,10 +1433,13 @@ window.ArtstrPptxImporter = (function () {
     const fsv = Number(fsNode?.getAttribute('val'));
     if (Number.isFinite(fsv)) firstAngleDeg = fsv;
 
-    const side = Math.min(gfBounds.w, gfBounds.h);
+    // Phase 4: shrink the pie's "drawable" rectangle by the same
+    // insets bar/line use so the pie doesn't overlap title or legend.
+    const plotBounds = _plotAreaFromInsets(gfBounds, _computePlotInsets(chartDoc, false));
+    const side = Math.min(plotBounds.w, plotBounds.h);
     const sliceBounds = {
-      x: gfBounds.x + (gfBounds.w - side) / 2,
-      y: gfBounds.y + (gfBounds.h - side) / 2,
+      x: plotBounds.x + (plotBounds.w - side) / 2,
+      y: plotBounds.y + (plotBounds.h - side) / 2,
       w: side,
       h: side,
     };
@@ -1269,6 +1450,7 @@ window.ArtstrPptxImporter = (function () {
     let angle = -Math.PI / 2 + (firstAngleDeg * Math.PI / 180);
 
     const layers = [];
+    const legendSeries = []; // for the legend builder — one entry per slice
     for (let i = 0; i < values.length; i++) {
       const v = Math.max(0, Number(values[i]) || 0);
       if (v <= 0) continue;
@@ -1278,6 +1460,7 @@ window.ArtstrPptxImporter = (function () {
       if (!d) continue;
       const color = _readPieSliceColor(serNode, i, varyColors, ctx.theme);
       const catLabel = categories[i] || `Slice ${i + 1}`;
+      legendSeries.push({ name: catLabel, color });
       layers.push({
         id: _makePptxLayerId(),
         type: 'shape',
@@ -1299,6 +1482,14 @@ window.ArtstrPptxImporter = (function () {
         stroke: { type: 'none', color: '#000000', width: 1, dash: 'solid' },
       });
     }
+
+    // Phase 4 polish: title + legend. Pie legend lists slice
+    // categories (each in its own slice colour) rather than series
+    // names — there's only one series anyway.
+    const title = _buildTitleLayer(chartDoc, gfBounds, chartLabel, ctx);
+    if (title) layers.push(title);
+    layers.push(..._buildLegendLayers(chartDoc, gfBounds, chartLabel, legendSeries, ctx));
+
     return layers.length ? layers : null;
   }
 
@@ -1321,7 +1512,7 @@ window.ArtstrPptxImporter = (function () {
   // c:lineChart → one path-shape layer per series (polyline) plus
   // optional marker shapes at each data point. Category labels go
   // below the plot area, like the bar / column chart.
-  function buildLineChartLayers(lineChartNode, gfBounds, chartLabel, ctx) {
+  function buildLineChartLayers(lineChartNode, chartDoc, gfBounds, chartLabel, ctx) {
     const serNodes = [];
     for (let i = 0; i < lineChartNode.children.length; i++) {
       if (lineChartNode.children[i].localName === 'ser') serNodes.push(lineChartNode.children[i]);
@@ -1390,13 +1581,8 @@ window.ArtstrPptxImporter = (function () {
       series.push({ name, color, values, lineWidth: lineWidthIn, markerEnabled, markerSizeIn, markerColor });
     }
 
-    // Plot area (same inset model as bar chart).
-    const pa = {
-      x: gfBounds.x + gfBounds.w * 0.05,
-      y: gfBounds.y + gfBounds.h * 0.05,
-      w: gfBounds.w * 0.90,
-      h: gfBounds.h * 0.80,
-    };
+    // Plot area: shared insets-from-chart-polish helper (Phase 4).
+    const pa = _plotAreaFromInsets(gfBounds, _computePlotInsets(chartDoc, true));
 
     const N = categories.length || series[0].values.length;
     if (!N) return null;
@@ -1500,6 +1686,11 @@ window.ArtstrPptxImporter = (function () {
       });
     }
 
+    // Phase 4 polish: title + legend.
+    const title = _buildTitleLayer(chartDoc, gfBounds, chartLabel, ctx);
+    if (title) layers.push(title);
+    layers.push(..._buildLegendLayers(chartDoc, gfBounds, chartLabel, series, ctx));
+
     return layers.length ? layers : null;
   }
 
@@ -1516,16 +1707,16 @@ window.ArtstrPptxImporter = (function () {
     for (let i = 0; i < plotArea.children.length; i++) {
       const ch = plotArea.children[i];
       if (ch.localName === 'barChart') {
-        return buildBarChartLayers(ch, gfBounds, chartLabel, ctx);
+        return buildBarChartLayers(ch, chartDoc, gfBounds, chartLabel, ctx);
       }
       if (ch.localName === 'pieChart') {
-        return buildPieChartLayers(ch, gfBounds, chartLabel, ctx, { isDoughnut: false });
+        return buildPieChartLayers(ch, chartDoc, gfBounds, chartLabel, ctx, { isDoughnut: false });
       }
       if (ch.localName === 'doughnutChart') {
-        return buildPieChartLayers(ch, gfBounds, chartLabel, ctx, { isDoughnut: true });
+        return buildPieChartLayers(ch, chartDoc, gfBounds, chartLabel, ctx, { isDoughnut: true });
       }
       if (ch.localName === 'lineChart') {
-        return buildLineChartLayers(ch, gfBounds, chartLabel, ctx);
+        return buildLineChartLayers(ch, chartDoc, gfBounds, chartLabel, ctx);
       }
       // Phase 5: bar3DChart, line3DChart, pie3DChart, etc.
     }
@@ -2137,6 +2328,9 @@ window.ArtstrPptxImporter = (function () {
       buildLineChartLayers,
       _sliceArcPath,
       _polylinePathD,
+      _readChartTitle,
+      _readChartLegend,
+      _computePlotInsets,
       convertChart,
       walkSpTree,
       readSlideRels,
