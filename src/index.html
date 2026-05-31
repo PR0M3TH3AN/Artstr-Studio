@@ -22387,7 +22387,10 @@
 
         actionsDiv.insertBefore(import1Btn, saveJsonBtn);
         actionsDiv.insertBefore(import2Btn, saveJsonBtn);
-      } else {
+      } else if (mode !== 'pixelart') {
+        // Pixel-art designs have their own PNG / GIF download button
+        // a few lines up — Print / Save PDF doesn't make sense for
+        // raster sprites at small native resolutions.
         const printBtn = document.createElement('button');
         printBtn.type = 'button';
         printBtn.textContent = 'Print / Save PDF';
