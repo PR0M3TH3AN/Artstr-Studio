@@ -66,6 +66,14 @@ toggle that fits the early-web aesthetic. Add new editor-UX items below.
 
 Each has a full spec in `docs/`.
 
+- **Linked Designs** — `docs/LINKED_DESIGNS_FEATURE.md`. A new
+  `kind: 'linked'` flavor of the existing design layer that stores
+  only a NIP-01 addressable-event coordinate (no payload) and
+  resolves to the latest source on render. Auto-update across
+  collaborators, smaller host events, and first-class attribution
+  via `'p'` tags. Phased: public-only → premium + private → polish
+  (disk cache, attribution-tag emission, Credits panel, "Publish
+  + link" workflow).
 - **Artstr Stacks** — `docs/STACKS_FEATURE.md`. Interactive fullscreen
   page/card stacks (HyperCard for Nostr) — the Slide Deck extended with
   layer actions and an interactive viewer.
@@ -94,30 +102,18 @@ follow-ups worth their own work:
 
 ## PPTX import polish
 
-Phases 0–6 of `docs/PPTX_IMPORT_FEATURE.md` shipped on the
-`pptx-import` branch (deck shell, slide backgrounds, text + speaker
-notes, image / chart / table / SmartArt placeholders, basic preset
-shapes with fills + strokes, group flattening, theme color
-resolution + master/layout bg inheritance + line flip handling).
-Branch still needs a merge into `main` once we're done testing.
-Open follow-ups:
+Phases 0–7 of `docs/PPTX_IMPORT_FEATURE.md` are shipped on `main`
+(deck shell, slide backgrounds, text + speaker notes with per-run
+rich-text spans, image / table / SmartArt placeholders, basic preset
+shapes with fills + strokes + line flips + bent / curved connector
+approximations, group flattening, theme color resolution +
+master / layout bg inheritance). Native chart import (the former
+"placeholders" item) is also shipped as its own arc — see
+`docs/CHART_IMPORT_FEATURE.md`. Open follow-ups:
 
-- **Phase 7 polish — per-run rich text spans.** Today a text box
-  takes the first run's style as its dominant style; mid-paragraph
-  bold / color / size changes get lost. Real fix is to emit Artstr
-  rich-text HTML with inline `<b>` / `<i>` / `<span style="...">`
-  per run instead of a flat dominant style.
-- **Phase 7 polish — richer report modal.** Per-slide warning
-  summary, group counts, theme-resolution stats. The data already
-  lands in `report.warnings` and `report.imported`; just needs UI.
-- **Native chart support.** Charts currently land as placeholder
-  images. Real support means rendering OOXML chart XML
-  (`ppt/charts/chartN.xml`) into native Artstr layers — text labels
-  for axes / titles / legends, shape layers for bars / columns / pie
-  slices / line segments. Likely its own multi-phase arc: start
-  with bar / column / pie, defer scatter / area / 3D / combo charts.
-  Alternative scoping: extract the underlying data table and let
-  the user rebuild the chart manually.
+- **Richer report modal.** Per-slide warning summary, group counts,
+  theme-resolution stats. The data already lands in
+  `report.warnings` and `report.imported`; just needs UI.
 - **Phase 6+ inheritance gaps.** Gradient slide backgrounds
   (`a:gradFill`), picture / blipFill backgrounds, font scheme
   resolution (`+mj-lt` / `+mn-lt` → the theme's actual font),
@@ -132,6 +128,25 @@ Open follow-ups:
   under `test/pptx/` so future-phase regressions are caught
   automatically.
 
+## Chart import polish
+
+Phases 1–4 of `docs/CHART_IMPORT_FEATURE.md` shipped (bar / column,
+pie / doughnut with arc-d slices, line charts with markers, plus
+the title / legend / data labels / nice-number axis ticks /
+gridlines polish layer). Open follow-ups:
+
+- **Stacked + percent-stacked bar / column / line.** PowerPoint's
+  `c:grouping val="stacked"` and `"percentStacked"` variants
+  currently return null and fall back to placeholder. Phase 5 of the
+  chart spec covers the running-sum math + per-series rect deltas.
+- **Combo charts.** Multiple chart types in one `c:plotArea` (e.g.
+  bar + line). Today only the first child type renders; the others
+  are silently dropped. Phase 6.
+- **3D variants.** `c:bar3DChart`, `c:line3DChart`, `c:pie3DChart` —
+  these still placeholder. Faithful 3D rendering isn't realistic in
+  a single-canvas editor; an approximation as flat charts with a
+  warning would be honest.
+
 ## Phase-3+ work on shipped features
 
 - **Private (encrypted) publishing — Phases 3 & 4.**
@@ -143,6 +158,63 @@ Open follow-ups:
 
 ## Shipped (recent)
 
+- **PPTX import** — `docs/PPTX_IMPORT_FEATURE.md`. Phases 0–7
+  shipped on main: deck shell parser, slide backgrounds, text +
+  speaker notes (with Phase-7 per-run rich-text spans for
+  mid-paragraph styling), image / table / SmartArt placeholders,
+  preset shapes (rect / ellipse / triangle / star / hexagon /
+  pentagon / line / connectors with bent + curved approximations)
+  with fills + strokes + line flips, group flattening with
+  composed transforms, and theme-color + master / layout
+  background inheritance. fflate-vendored zip lib + lazy-loaded
+  `src/pptx-importer.js` module keep the main bundle lean.
+- **Native chart import** — `docs/CHART_IMPORT_FEATURE.md`. Phases
+  1–4 shipped: bar / column (clustered), pie + doughnut (path-arc
+  wedges), line with optional markers, plus the Phase-4 polish
+  layer — title text, series legend with color swatches, data
+  labels (showVal / showCatName / showPercent / showSerName),
+  nice-number value-axis ticks (1/2/5 × 10ⁿ), and optional
+  gridlines when c:majorGridlines is present. Stacked variants
+  and combo / 3D charts still placeholder via the existing
+  CHART_TYPE_UNSUPPORTED fallback.
+- **Premium decks — publishing + multi-slide preview viewer.**
+  `_renderModeToExportCanvas` now handles `deck` mode (renders the
+  first slide or currently-edited slide). Up to 6 watermarked
+  per-slide previews land in the envelope (~40 KB each, ~240 KB
+  total) so buyers can flip through with a Prev / Next pager
+  before purchase. The same paginated viewer also renders on
+  unlocked decks so the flip-through UX stays continuous.
+- **Self-author auto-unlock.** Premium events authored by the
+  current user decrypt locally on feed load and surface as
+  unlocked — no zap-yourself required. Runs alongside the
+  existing receipt fast-path; the soft-gate KDF is deterministic
+  so no receipt is needed for the author.
+- **Pixel-art layer animation when embedded.** Multi-frame
+  pixel-art designs imported as layers into another canvas now
+  animate at their stored fps + loop settings. RAF self-stops when
+  the layer's display canvas leaves the DOM.
+- **One-click PNG / GIF download on pixel-art preview pages.**
+  Community-browser preview pane for pixel-art designs exposes a
+  Download button that auto-picks PNG (single-frame) or animated
+  GIF (multi-frame) at 4× scale. Reuses the editor's full export
+  pipeline.
+- **Auto-pick category metadata.** `defaultCategoryForMode` maps
+  canvas modes (slide / deck / customart / pixelart) to their
+  canonical mediaCategories values; runs at the top of `syncInputs`
+  so both create-new and import paths land with a sensible
+  category. Idempotent — leaves a user-picked value alone.
+- **Locked-premium UI gating.** Print / Save PDF, Start
+  Presentation (deck), and Import-into-Disc-1/2 (disc-design)
+  hidden when the preview row is locked premium. The buttons all
+  depend on the design payload, which the envelope only exposes
+  after unlock.
+- **Vault durability fixes.** Receipt fast-path now re-derives +
+  decrypts the payload (was setting unlocked:true without payload,
+  breaking Use/Fork after cache wipe). Vault upsert is now
+  synchronous-to-success with visible failure toasts. Vault reads
+  + writes use a wider relay union (current + DEFAULT_NOSTR_RELAYS)
+  so purchases stay visible across browsers / domains even when
+  the user narrows their relay list.
 - **Premium encrypted designs — static soft-gate + NWC split-zap +
   purchase vault.** Spec lives in `docs/PREMIUM_DESIGNS_FEATURE.md`.
   Creators tick "Premium encrypted" + a soft-gate ack in the publish
