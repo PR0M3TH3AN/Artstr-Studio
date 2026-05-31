@@ -6611,7 +6611,18 @@
         else cache.clear();
       }
 
-      return { resolveLinked, walkLinkedTree, walkContributors, clearCache, _parseAddressCoord, _cacheKey };
+      // Synchronous cache peek for renderers that want to skip the
+      // placeholder flicker when a layer's source is already resolved
+      // in this session. Returns null on miss or expired entry.
+      function peek(linkSpec) {
+        const key = _cacheKey(linkSpec || {});
+        if (!key) return null;
+        return _fromCache(key);
+      }
+
+      function keyFor(linkSpec) { return _cacheKey(linkSpec || {}); }
+
+      return { resolveLinked, walkLinkedTree, walkContributors, clearCache, peek, keyFor, _parseAddressCoord, _cacheKey };
     })();
 
     // ---- NWC sync (cross-device wallet credential sharing) -----------------
@@ -10668,6 +10679,39 @@
       else renderTemplatePreviewDOM(container, payload, opts);
     }
 
+    // Helper: collect data-linked-key values up the DOM tree so a
+    // recursing linked render can detect cycles + depth-3 overshoot
+    // without threading a context object through every renderer.
+    function _collectLinkedAncestorKeys(el) {
+      const keys = [];
+      let node = el?.parentElement;
+      while (node) {
+        const k = node.dataset?.linkedKey;
+        if (k) keys.push(k);
+        node = node.parentElement;
+      }
+      return keys;
+    }
+
+    // Helper: pull a sensible (w, h) hint out of an arbitrary design
+    // payload, used so the layer-options panel can report dimensions
+    // + so initial sizing can pick a reasonable aspect.
+    function _sizeFromDesignPayload(payload) {
+      if (!payload) return null;
+      if (payload.customArt?.width)         return { w: payload.customArt.width, h: payload.customArt.height };
+      if (payload.deck?.slides?.[0]?.slide) return { w: payload.deck.slides[0].slide.width, h: payload.deck.slides[0].slide.height };
+      if (payload.pixelArt?.width)          return { w: payload.pixelArt.width, h: payload.pixelArt.height };
+      return null;
+    }
+
+    // Render a `type: 'design'` layer. Two flavours:
+    //   - kind: 'embedded' (legacy default) — payload is inline,
+    //     rendered synchronously like a regular layer preview.
+    //   - kind: 'linked' — the layer carries an address coordinate
+    //     instead of a payload; the resolver fetches the latest
+    //     source from relays and the renderer upgrades the DOM
+    //     from placeholder → resolved preview when the fetch
+    //     completes. See LINKED_DESIGNS_FEATURE.md §8.1.
     function renderDesignObjectIntoElement(el, layer) {
       el.innerHTML = '';
       const frame = document.createElement('div');
@@ -10676,13 +10720,88 @@
       fitWrap.className = 'designObjectFitWrap';
       fitWrap.style.cssText = 'position:absolute;inset:0;overflow:hidden;pointer-events:none;display:flex;align-items:center;justify-content:center';
       frame.appendChild(fitWrap);
-      try {
-        renderDesignPayloadPreview(fitWrap, layer.design?.payload || {}, { compact: true, transparentPixelArt: true });
-        fitMiniPreview(fitWrap);
-      } catch (err) {
-        fitWrap.innerHTML = `<div class="hint" style="padding:8px;font-size:.72rem">Design preview unavailable.</div>`;
-      }
       el.appendChild(frame);
+
+      const isLinked = layer.design?.kind === 'linked';
+      if (!isLinked) {
+        // Existing embedded path — synchronous render from inline payload.
+        try {
+          renderDesignPayloadPreview(fitWrap, layer.design?.payload || {}, { compact: true, transparentPixelArt: true });
+          fitMiniPreview(fitWrap);
+        } catch (err) {
+          fitWrap.innerHTML = `<div class="hint" style="padding:8px;font-size:.72rem">Design preview unavailable.</div>`;
+        }
+        return;
+      }
+
+      // ---- Linked path ------------------------------------------------
+      const spec = { ref: layer.design.ref, pinnedEventId: layer.design.pinnedEventId };
+      const key = linkedDesigns.keyFor(spec);
+      const ancestors = _collectLinkedAncestorKeys(el);
+
+      // Cycle: a parent renderer is already rendering this same link.
+      if (key && ancestors.includes(key)) {
+        fitWrap.innerHTML = `<div class="hint" style="padding:8px;font-size:.72rem;text-align:center;color:#b91c1c">🔗 Linked-design cycle blocked</div>`;
+        return;
+      }
+      // Depth: count nested-link parents in the DOM. The host counts
+      // as depth 0; we cap at LINKED_DESIGN_MAX_DEPTH (=3).
+      if (ancestors.length >= LINKED_DESIGN_MAX_DEPTH) {
+        fitWrap.innerHTML = `<div class="hint" style="padding:8px;font-size:.72rem;text-align:center;color:#b91c1c">🔗 Linked-design depth limit reached (${LINKED_DESIGN_MAX_DEPTH})</div>`;
+        return;
+      }
+      if (key) el.dataset.linkedKey = key;
+
+      const renderResolved = (payload) => {
+        if (!el.isConnected) return; // host re-rendered while we fetched
+        fitWrap.innerHTML = '';
+        try {
+          renderDesignPayloadPreview(fitWrap, payload, { compact: true, transparentPixelArt: true });
+          fitMiniPreview(fitWrap);
+        } catch {
+          fitWrap.innerHTML = `<div class="hint" style="padding:8px;font-size:.72rem">Design preview unavailable.</div>`;
+        }
+      };
+
+      // Sync cache peek: skip the placeholder flicker for sources we
+      // resolved earlier this session.
+      const cached = linkedDesigns.peek(spec);
+      if (cached?.payload) {
+        layer.design.lastResolvedAt = cached.fetchedAt;
+        const sz = _sizeFromDesignPayload(cached.payload);
+        if (sz) layer.design.lastResolvedSize = sz;
+        renderResolved(cached.payload);
+        return;
+      }
+
+      // No cache hit — show a placeholder (or the persisted fallback
+      // preview if the user opted in to one) and kick off the async
+      // resolver.
+      if (layer.design.fallbackPreview) {
+        const img = document.createElement('img');
+        img.src = layer.design.fallbackPreview;
+        img.alt = layer.name || 'Linked design preview';
+        img.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block;background:#fff';
+        fitWrap.appendChild(img);
+      } else {
+        fitWrap.innerHTML = `<div class="hint" style="padding:8px;font-size:.72rem;text-align:center;color:#555">⟳ Loading linked design…</div>`;
+      }
+      (async () => {
+        const entry = await linkedDesigns.resolveLinked(spec);
+        if (!el.isConnected) return;
+        if (!entry?.payload) {
+          // Source missing on relays. Keep the fallback preview if
+          // one was already drawn; otherwise show an inline note.
+          if (!layer.design.fallbackPreview) {
+            fitWrap.innerHTML = `<div class="hint" style="padding:8px;font-size:.72rem;text-align:center;color:#92400e">🔗 Linked source not found — refresh to retry</div>`;
+          }
+          return;
+        }
+        layer.design.lastResolvedAt = entry.fetchedAt;
+        const sz = _sizeFromDesignPayload(entry.payload);
+        if (sz) layer.design.lastResolvedSize = sz;
+        renderResolved(entry.payload);
+      })();
     }
 
     function addDesignLayerFromPayload(payload, targetOverride = '') {
