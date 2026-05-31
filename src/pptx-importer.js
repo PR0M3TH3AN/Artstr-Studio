@@ -991,6 +991,120 @@ window.ArtstrPptxImporter = (function () {
     return CHART_DEFAULT_PALETTE[fallbackIdx % CHART_DEFAULT_PALETTE.length];
   }
 
+  // ---- Axis-tick helpers (Phase 4c) -----------------------------------
+  // Pick an interval ≈ range/targetTicks rounded to 1, 2, or 5 × 10ⁿ.
+  // Returns a step value that produces visually clean tick numbers
+  // (matches what PowerPoint's auto-axis algorithm does).
+  function _niceStep(range, targetTicks) {
+    if (!Number.isFinite(range) || range <= 0) return 1;
+    const target = targetTicks > 0 ? targetTicks : 5;
+    const rough = range / target;
+    const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+    const norm = rough / mag;
+    let nice;
+    if (norm < 1.5) nice = 1;
+    else if (norm < 3) nice = 2;
+    else if (norm < 7) nice = 5;
+    else nice = 10;
+    return nice * mag;
+  }
+
+  function _ticksUpTo(maxV, step) {
+    const ticks = [];
+    if (step <= 0 || !Number.isFinite(maxV) || maxV < 0) return ticks;
+    let t = 0;
+    while (t <= maxV + 1e-9 && ticks.length < 50) {
+      // Format: integers stay integer; small fractions show ≤ 2 decimals.
+      ticks.push(Number(t.toFixed(6)));
+      t += step;
+    }
+    return ticks;
+  }
+
+  // Does the chart have c:majorGridlines on any axis?
+  function _chartHasMajorGridlines(chartDoc) {
+    const plotArea = chartDoc.getElementsByTagName('c:plotArea')[0]
+                  || chartDoc.getElementsByTagNameNS('*', 'plotArea')[0];
+    if (!plotArea) return false;
+    for (let i = 0; i < plotArea.children.length; i++) {
+      const ax = plotArea.children[i];
+      if (ax.localName !== 'valAx' && ax.localName !== 'catAx') continue;
+      if (_directChild(ax, 'majorGridlines')) return true;
+    }
+    return false;
+  }
+
+  // Build gridline rect layers across the plot area. Direction 'col'
+  // (vertical value axis) emits horizontal gridlines; 'bar'
+  // (horizontal value axis) emits vertical gridlines. Emit BEFORE the
+  // data shapes so bars / lines render on top.
+  function _buildGridlineLayers(chartDoc, pa, maxV, step, direction, chartLabel, ctx) {
+    if (!_chartHasMajorGridlines(chartDoc)) return [];
+    const layers = [];
+    const thickness = 1 / PX_PER_IN; // 1 CSS pixel
+    let t = step; // skip the 0 line — the plot's bottom edge is implicit
+    while (t <= maxV + 1e-9 && layers.length < 30) {
+      const frac = t / maxV;
+      let rect;
+      if (direction === 'col') {
+        const yPos = pa.y + pa.h - frac * pa.h;
+        rect = { x: pa.x, y: yPos - thickness / 2, w: pa.w, h: thickness };
+      } else {
+        const xPos = pa.x + frac * pa.w;
+        rect = { x: xPos - thickness / 2, y: pa.y, w: thickness, h: pa.h };
+      }
+      layers.push({
+        id: _makePptxLayerId(),
+        type: 'shape',
+        name: `${chartLabel} / Gridline @ ${t}`,
+        target: 'canvas',
+        x: rect.x, y: rect.y, w: rect.w, h: rect.h,
+        rotate: 0, opacity: 1, z: ctx.nextZ++,
+        shape: { kind: 'rect' },
+        fill: { type: 'solid', color: '#e0e0e0' },
+        stroke: { type: 'none', color: '#000', width: 1, dash: 'solid' },
+      });
+      t += step;
+    }
+    return layers;
+  }
+
+  // Build value-axis tick-label text layers. Emit AFTER everything
+  // else so the labels render on top of any background.
+  function _buildAxisTickLayers(gfBounds, pa, maxV, step, direction, chartLabel, ctx) {
+    const layers = [];
+    const labelW = gfBounds.w * 0.06;
+    const labelH = gfBounds.h * 0.04;
+    let t = 0;
+    while (t <= maxV + 1e-9 && layers.length < 30) {
+      const frac = t / maxV;
+      let pos;
+      if (direction === 'col') {
+        const yPos = pa.y + pa.h - frac * pa.h;
+        pos = { x: pa.x - labelW - 0.02, y: yPos - labelH / 2, align: 'right' };
+      } else {
+        const xPos = pa.x + frac * pa.w;
+        pos = { x: xPos - labelW / 2, y: pa.y + pa.h + 0.02, align: 'center' };
+      }
+      layers.push({
+        id: _makePptxLayerId(),
+        type: 'text',
+        name: `${chartLabel} / Tick @ ${t}`,
+        target: 'canvas',
+        html: _escapeHtml(String(t)),
+        x: pos.x, y: pos.y, w: labelW, h: labelH,
+        rotate: 0, opacity: 1, z: ctx.nextZ++,
+        fontFamily: 'inherit',
+        fontSize: 10,
+        color: '#555',
+        align: pos.align,
+        bold: false, italic: false,
+      });
+      t += step;
+    }
+    return layers;
+  }
+
   // ---- Data-label helpers (Phase 4b) ----------------------------------
   // Read c:dLbls flags into a plain options object. Returns null when
   // the node is missing entirely.
@@ -1271,7 +1385,15 @@ window.ArtstrPptxImporter = (function () {
     // chart-type-level c:dLbls.
     const dlOptsBySeries = serNodes.map((sn) => _resolveDataLabelOpts(sn, barChartNode));
 
+    // Phase 4c: round maxV up to a nice tick step and compute ticks.
+    const tickStep = _niceStep(maxV, 5);
+    const tickMax = Math.ceil(maxV / tickStep) * tickStep;
+    if (tickMax > maxV) maxV = tickMax;
+
     const layers = [];
+
+    // Phase 4c: gridlines BEFORE bars so they render behind.
+    layers.push(..._buildGridlineLayers(chartDoc, pa, maxV, tickStep, direction, chartLabel, ctx));
 
     // ---- Bars + per-bar data labels ----
     if (direction === 'col') {
@@ -1425,6 +1547,9 @@ window.ArtstrPptxImporter = (function () {
         });
       }
     }
+
+    // Phase 4c: value-axis tick labels.
+    layers.push(..._buildAxisTickLayers(gfBounds, pa, maxV, tickStep, direction, chartLabel, ctx));
 
     // Phase 4 polish: title + legend.
     const title = _buildTitleLayer(chartDoc, gfBounds, chartLabel, ctx);
@@ -1736,7 +1861,16 @@ window.ArtstrPptxImporter = (function () {
     for (const s of series) for (const v of s.values) if (v > maxV) maxV = v;
     if (maxV <= 0) maxV = 1;
 
+    // Phase 4c: nice-number axis ticks. Round maxV up so the top
+    // tick lines up with the top of the plot.
+    const tickStep = _niceStep(maxV, 5);
+    const tickMax = Math.ceil(maxV / tickStep) * tickStep;
+    if (tickMax > maxV) maxV = tickMax;
+
     const layers = [];
+
+    // Gridlines first so polylines + markers render on top.
+    layers.push(..._buildGridlineLayers(chartDoc, pa, maxV, tickStep, 'col', chartLabel, ctx));
 
     // ---- Polylines ----
     for (let si = 0; si < series.length; si++) {
@@ -1856,6 +1990,10 @@ window.ArtstrPptxImporter = (function () {
         bold: false, italic: false,
       });
     }
+
+    // Phase 4c: value-axis tick labels (line chart's value axis is
+    // always vertical).
+    layers.push(..._buildAxisTickLayers(gfBounds, pa, maxV, tickStep, 'col', chartLabel, ctx));
 
     // Phase 4 polish: title + legend.
     const title = _buildTitleLayer(chartDoc, gfBounds, chartLabel, ctx);
@@ -2505,6 +2643,9 @@ window.ArtstrPptxImporter = (function () {
       _readDataLabelOpts,
       _resolveDataLabelOpts,
       _formatDataLabelText,
+      _niceStep,
+      _ticksUpTo,
+      _chartHasMajorGridlines,
       convertChart,
       walkSpTree,
       readSlideRels,
