@@ -10773,8 +10773,11 @@
       }
       if (key) el.dataset.linkedKey = key;
 
+      // Synchronous paint helper. Callers from the async path must
+      // guard against el having been detached between the await and
+      // here; the synchronous peek-hit path calls this before el is
+      // even appended to the overlay, so don't guard inside.
       const renderResolved = (payload) => {
-        if (!el.isConnected) return; // host re-rendered while we fetched
         fitWrap.innerHTML = '';
         try {
           renderDesignPayloadPreview(fitWrap, payload, { compact: true, transparentPixelArt: true });
