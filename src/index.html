@@ -22252,6 +22252,63 @@
         actionsDiv.insertBefore(presentBtn, saveJsonBtn);
       }
 
+      // Pixel-art designs get a one-click Download button that emits
+      // a PNG for single-frame designs and an animated GIF for
+      // multi-frame ones. Reuses the same export blob helpers the
+      // editor's full export menu uses, at the default 4× scale.
+      // Locked premium pixel-art designs only show this after unlock
+      // — the design data isn't available otherwise.
+      if (mode === 'pixelart' && !lockedPremium) {
+        const pa = p.pixelArt || {};
+        const frameCount = Array.isArray(pa.frames) ? pa.frames.length : 0;
+        const isAnimated = frameCount > 1;
+        const dlBtn = document.createElement('button');
+        dlBtn.type = 'button';
+        dlBtn.textContent = isAnimated ? '⬇ Download GIF' : '⬇ Download PNG';
+        dlBtn.title = isAnimated
+          ? `Download as animated GIF (${frameCount} frames, ${pa.fps || 8} fps) at 4× scale`
+          : 'Download as PNG at 4× scale';
+        dlBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const originalLabel = dlBtn.textContent;
+          dlBtn.disabled = true;
+          dlBtn.textContent = 'Preparing…';
+          try {
+            let blob;
+            if (isAnimated) {
+              blob = exportPixelArtToGifBlob(pa, {
+                scale: 4,
+                fps: pa.fps || 8,
+                loop: pa.loop !== false,
+              });
+            } else {
+              blob = await exportPixelArtToPngBlob(pa, {
+                scale: 4,
+                transparent: true,
+                includeGrid: false,
+              });
+            }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = pixelExportFilename(pa, 4, false, isAnimated ? 'gif' : 'png');
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            toastSuccess(isAnimated
+              ? `Downloaded GIF (${frameCount} frames)`
+              : `Downloaded PNG (${pa.width || 0}×${pa.height || 0} px at 4×)`);
+          } catch (err) {
+            toastError(err?.message || 'Download failed.');
+          } finally {
+            dlBtn.disabled = false;
+            dlBtn.textContent = originalLabel;
+          }
+        });
+        actionsDiv.insertBefore(dlBtn, saveJsonBtn);
+      }
+
       if (isDiscDesign) {
         const import1Btn = document.createElement('button');
         import1Btn.type = 'button';
