@@ -10861,6 +10861,7 @@
 
     function openDesignLayerNostrSearch(targetOverride = '') {
       state._designLayerImportTarget = targetOverride || $('layerTarget')?.value || primaryTargetForMode(state.templateMode || 'cover');
+      state._designLayerImportMode = 'embed';
       state._designLayerReplaceId = '';
       const typeEl = $('nostrType'); if (typeEl) typeEl.value = 'any';
       const queryEl = $('nostrQuery'); if (queryEl) queryEl.value = '';
@@ -10868,6 +10869,79 @@
       $('nostrModal')?.classList.add('open');
       if (typeof switchModalTab === 'function') switchModalTab('Search');
       runNostrSearch();
+    }
+
+    // Parallel community-browser flow for linked-design imports. Same
+    // modal as the embed flow; tryDesignLayerImportRow inspects
+    // state._designLayerImportMode to decide which import path to
+    // run when the user picks a row.
+    function openLinkedDesignNostrSearch(targetOverride = '') {
+      state._designLayerImportTarget = targetOverride || $('layerTarget')?.value || primaryTargetForMode(state.templateMode || 'cover');
+      state._designLayerImportMode = 'link';
+      state._designLayerReplaceId = '';
+      const typeEl = $('nostrType'); if (typeEl) typeEl.value = 'any';
+      const queryEl = $('nostrQuery'); if (queryEl) queryEl.value = '';
+      const catEl = $('nostrCategory'); if (catEl) catEl.value = state.meta.category || '';
+      $('nostrModal')?.classList.add('open');
+      if (typeof switchModalTab === 'function') switchModalTab('Search');
+      runNostrSearch();
+    }
+
+    // Add a design as a `kind: 'linked'` layer that resolves to the
+    // source on render. Mirrors addDesignLayerFromPayload's sizing
+    // logic so the initial layer matches the source's aspect ratio,
+    // but stores only the source's address coord — not the payload.
+    function addLinkedDesignLayerFromRow(row, targetOverride = '') {
+      const ev = row?.e;
+      if (!ev || !ev.pubkey || !Number.isFinite(ev.kind)) {
+        toastError('Cannot link this design — source event metadata missing.');
+        return false;
+      }
+      const dTag = (ev.tags || []).find((t) => t[0] === 'd' && t[1])?.[1] || '';
+      if (!dTag) {
+        toastError('Cannot link this design — source has no d-tag (legacy event?).');
+        return false;
+      }
+      const payload = row.payload || {};
+      if (!isDesignPayload(payload)) {
+        toastError('That result is not an Artstr design.');
+        return false;
+      }
+      const ref = `${ev.kind}:${ev.pubkey}:${dTag}`;
+      const mode = normalizeTemplateMode(payload);
+      const target = targetOverride || $('layerTarget')?.value || primaryTargetForMode(state.templateMode || 'cover');
+      const bounds = targetBounds(target);
+      const aspect = Math.max(0.1, designObjectAspect(payload));
+      let w = bounds.w * 0.7;
+      let h = w / aspect;
+      if (h > bounds.h * 0.7) {
+        h = bounds.h * 0.7;
+        w = h * aspect;
+      }
+      applyTargetMode(target);
+      pushHistory('add linked design layer');
+      addLayer({
+        id: makeLayerId(),
+        type: 'design',
+        // 🔗 prefix in the layer list so users can tell linked from
+        // embedded at a glance.
+        name: '🔗 ' + designObjectTitle(payload),
+        target,
+        x: bounds.x + (bounds.w - w) / 2,
+        y: bounds.y + (bounds.h - h) / 2,
+        w, h,
+        rotate: 0, opacity: 1, z: nextLayerZ(),
+        design: {
+          kind: 'linked',
+          ref,
+          mode,
+          pinnedEventId: null,
+        },
+      });
+      // Warm the resolver cache — the user just had the payload in
+      // hand from the preview, so the first render is instant.
+      try { linkedDesigns.resolveLinked({ ref, pinnedEventId: null }); } catch {}
+      return true;
     }
 
     function tryDesignLayerImportRow(row) {
@@ -10880,10 +10954,21 @@
       }
       try { closeNostrPreview(); } catch (e) {}
       $('nostrModal')?.classList.remove('open');
-      addDesignLayerFromPayload(payload, state._designLayerImportTarget);
+      const mode = state._designLayerImportMode === 'link' ? 'link' : 'embed';
+      let success = false;
+      if (mode === 'link') {
+        success = addLinkedDesignLayerFromRow(row, state._designLayerImportTarget);
+      } else {
+        success = addDesignLayerFromPayload(payload, state._designLayerImportTarget);
+      }
       state._designLayerImportTarget = '';
+      state._designLayerImportMode = 'embed';
       state._designLayerReplaceId = '';
-      toastSuccess('Design imported as an editable object layer.');
+      if (success) {
+        toastSuccess(mode === 'link'
+          ? '🔗 Linked — renders the latest version of the source on each refresh.'
+          : 'Design imported as an editable object layer.');
+      }
       return true;
     }
 
@@ -14427,9 +14512,15 @@
         const importDesignNostrBtn = document.createElement('button');
         importDesignNostrBtn.type = 'button';
         importDesignNostrBtn.textContent = 'Import from Nostr';
+        importDesignNostrBtn.title = 'Embed a copy of a community design — stays the same even if the source updates.';
         importDesignNostrBtn.addEventListener('click', () => openDesignLayerNostrSearch('designer-disc'));
+        const linkDesignNostrBtn = document.createElement('button');
+        linkDesignNostrBtn.type = 'button';
+        linkDesignNostrBtn.textContent = '🔗 Link from Nostr';
+        linkDesignNostrBtn.title = 'Link to a community design — auto-updates when the source author edits.';
+        linkDesignNostrBtn.addEventListener('click', () => openLinkedDesignNostrSearch('designer-disc'));
         // Text + shape adds live in the left tool palette now.
-        buttonRow.append(addImageBtn, addColorBtn, addQrBtn, importDesignFileBtn, importDesignNostrBtn);
+        buttonRow.append(addImageBtn, addColorBtn, addQrBtn, importDesignFileBtn, importDesignNostrBtn, linkDesignNostrBtn);
 
         actions.append(urlRow, buttonRow);
         panel.appendChild(actions);
@@ -14510,9 +14601,15 @@
         const importDesignNostrBtn = document.createElement('button');
         importDesignNostrBtn.type = 'button';
         importDesignNostrBtn.textContent = 'Import from Nostr';
+        importDesignNostrBtn.title = 'Embed a copy of a community design — stays the same even if the source updates.';
         importDesignNostrBtn.addEventListener('click', () => openDesignLayerNostrSearch(targetDef.key));
+        const linkDesignNostrBtn = document.createElement('button');
+        linkDesignNostrBtn.type = 'button';
+        linkDesignNostrBtn.textContent = '🔗 Link from Nostr';
+        linkDesignNostrBtn.title = 'Link to a community design — auto-updates when the source author edits.';
+        linkDesignNostrBtn.addEventListener('click', () => openLinkedDesignNostrSearch(targetDef.key));
         // Text + shape adds live in the left tool palette now.
-        buttonRow.append(addImageBtn, addColorBtn, addQrBtn, importDesignFileBtn, importDesignNostrBtn);
+        buttonRow.append(addImageBtn, addColorBtn, addQrBtn, importDesignFileBtn, importDesignNostrBtn, linkDesignNostrBtn);
 
         actions.append(urlRow, buttonRow);
         panel.appendChild(actions);
