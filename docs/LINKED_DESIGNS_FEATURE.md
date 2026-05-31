@@ -110,14 +110,41 @@ Linked design layer:
   design: {
     kind: 'linked',                                  // disambiguates from embedded
     ref: '30078:<creatorPubkey>:<dTag>',             // NIP-01 addressable coord
-    mode: 'cover',                                   // hint for pre-fetch render
+    mode: 'cover',                                   // hint: source-design template mode
     pinnedEventId: null,                             // optional, locks to a specific event id
-    fallbackPreview: 'data:image/jpeg;base64,...',   // optional cached preview
-    lastResolvedAt: 1748656800000,                   // ms timestamp of last successful fetch
-    lastResolvedSize: { w: 1920, h: 1080 },          // hint for layout
+    pinnedSnapshot: null,                            // optional, see §6
+    fallbackPreview: null,                           // optional, see "persistence" below
+    lastResolvedAt: null,                            // optional, in-memory ms timestamp
+    lastResolvedSize: null,                          // optional, in-memory { w, h }
   },
 }
 ```
+
+### 5.1 Persisted vs in-memory fields
+
+The host event's `content` is what gets published to relays, so every
+field there counts toward the per-event size budget. To keep linked
+layers small:
+
+- **Persisted (serialized to host event):** `kind`, `ref`, `mode`,
+  `pinnedEventId`, `pinnedSnapshot` (only when pinning, see §6).
+- **In-memory only (stripped at publish time):** `lastResolvedAt`,
+  `lastResolvedSize`, `fallbackPreview`. These are populated by the
+  resolver after a successful fetch and used for runtime UI (timestamp
+  display, layout hints, offline fallback) but never written into the
+  serialized layer when the host publishes.
+
+A pre-publish hook in `_publishPremiumDesign` and the regular publish
+path strips the in-memory fields from `design` before signing. A linked
+layer's serialized footprint is then roughly:
+`{kind:'linked', ref:'30078:<pubkey>:<dTag>', mode:'cover', pinnedEventId:null}`
+— ~110 bytes including overhead. 50 linked layers = ~5.5 KB, well under
+any relay's content cap.
+
+`fallbackPreview` is the one exception that's *optionally* persisted —
+the user can tick "Cache a fallback preview" on the link-options panel
+to embed a small JPEG (subject to the existing premium-preview 50 KB
+cap) that survives source deletion. Off by default.
 
 Embedded design layer (unchanged from today, made explicit for
 contrast):
@@ -170,6 +197,29 @@ opt-in.
   by address — only that exact event is rendered. Source-author edits
   don't propagate until the host author manually un-pins or re-pins
   to a newer event.
+
+### 6.1 Pinned + source deletion
+
+A subtle but important case: if the source author tombstones the
+pinned event (kind-5 delete), relays will discard it and the pinned
+event id won't resolve anywhere. The pin no longer protects against
+disappearance.
+
+Two complementary mitigations:
+
+1. The pin-mode toggle also offers a checkbox **"Embed snapshot for
+   permanence"** that captures the resolved payload into
+   `design.pinnedSnapshot` (full design JSON). The renderer prefers
+   the live fetched event, falls back to `pinnedSnapshot` if the
+   event is gone. This restores the old embed-style survivability at
+   the cost of host-event size.
+2. The `fallbackPreview` field (§5.1) is the lower-cost option for
+   visual-fidelity-only fallback: a small JPEG that renders when the
+   source disappears but isn't editable.
+
+Default for new pinned layers: pin without snapshot. The user
+explicitly opts in to snapshot for designs they want to outlive the
+source.
 
 The toggle is visible on every linked-design layer's right-panel.
 Switching states is non-destructive; flipping back to "always latest"
@@ -230,6 +280,47 @@ host design opened
         → fail: return null + emit fallback
       renderDesignObjectIntoElement(el, { design: { payload } })
 ```
+
+### 8.1 Sync vs async render
+
+`render()` and `renderDesignObjectIntoElement` are synchronous today.
+A linked layer can't return its content synchronously on first encounter
+(relay query is async). Three patterns considered:
+
+1. **Block render** on resolver — bad UX, stalls every layer behind the
+   first network round-trip.
+2. **Pre-fetch all linked layers** before any render — predictable
+   state but visibly delays first paint.
+3. **Sync render with placeholder, async upgrade** — initial render
+   shows a "⟳ Loading…" or `fallbackPreview` placeholder, kicks off the
+   resolver, then mutates the rendered DOM node when the resolver
+   resolves. *This is the chosen pattern.*
+
+Implementation shape:
+
+- `renderDesignObjectIntoElement(el, layer)` synchronously renders the
+  placeholder + tags the DOM element with `data-linked-pending`.
+- The resolver's promise resolution finds that DOM element by layer id
+  and calls `renderDesignPayloadPreview(el, payload, opts)` to replace
+  the placeholder. Self-aborts if the element left the DOM mid-flight
+  (covers the case where a re-render swaps it out).
+- Cached resolutions (session cache hit) skip the placeholder phase:
+  the renderer reads from cache synchronously and renders the payload
+  immediately. So the placeholder only appears on the very first fetch
+  (or after a manual refresh).
+
+Trade-off accepted: per-layer loading flicker on cold open. Mitigated
+by parallel resolver kick-off across all linked layers + the optional
+`fallbackPreview` for visually-stable cold loads.
+
+### 8.2 Autosave + cold start
+
+Artstr autosaves `state` to localStorage on every change. A linked
+layer's in-memory fields (`lastResolvedAt`, `lastResolvedSize`,
+`fallbackPreview` when not opted-in to persist) are lost on tab
+reload. On `restoreAutosave`, the resolver kicks off in the background
+for every linked layer so the editor's first paint shows placeholders
+that fill in within a few hundred ms (cache + relay round-trip).
 
 Resolver lives in a `linkedDesigns` IIFE alongside the existing
 `Premium` and purchase-vault helpers in `src/index.html`. Exposes:
@@ -307,9 +398,22 @@ let users find designs they've contributed to.
 
 ### 10.3 Embedded → linked conversions
 
-When the user runs "Publish + link" on an embedded layer (see §11.3),
-the embedded layer's original `pubkey` is preserved as the new
-source author. Attribution survives the conversion.
+When the user runs "Publish + link" on an embedded layer (see §11.4),
+the embedded payload is published as a fresh kind-30078 under the
+**current user's** pubkey (Artstr can't sign on behalf of the original
+creator). The replacement linked layer therefore credits the current
+user, not whoever first authored the embedded content. Today's
+embedded layers don't carry source-author metadata, so we have no
+provenance to preserve forward.
+
+In practice the conversion is useful for layers the *current user*
+authored manually but later wants to extract as reusable. For
+content originating elsewhere, the conversion will credit the wrong
+person — the action should warn explicitly in copy ("This publishes
+the layer's contents under your Nostr identity. Don't use this for
+designs you didn't make."). A future enhancement could capture the
+original author at embed time so the chain survives, but that's out
+of scope for this arc.
 
 ---
 
@@ -364,7 +468,26 @@ Pipeline:
    the new address.
 
 Lets a user organically refactor a self-contained sub-design into
-a reusable linked asset.
+a reusable linked asset. Important attribution caveat in §10.3 —
+the published copy goes under the current user's pubkey, so this
+should not be used for layers that originated from a third party.
+
+### 11.5 Picking initial layer dimensions
+
+`addDesignLayerFromPayload` today reads the embedded payload's aspect
+ratio to choose initial layer w/h. A linked layer has no payload yet
+when it's created (resolve is async).
+
+Solution: the layer-add path runs a synchronous resolver lookup first
+(blocks UI ~< 1 s on cold relays). If resolution succeeds, the
+initial layer uses the source aspect like an embed would. If
+resolution fails or times out (1.5 s), the layer is added at a
+default 1920×1080 (16:9) aspect, with a toast suggesting the user
+"Refresh the layer when the source is available" — they can resize
+manually afterward.
+
+The link-creation modal also previews the source design at choose
+time so the user knows what they're linking before commit.
 
 ---
 
@@ -385,12 +508,18 @@ ref, not the full sub-payload).
 ### 12.1 Premium / private design boundary (Phase 2)
 
 When a linked layer points at a premium design, the host viewer's
-unlock state controls render:
+**purchase-vault entry** controls render — NOT the soft-gate
+decryption itself, since the soft-gate KDF is deterministic from
+public material and any browser could technically decrypt without
+payment (§ PREMIUM_DESIGNS_FEATURE.md). The access check is
+"does `findUnlockedEntry(eventId, address)` find an entry for the
+linked source?":
 
-- Unlocked → render the decrypted payload from the viewer's purchase
-  vault.
-- Locked → render a placeholder ("🔒 Linked premium design — unlock
-  to render") with an unlock CTA inline.
+- Vault entry present → render the decrypted payload (already in the
+  cache from the vault).
+- No vault entry → render a placeholder ("🔒 Linked premium design —
+  unlock to render") with an inline unlock CTA that runs the normal
+  premium-unlock flow against the linked source's address.
 
 For private designs (`payload.visibility === 'private'`), Phase 2
 checks the share-list at fetch time; rendering only happens for the
@@ -409,8 +538,14 @@ placeholder.
   from an arbitrary third party.
 - Reject layer types that don't pass the existing
   `migrateLegacyLayerTargets` allowlist.
-- Cap fetched payload size at 256 KB per linked event to avoid pulling
-  in adversarially huge sub-designs.
+- **Per-event cap**: cap fetched payload size at 256 KB per linked
+  event to avoid pulling in adversarially huge sub-designs.
+- **Per-tree cap**: cap *total* resolved payload bytes for a single
+  host render at 1 MB. Depth-3 fan-out can theoretically multiply
+  fetches (one root linking to many designs each linking to many);
+  the tree cap stops a coordinated DOS at the host level. When the
+  cap is hit, subsequent linked layers in the same render render the
+  fallback placeholder and emit a console warning.
 - Depth cap (§9) prevents fetch-storm DOS.
 - Cycle detection (§9) prevents stack-blowing infinite loops.
 - No external URL fetching introduced — only relay queries.
@@ -495,8 +630,13 @@ placeholder.
 - An embedded layer + its linked-twin layer render identically when
   pointing at the same source.
 - Layer panel shows 🔗 prefix + creator name.
-- Host event published with linked layers stays under typical relay
-  size limits (verified with a 10-link example).
+- A host event with 10 linked layers serializes to under 5 KB of
+  layer overhead (link refs ~ 110 bytes each) and publishes without
+  hitting any of the common relay caps (Damus / nos.lol / Primal /
+  Snort / nostr.band — all accept ≥ 64 KB content).
+- In-memory fields (`lastResolvedAt`, `lastResolvedSize`,
+  non-opted-in `fallbackPreview`) are stripped from the serialized
+  layer at publish time so they never inflate the host event.
 
 ---
 
