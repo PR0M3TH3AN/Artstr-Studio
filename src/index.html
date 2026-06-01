@@ -6719,8 +6719,11 @@
 
     // Build a <ul> of contributor entries from a credits entry array.
     // Returns null when there are no contributors so callers can skip
-    // rendering an empty container. Each entry is an anchor to the
-    // /u/<npub> profile page with a short npub label.
+    // rendering an empty container. Each entry is an anchor that
+    // routes through openProfilePage so the SPA handles navigation
+    // (a bare `/u/<npub>` href 404s — there's no static file).
+    // Display name comes from the profile cache when available;
+    // falls back to a short pubkey so the row never reads as empty.
     function buildCreditsListElement(entries) {
       if (!entries.length) return null;
       const ul = document.createElement('ul');
@@ -6728,15 +6731,19 @@
       for (const [pk, refs] of entries) {
         const li = document.createElement('li');
         li.style.cssText = 'margin:4px 0;line-height:1.35';
-        const a = document.createElement('a');
-        a.href = profileUrlForPubkey(pk);
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        a.style.cssText = 'font-family:monospace;color:#1e40af;text-decoration:none';
+        const profile = _feedCache.profiles?.[pk] || state.community?.profiles?.[pk] || null;
+        const name = profile?.display_name || profile?.name || shortPubkey(pk);
         let np = '';
         try { np = encodeNpub(pk); } catch {}
-        a.textContent = '@' + (np ? np.slice(0, 12) + '…' + np.slice(-6) : pk.slice(0, 10) + '…');
+        const a = document.createElement('a');
+        a.href = profileUrlForPubkey(pk);
+        a.textContent = '@' + name;
         a.title = np || pk;
+        a.style.cssText = 'color:#1e40af;text-decoration:none;cursor:pointer';
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          openProfilePage(pk);
+        });
         li.appendChild(a);
         const count = document.createElement('span');
         count.style.cssText = 'color:#666;margin-left:4px';
@@ -6745,6 +6752,35 @@
         ul.appendChild(li);
       }
       return ul;
+    }
+
+    // Profile-metadata hydration for the Credits panel. The
+    // collectLinkedCredits walker only knows pubkeys (parsed from
+    // the address coord) — display names come from kind-0 events
+    // that aren't always cached. Fetch any uncached contributors
+    // in the background, then call onUpdate so callers can rebuild
+    // their UI with the freshly-resolved names. Per-pubkey inflight
+    // tracking prevents duplicate relay round-trips when render()
+    // fires repeatedly during the same fetch.
+    const _creditsProfileInflight = new Set();
+    async function _hydrateCreditProfiles(entries, onUpdate) {
+      if (!entries.length) return;
+      const uncached = entries
+        .map(([pk]) => pk)
+        .filter((pk) =>
+          !_creditsProfileInflight.has(pk) &&
+          !(_feedCache.profiles?.[pk] || state.community?.profiles?.[pk])
+        );
+      if (!uncached.length) return;
+      for (const pk of uncached) _creditsProfileInflight.add(pk);
+      try {
+        await populateCommunityProfiles(uncached);
+      } catch (err) {
+        console.warn('[credits] profile fetch failed', err);
+      } finally {
+        for (const pk of uncached) _creditsProfileInflight.delete(pk);
+      }
+      if (typeof onUpdate === 'function') onUpdate();
     }
 
     // Editor-mode Credits panel (LINKED_DESIGNS_FEATURE.md §10.1).
@@ -6765,6 +6801,10 @@
       // pre-applied styles on the fieldset stay coherent.
       while (ul.firstChild) list.appendChild(ul.firstChild);
       fieldset.style.display = '';
+      // Kick off profile fetches for any contributors we don't have
+      // names for yet; on completion, re-render so the @short-pubkey
+      // labels upgrade to display names.
+      _hydrateCreditProfiles(entries, renderCreditsPanel);
     }
 
     // Pre-publish hook. Linked layers carry render-only fields
@@ -23329,13 +23369,26 @@
         h.style.cssText = 'font-weight:600;font-size:.85rem;margin-bottom:4px';
         h.textContent = '🔗 Credits';
         wrap.appendChild(h);
-        wrap.appendChild(buildCreditsListElement(credits));
+        let ul = buildCreditsListElement(credits);
+        wrap.appendChild(ul);
         const note = document.createElement('p');
         note.className = 'hint';
         note.style.cssText = 'margin:6px 0 0;font-size:.7rem';
         note.textContent = 'Contributors reachable via linked layers in this design.';
         wrap.appendChild(note);
         content.appendChild(wrap);
+        // Same hydration dance as the editor panel — but here the
+        // re-render rebuilds just this <ul> in place. Guarded on
+        // section.isConnected so a closed/swapped preview doesn't
+        // mutate stale DOM.
+        _hydrateCreditProfiles(credits, () => {
+          if (!wrap.isConnected) return;
+          const fresh = buildCreditsListElement(credits);
+          if (fresh && ul.parentNode === wrap) {
+            wrap.replaceChild(fresh, ul);
+            ul = fresh;
+          }
+        });
       }
     }
 
