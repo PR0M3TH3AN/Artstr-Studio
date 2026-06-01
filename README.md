@@ -165,7 +165,11 @@ Spec lives in `docs/PREMIUM_DESIGNS_FEATURE.md`.
 
 - `src/index.html` — the complete single-file app. Open it directly in a browser, or serve it from any static host. Vercel rewrites in `vercel.json` map `/share/:id` and `/u/:npub` to the SPA entry.
 - `src/vendor/qrcode.min.js` — vendored QR encoder (used for Lightning tip invoices). The GIF89a encoder for pixel-art animation export is implemented inline in `index.html`.
-- `docs/` — feature specs. `PEN_TOOL_FEATURE.md` covers the shipped pen / pencil / vector tooling; `SLIDE_DECK_FEATURE.md` covers the shipped slide / deck / presenter system (Phases A–D; dual-window presenter is future); `PIXEL_ART_FEATURE.md` covers the shipped palette-indexed pixel-art system (Phases A–D); `PREMIUM_DESIGNS_FEATURE.md` covers the shipped premium-encrypted-designs system (NWC split-zap + soft-gate + purchase vault); the older `ZAP_GATED_PREMIUM_FEATURE.md` / `ZAP_GATED_TEMPLATES_FEATURE.md` / `ZAPS_NWC_FEATURE.md` carry "superseded" banners and remain for history. Badges, collections, private publishing (Phases 3–4), and Stacks are still unbuilt.
+- `src/transparency-iframe.html` — minimal transparent stub used by the embed transparency baseline tests.
+- `docs/` — feature specs.
+  - **Shipped:** `PEN_TOOL_FEATURE.md` (pen / pencil / vector tooling), `SLIDE_DECK_FEATURE.md` (slide / deck / presenter, Phases A–D; dual-window presenter still future), `PIXEL_ART_FEATURE.md` (palette-indexed pixel art, Phases A–D), `PREMIUM_DESIGNS_FEATURE.md` (NWC split-zap + soft-gate + purchase vault), `LINKED_DESIGNS_FEATURE.md` (cross-reference imports + auto-update + attribution chain), `PPTX_IMPORT_FEATURE.md` (Phases 0–7 of PowerPoint deck import), `CHART_IMPORT_FEATURE.md` (Phases 1–4 of native OOXML chart rendering), `EXTERNAL_EMBED_FEATURE.md` (iframe-able read-only viewer with code generator).
+  - **Partial:** `PRIVATE_PUBLISHING_FEATURE.md` (Phases 1+2 shipped; share-with-pubkeys + gift-wrap metadata privacy deferred).
+  - **Drafted-but-unbuilt:** `STACKS_FEATURE.md`, `BADGES_FEATURE.md`, `COLLECTIONS_FEATURE.md`.
 - `TODO.md` — running list of deferred work and cleanup items.
 
 ## Schema
