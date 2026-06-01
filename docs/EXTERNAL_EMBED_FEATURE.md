@@ -4,13 +4,12 @@
 
 ### Status
 
-Draft v2 — supersedes the earlier draft. Updated 2026-05-31 to cover
-every design mode and every cross-cutting feature shipped since the
-original sketch: linked designs, premium / private gating, layer
-groups, PPTX-imported decks, native charts, pixel-art animation,
-the disk cache, batched relay prefetch, attribution + Credits.
-
-Nothing in this spec is implemented yet — this is the plan.
+**Shipped** (2026-06-01). Phases 1–6 are live on `main`. Phase 7
+(hardening) shipped alongside Phase 1. Phase 9 (oEmbed,
+render-to-image, lightweight bundle) is unscoped future work.
+The previously-drafted Phase 8 (Credits overlay, postMessage
+handshake, explicit themes) was deliberately dropped — not
+needed for the use cases the feature is solving.
 
 ---
 
@@ -928,7 +927,7 @@ without iframes.
 
 ## 18. Implementation Plan
 
-### Phase 0 — Discovery + reuse audit
+### Phase 0 — Discovery + reuse audit ✅ Shipped
 
 - Map existing `/share/<id>` route resolver.
 - Map existing preview renderer entry points.
@@ -938,7 +937,7 @@ without iframes.
 Deliverable: a one-pager listing reused functions and any that
 need extraction.
 
-### Phase 1 — Static-design embed (vertical slice)
+### Phase 1 — Static-design embed (vertical slice) ✅ Shipped
 
 Acceptance:
 
@@ -950,7 +949,7 @@ Acceptance:
 - Loading + error states.
 - "Open in Artstr ↗" link works.
 
-### Phase 2 — All static modes
+### Phase 2 — All static modes ✅ Shipped
 
 Acceptance:
 
@@ -958,7 +957,7 @@ Acceptance:
 - Layout scales correctly per mode's natural aspect.
 - No scrollbars in 16:9 / square / portrait iframes.
 
-### Phase 3 — Linked sub-designs
+### Phase 3 — Linked sub-designs ✅ Shipped
 
 Acceptance:
 
@@ -968,7 +967,7 @@ Acceptance:
 - Locked-premium sub-layer shows watermarked preview + 🔒.
 - Locked-private sub-layer shows the dark placeholder.
 
-### Phase 4 — Deck player
+### Phase 4 — Deck player ✅ Shipped
 
 Acceptance:
 
@@ -979,7 +978,7 @@ Acceptance:
 - `controls=0` hides controls; visitor can still keyboard-nav.
 - Autoplay + loop work; respect `prefers-reduced-motion`.
 
-### Phase 5 — Animated pixel art
+### Phase 5 — Animated pixel art ✅ Shipped
 
 Acceptance:
 
@@ -987,7 +986,7 @@ Acceptance:
 - `play=0` starts paused; `fps` overrides payload FPS.
 - `prefers-reduced-motion` defaults to paused with a play CTA.
 
-### Phase 6 — Embed code generator
+### Phase 6 — Embed code generator ✅ Shipped
 
 Acceptance:
 
@@ -998,31 +997,57 @@ Acceptance:
 - Copy buttons for iframe HTML, embed URL, share URL.
 - Live preview of generated iframe inside the modal.
 
-### Phase 7 — Hardening + headers
+### Phase 7 — Hardening + headers ✅ Shipped (alongside Phase 1)
 
-Acceptance:
+Shipped:
 
-- Frame-ancestors `*` on `/embed/*` and `/embed.html`.
-- SPA rewrites configured for clean route on host (Vercel
-  `vercel.json` rewrites or Netlify `_redirects`).
-- Origin-allowlisted iframe smoke-tested from a third-party site.
-- Malformed-event fuzzing produces friendly errors, not crashes.
-- `?debug=1` surfaces useful resolver / renderer diagnostics.
-- Cap relay count per embed query (limit ~8).
+- `Content-Security-Policy: frame-ancestors *` on `/embed/:id`
+  via `vercel.json` so the route is iframe-able from any origin.
+- SPA rewrites for `/embed/:id` (and the existing `/share/:id`,
+  `/u/:npub`) in `vercel.json`.
+- Cross-origin iframe smoke-tested via the bundled
+  `transparency-iframe.html` baseline + a stress-test host page.
+- Malformed-event paths show friendly errors (invalid identifier,
+  missing-from-relays, oversized, unparseable, encrypted) with a
+  ↻ Refresh chip on the retryable ones.
+- Sanitization reuses the existing `safeTextLinkHref` + shape /
+  layer allowlists from the editor — no new attack surface
+  beyond what the editor already covers.
 
-### Phase 8 — Polish
+Optional follow-ups (open):
 
-- Credits overlay (`credits=1`).
-- PostMessage handshake (`artstr.ready` + slide / play /
-  fullscreen messages).
-- Light / dark / auto theme.
+- `?debug=1` surfacing extra resolver / renderer diagnostics.
+- Cap relay count per embed query (~8). The resolver already
+  reuses `_vaultRelayUnion()` so it's bounded in practice by the
+  user's relay list + `DEFAULT_NOSTR_RELAYS`.
 
-### Phase 9 — Future (separate roadmap)
+### Phase 9 — Future (separate roadmap, unscoped)
 
-- oEmbed endpoint (serverless).
-- Image render endpoint (`/render/<id>.png`).
-- Lightweight `embed.html` bundle.
-- Pre-rendered Open Graph preview images.
+If we revisit this feature, the obvious next moves are:
+
+- **oEmbed endpoint** (serverless function). Lets some platforms
+  auto-expand `artstr.org/share/<id>` links into rich previews.
+- **Image render endpoint** (`/render/<id>.png` / `.svg`).
+  Headless-Chromium / SVG-serializer route so an `<img src=…>`
+  consumer can use Artstr designs without an iframe.
+- **Pre-rendered Open Graph preview images** so shared embed
+  URLs get a thumbnail on Twitter / Nostr / etc.
+- **Lightweight `embed.html` bundle**. The embed currently loads
+  the full SPA inside the iframe — fine for MVP, ~250 KB heavier
+  than necessary. Splitting an `embed.html` entry that loads only
+  the relay-read + renderer code (no editor, no NWC, no
+  community feed) would cut bundle size by ~70%.
+
+Out of scope (drafted earlier, deliberately dropped):
+
+- ~~Credits overlay (`?credits=1`)~~ — the in-app Credits panel
+  already shipped; not needed inside iframe.
+- ~~PostMessage handshake~~ — embedding sites that need
+  parent-side control can just use the URL params we already
+  support and reload the iframe.
+- ~~Explicit `?theme=` light/dark/auto~~ — chips are blur-based
+  and legible on any host theme; explicit theme would be more
+  complexity than it's worth.
 
 ---
 
