@@ -11680,6 +11680,123 @@
       toastSuccess('Unlinked — source payload snapshotted into this layer.');
     }
 
+    // Publish a layer group as a free-form customart design and
+    // replace the group with a single linked layer at the group's
+    // bounding box. The customart canvas is sized to the bbox; each
+    // group layer's position is translated so the group's top-left
+    // becomes (0, 0). Always customart-mode regardless of host mode
+    // — mixed-content groups (text + shapes + design objects) need
+    // a generic canvas, and customart is exactly that.
+    async function publishLayerGroupAsLinkedDesign(groupId) {
+      if (!groupId) return;
+      const groups = ensureLayerGroups();
+      const group = groups[groupId];
+      if (!group) { toastError('Group not found.'); return; }
+      const groupLayers = (state.layers || []).filter(l => l.groupId === groupId);
+      if (!groupLayers.length) { toastError('Group is empty.'); return; }
+      const myPubkey = state.community?.myPubkey || '';
+      if (!myPubkey) {
+        toastError('Sign in with Nostr first (Profile → Sign in).');
+        return;
+      }
+      const bbox = layersBounds(groupLayers);
+      if (!bbox || bbox.w <= 0 || bbox.h <= 0) {
+        toastError('Group has no extent to publish.');
+        return;
+      }
+      const baseTitle = (group.name || '').trim() || 'Extracted group';
+      const ok = confirm(
+        `Publish "${baseTitle}" (${groupLayers.length} layer${groupLayers.length === 1 ? '' : 's'}) as its own Nostr design and replace it with a single linked layer?\n\n` +
+        `• Publishes under your Nostr identity. Only do this for designs you made.\n` +
+        `• The group becomes a free-form canvas sized to its bounding box. Each layer keeps its position relative to the group's top-left.\n` +
+        `• Edits to the new design propagate to every host that links it.`
+      );
+      if (!ok) return;
+      // Translate each group layer so the bbox origin sits at (0, 0)
+      // inside the new design, and force-route them to the
+      // customart canvas (groups can mix layers from different host
+      // targets, but the extracted canvas has just one).
+      const clonedLayers = groupLayers.map((l) => {
+        const c = JSON.parse(JSON.stringify(l));
+        c.x = (Number(l.x) || 0) - bbox.x;
+        c.y = (Number(l.y) || 0) - bbox.y;
+        c.target = 'canvas';
+        delete c.groupId;
+        return c;
+      });
+      const payload = {
+        version: 5,
+        templateMode: 'customart',
+        templateType: 'customart',
+        meta: { ...(state.meta || {}), title: baseTitle },
+        customArt: {
+          width: Math.round(bbox.w * 96),
+          height: Math.round(bbox.h * 96),
+          background: '#ffffff',
+        },
+        layers: clonedLayers,
+        layerGroups: {},
+      };
+      stripLinkedDesignEphemera(payload);
+      let attributionTags = [];
+      try {
+        const built = await _buildLinkedAttributionTags(payload, myPubkey);
+        attributionTags = [...built.contributorTags, ...built.linkTags];
+      } catch (err) {
+        console.warn('[group-extract] attribution build failed', err);
+      }
+      const slug = String(baseTitle).toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40) || 'group';
+      const dTag = `extracted:customart:${slug}:${Math.random().toString(36).slice(2, 8)}`;
+      const typeTag = typeTagForMode('customart');
+      const tags = [
+        ['d', dTag],
+        ...getTemplateTags(payload, typeTag),
+        ...attributionTags,
+      ];
+      const evt = {
+        kind: 30078,
+        created_at: Math.floor(Date.now() / 1000),
+        tags,
+        content: JSON.stringify(payload),
+      };
+      const publishingToast = toast('Publishing extracted group…', { duration: 30000 });
+      let signed;
+      try { signed = await publishCommunityEvent(evt); }
+      catch (err) {
+        publishingToast?.dismiss?.();
+        toastError(err?.message || 'Could not publish the extracted group.');
+        return;
+      }
+      publishingToast?.dismiss?.();
+      if (!signed?.id) {
+        toastError('Publish succeeded but the relay did not return the event id.');
+        return;
+      }
+      pushHistory('extract group as linked design');
+      const ref = `30078:${myPubkey}:${dTag}`;
+      const target = groupLayers[0].target || 'canvas';
+      // Remove the original group layers + drop the group entry.
+      const groupIdSet = new Set(groupLayers.map(l => l.id));
+      state.layers = state.layers.filter(l => !groupIdSet.has(l.id));
+      delete groups[groupId];
+      addLayer({
+        id: makeLayerId(),
+        type: 'design',
+        name: '🔗 ' + baseTitle,
+        target,
+        x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h,
+        rotate: 0, opacity: 1, z: nextLayerZ(),
+        design: { kind: 'linked', ref, mode: 'customart', pinnedEventId: null },
+      });
+      try { await linkedDesigns.seed({ ref, pinnedEventId: null }, signed); }
+      catch (err) { console.warn('[group-extract] cache seed failed', err); }
+      render();
+      toastSuccess('🔗 Group published as its own design and linked here.');
+    }
+
     // Publish an embedded design layer as its own kind-30078 event,
     // then replace the local layer with a linked layer pointing at
     // the new event. Lets a user extract a reusable component
@@ -15235,7 +15352,17 @@
         render();
       });
 
-      header.append(toggle, button, eye);
+      const linkBtn = document.createElement('button');
+      linkBtn.type = 'button';
+      linkBtn.className = 'layerGroupEyeToggle';
+      linkBtn.textContent = '🔗';
+      linkBtn.title = 'Publish this group as its own Nostr design and replace it with a linked layer';
+      linkBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        publishLayerGroupAsLinkedDesign(groupId);
+      });
+
+      header.append(toggle, button, eye, linkBtn);
       block.appendChild(header);
 
       const children = document.createElement('div');
