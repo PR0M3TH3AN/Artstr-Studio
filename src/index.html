@@ -6856,6 +6856,98 @@
 
       function keyFor(linkSpec) { return _cacheKey(linkSpec || {}); }
 
+      // Fetch many linked specs in one round-trip. Combines all
+      // distinct address-coord refs into a multi-filter REQ
+      // (grouped by author + kind for relay-side efficiency) and
+      // any pinned event ids into a single ids-filter. Skips
+      // anything already in the in-memory or disk cache so a
+      // partial cache hit only fetches what's actually missing.
+      // Populates both caches on completion.
+      //
+      // Used by restoreAutosave to warm the cache for every
+      // linked layer in a saved design in one relay round-trip
+      // instead of N parallel queries.
+      async function prefetchBatch(specs) {
+        if (!Array.isArray(specs) || !specs.length) return;
+        // Resolve which specs actually need a network fetch.
+        const needFetch = [];
+        const seenKeys = new Set();
+        for (const spec of specs) {
+          if (!spec) continue;
+          const key = _cacheKey(spec);
+          if (!key || seenKeys.has(key)) continue;
+          seenKeys.add(key);
+          if (_fromCache(key)) continue;
+          if (inflight.has(key)) continue;
+          if (_diskRead(key)) continue;
+          needFetch.push({ key, spec });
+        }
+        if (!needFetch.length) return;
+        // Build batched filters.
+        const idList = [];
+        const byAuthorKind = new Map();   // "kind:pubkey" → Set<dTag>
+        for (const { spec } of needFetch) {
+          if (spec.pinnedEventId && /^[0-9a-f]{64}$/i.test(spec.pinnedEventId)) {
+            idList.push(spec.pinnedEventId);
+            continue;
+          }
+          const coord = _parseAddressCoord(spec.ref);
+          if (!coord) continue;
+          const k = `${coord.kind}:${coord.pubkey}`;
+          let set = byAuthorKind.get(k);
+          if (!set) { set = new Set(); byAuthorKind.set(k, set); }
+          set.add(coord.dTag);
+        }
+        const filters = [];
+        if (idList.length) filters.push({ ids: [...new Set(idList)], limit: idList.length });
+        for (const [k, dTags] of byAuthorKind) {
+          const [kindStr, pubkey] = k.split(':');
+          filters.push({
+            kinds: [Number(kindStr)],
+            authors: [pubkey],
+            '#d': [...dTags],
+            limit: dTags.size * 2,
+          });
+        }
+        if (!filters.length) return;
+        const relays = typeof _vaultRelayUnion === 'function'
+          ? _vaultRelayUnion()
+          : splitRelayList(state.community?.relays || '');
+        let events;
+        try {
+          events = await queryRelays(relays, filters, { timeoutMs: 4500 });
+        } catch (err) {
+          console.warn('[linked-designs] batched prefetch failed', err);
+          return;
+        }
+        // Bucket events: by id (for pinned lookups) and by address
+        // coord (for ref lookups; latest created_at wins).
+        const byId = new Map();
+        const byAddr = new Map();
+        for (const ev of (events || [])) {
+          byId.set(ev.id, ev);
+          const dTag = (ev.tags || []).find(t => t[0] === 'd' && t[1] != null)?.[1] || '';
+          const addr = `${ev.kind}:${ev.pubkey}:${dTag}`;
+          const prev = byAddr.get(addr);
+          if (!prev || (ev.created_at || 0) > (prev.created_at || 0)) byAddr.set(addr, ev);
+        }
+        // Match each requested spec to an event + seed caches.
+        for (const { key, spec } of needFetch) {
+          let ev = null;
+          if (spec.pinnedEventId) {
+            ev = byId.get(spec.pinnedEventId) || null;
+          } else {
+            const coord = _parseAddressCoord(spec.ref);
+            if (coord) ev = byAddr.get(`${coord.kind}:${coord.pubkey}:${coord.dTag}`) || null;
+          }
+          if (!ev) continue;
+          const entry = await _entryFromEvent(ev);
+          if (!entry) continue;
+          cache.set(key, { ...entry, fetchedAt: _now() });
+          _diskWrite(key, ev);
+        }
+      }
+
       // Populate both caches from a freshly-published source event
       // so a layer that was just extracted-and-linked paints
       // instantly without waiting for relay propagation. Returns
@@ -6871,7 +6963,7 @@
         return entry;
       }
 
-      return { resolveLinked, walkLinkedTree, walkContributors, clearCache, peek, keyFor, seed, _parseAddressCoord, _cacheKey };
+      return { resolveLinked, walkLinkedTree, walkContributors, clearCache, peek, keyFor, seed, prefetchBatch, _parseAddressCoord, _cacheKey };
     })();
 
     // Walk the host's linked tree to collect (a) distinct contributor
@@ -8196,7 +8288,11 @@
         const subId = `sub-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
         ws.addEventListener('open', () => {
           try {
-            ws.send(JSON.stringify(['REQ', subId, filters]));
+            // NIP-01 REQ accepts multiple filters spread after the
+            // sub id (OR semantics). Callers can pass a single
+            // filter object (legacy) or an array; both work.
+            const filterList = Array.isArray(filters) ? filters : [filters];
+            ws.send(JSON.stringify(['REQ', subId, ...filterList]));
           } catch {
             clearTimeout(timer);
             markRelayFailure(relay, 'Could not send query', { context: 'read' });
@@ -27862,13 +27958,13 @@
         if ((parsed.appMode || parsed.ui?.appMode) === 'designer') {
           loadCurrentDiscDesignLayers();
         }
-        // Kick off the linked-design resolver for every restored
-        // linked layer so the cache warms in parallel with the first
-        // render. The renderer's async branch handles the empty-cache
-        // case correctly on its own, but pre-warming dedupes
-        // duplicate refs across slides via the inflight map and lets
-        // the slot's renderResolved fire from a synchronous peek on
-        // subsequent re-renders. Non-blocking.
+        // Warm the linked-design cache for every restored linked
+        // layer in one batched relay round-trip (instead of N
+        // parallel queries). prefetchBatch checks the disk cache
+        // first and only fetches refs that are actually missing,
+        // so common reload scenarios pay zero network cost.
+        // Non-blocking; the renderer's async branch picks up the
+        // freshly-warmed cache on first paint.
         const linkedSpecs = [];
         const collect = (layers) => {
           if (!Array.isArray(layers)) return;
@@ -27882,8 +27978,8 @@
         if (Array.isArray(state.deck?.slides)) {
           for (const s of state.deck.slides) collect(s?.layers);
         }
-        for (const spec of linkedSpecs) {
-          try { linkedDesigns.resolveLinked(spec); } catch {}
+        if (linkedSpecs.length) {
+          try { linkedDesigns.prefetchBatch(linkedSpecs); } catch {}
         }
       } catch (error) {
         console.warn('Autosave restore failed', error);
