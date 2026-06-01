@@ -4640,6 +4640,56 @@
     </div>
   </div>
 
+  <div class="modal" id="embedCodeModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:680px;position:relative">
+      <button type="button" id="embedCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
+      <h2 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Embed this design</h2>
+      <p class="hint" style="margin:0 0 14px">Paste the snippet below into any website to render this design read-only. Linked sub-designs, animations, and deck navigation all work inside the iframe.</p>
+
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center;margin:0 0 12px">
+        <label for="embedIdType" style="font-size:.82rem;font-weight:600;margin:0">Identifier</label>
+        <select id="embedIdType">
+          <option value="naddr">Latest version (naddr) — auto-updates when the author edits</option>
+          <option value="nevent">Snapshot (nevent) — pins to this exact version</option>
+        </select>
+
+        <label for="embedSizePreset" style="font-size:.82rem;font-weight:600;margin:0">Size</label>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="embedSizePreset" style="flex:1;min-width:200px">
+            <option value="responsive-16-9">Responsive 16:9 (recommended)</option>
+            <option value="square-320">Square 320 × 320</option>
+            <option value="square-480">Square 480 × 480</option>
+            <option value="fixed-640-360">Fixed 640 × 360</option>
+            <option value="fixed-800-450">Fixed 800 × 450</option>
+            <option value="fixed-960-540">Fixed 960 × 540</option>
+            <option value="custom">Custom…</option>
+          </select>
+          <input id="embedCustomW" type="number" min="50" max="2000" value="800" style="display:none;width:80px" placeholder="w">
+          <span id="embedCustomX" style="display:none">×</span>
+          <input id="embedCustomH" type="number" min="50" max="2000" value="450" style="display:none;width:80px" placeholder="h">
+        </div>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:14px;margin:0 0 14px;font-size:.85rem">
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="embedOptControls" checked> Controls</label>
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="embedOptAttr" checked> Author chip</label>
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="embedOptOpen" checked> Open-in-Artstr link</label>
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="embedOptCredits"> Credits row</label>
+      </div>
+
+      <div style="font-weight:600;font-size:.82rem;margin:0 0 4px">Live preview</div>
+      <div id="embedPreviewArea" style="background:repeating-conic-gradient(#ec4899 0% 25%, #fbbf24 0% 50%) 0 0 / 16px 16px;padding:12px;border-radius:6px;margin:0 0 14px;min-height:80px;display:flex;justify-content:center;align-items:center"></div>
+
+      <div style="font-weight:600;font-size:.82rem;margin:0 0 4px">Iframe code</div>
+      <textarea id="embedIframeCode" readonly rows="6" style="width:100%;font-family:monospace;font-size:.74rem;box-sizing:border-box;background:#f8fafc;border:1px solid var(--line);border-radius:4px;padding:8px;resize:vertical"></textarea>
+
+      <div class="buttonRow" style="margin:10px 0 0;justify-content:flex-end;gap:8px;flex-wrap:wrap">
+        <button type="button" id="embedCopyUrlBtn">Copy URL</button>
+        <button type="button" id="embedCopyIframeBtn" class="primary">Copy iframe code</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="supportDevModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:420px;position:relative">
       <button type="button" id="supportDevCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
@@ -21624,6 +21674,166 @@
       _paintEmbed(root, payload, event, route, decoded);
     }
 
+    // -------- Embed code generator (preview-pane dialog) -------------
+    // Opens from the "Embed ↗" button on the design preview pane.
+    // Builds an iframe snippet from a row + user-picked options;
+    // shows a live preview of what the snippet will render.
+
+    function _embedSizeFor(preset, customW, customH) {
+      switch (preset) {
+        case 'square-320':     return { w: 320, h: 320, responsive: false };
+        case 'square-480':     return { w: 480, h: 480, responsive: false };
+        case 'fixed-640-360':  return { w: 640, h: 360, responsive: false };
+        case 'fixed-800-450':  return { w: 800, h: 450, responsive: false };
+        case 'fixed-960-540':  return { w: 960, h: 540, responsive: false };
+        case 'custom':         return { w: Math.max(50, customW | 0) || 800,
+                                        h: Math.max(50, customH | 0) || 450,
+                                        responsive: false };
+        case 'responsive-16-9':
+        default:               return { w: 800, h: 450, responsive: true };
+      }
+    }
+
+    function _buildEmbedIdFromRow(row, idType) {
+      if (!row?.e) return '';
+      const topRelays = splitRelayList(state.community?.relays || '').slice(0, 2);
+      if (idType === 'nevent') {
+        return encodeNevent({
+          eventId: row.e.id,
+          author: row.e.pubkey || '',
+          kind: row.e.kind || 30078,
+          relays: topRelays,
+        });
+      }
+      // naddr: replaceable-event coord; requires a d-tag.
+      const dTag = (row.e.tags || []).find(t => t[0] === 'd' && t[1])?.[1] || '';
+      if (!dTag) return '';
+      return encodeNaddr({
+        kind: row.e.kind || 30078,
+        pubkey: row.e.pubkey || '',
+        dTag,
+        relays: topRelays,
+      });
+    }
+
+    function _buildEmbedUrlString(id, opts) {
+      const params = new URLSearchParams();
+      if (!opts.controls) params.set('controls', '0');
+      if (!opts.attr)     params.set('attr', '0');
+      if (!opts.open)     params.set('open', '0');
+      if (opts.credits)   params.set('credits', '1');
+      const qs = params.toString();
+      return `${location.origin}/embed/${id}${qs ? '?' + qs : ''}`;
+    }
+
+    function refreshEmbedDialog() {
+      const modal = $('embedCodeModal');
+      const row = modal?._row;
+      if (!row) return;
+      const idType = $('embedIdType').value;
+      const sizePreset = $('embedSizePreset').value;
+      const isCustom = sizePreset === 'custom';
+      for (const id of ['embedCustomW', 'embedCustomX', 'embedCustomH']) {
+        const el = $(id); if (el) el.style.display = isCustom ? '' : 'none';
+      }
+      const id = _buildEmbedIdFromRow(row, idType);
+      const codeEl = $('embedIframeCode');
+      const previewArea = $('embedPreviewArea');
+      if (!id) {
+        if (codeEl) codeEl.value = '// This design has no d-tag — switch identifier to Snapshot (nevent).';
+        if (previewArea) previewArea.innerHTML = '<div class="hint" style="background:rgba(255,255,255,.86);padding:8px 12px;border-radius:4px">This design has no addressable d-tag. Use Snapshot (nevent) instead.</div>';
+        return;
+      }
+      const opts = {
+        controls: $('embedOptControls').checked,
+        attr:     $('embedOptAttr').checked,
+        open:     $('embedOptOpen').checked,
+        credits:  $('embedOptCredits').checked,
+      };
+      const url = _buildEmbedUrlString(id, opts);
+      const { w, h, responsive } = _embedSizeFor(sizePreset, +$('embedCustomW').value, +$('embedCustomH').value);
+      const titleAttr = escAttr(row.title || 'Artstr design');
+      const iframeCode = responsive
+        ? `<div style="position:relative;width:100%;max-width:${w}px;aspect-ratio:${w}/${h};">
+  <iframe
+    src="${url}"
+    title="${titleAttr}"
+    loading="lazy" allowfullscreen
+    style="position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent;"
+  ></iframe>
+</div>`
+        : `<iframe
+  src="${url}"
+  title="${titleAttr}"
+  width="${w}" height="${h}"
+  loading="lazy" allowfullscreen
+  style="border:0;max-width:100%;background:transparent;"
+></iframe>`;
+      if (codeEl) codeEl.value = iframeCode;
+      if (previewArea) {
+        // Show the actual iframe so the preview matches what the snippet
+        // produces — including any auto-fit, controls visibility, etc.
+        previewArea.innerHTML = iframeCode;
+      }
+    }
+
+    function openEmbedCodeDialog(row) {
+      if (!row?.e?.id) { toastError?.('Cannot embed — missing event id.'); return; }
+      const modal = $('embedCodeModal');
+      if (!modal) return;
+      modal._row = row;
+      modal.style.display = '';
+      modal.setAttribute('aria-hidden', 'false');
+      bringModalToFront?.(modal);
+      // Reset to sensible defaults each open.
+      $('embedIdType').value = 'naddr';
+      $('embedSizePreset').value = 'responsive-16-9';
+      $('embedCustomW').value = 800;
+      $('embedCustomH').value = 450;
+      $('embedOptControls').checked = true;
+      $('embedOptAttr').checked = true;
+      $('embedOptOpen').checked = true;
+      $('embedOptCredits').checked = false;
+      _wireEmbedDialogOnce();
+      refreshEmbedDialog();
+    }
+
+    function _closeEmbedCodeDialog() {
+      const modal = $('embedCodeModal');
+      if (!modal) return;
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+      // Wipe the preview iframe so it stops fetching from relays
+      // after the user closes the dialog.
+      const pa = $('embedPreviewArea'); if (pa) pa.innerHTML = '';
+    }
+
+    let _embedDialogWired = false;
+    function _wireEmbedDialogOnce() {
+      if (_embedDialogWired) return;
+      _embedDialogWired = true;
+      $('embedCloseBtn')?.addEventListener('click', _closeEmbedCodeDialog);
+      $('embedCopyIframeBtn')?.addEventListener('click', async () => {
+        const code = $('embedIframeCode')?.value || '';
+        try { await navigator.clipboard.writeText(code); toastSuccess?.('Iframe code copied to clipboard.'); }
+        catch { toastError?.('Could not copy — select the code manually.'); }
+      });
+      $('embedCopyUrlBtn')?.addEventListener('click', async () => {
+        const code = $('embedIframeCode')?.value || '';
+        const m = code.match(/src="([^"]+)"/);
+        if (!m) { toastError?.('No URL found in code.'); return; }
+        try { await navigator.clipboard.writeText(m[1]); toastSuccess?.('Embed URL copied to clipboard.'); }
+        catch { toastError?.('Could not copy.'); }
+      });
+      for (const id of [
+        'embedIdType', 'embedSizePreset', 'embedCustomW', 'embedCustomH',
+        'embedOptControls', 'embedOptAttr', 'embedOptOpen', 'embedOptCredits',
+      ]) {
+        $(id)?.addEventListener('change', refreshEmbedDialog);
+        $(id)?.addEventListener('input', refreshEmbedDialog);
+      }
+    }
+
     function encodeNpub(pubkeyHex) {
       const bytes = hexToBytes(pubkeyHex);
       if (bytes.length !== 32) return '';
@@ -24355,6 +24565,24 @@
         setTimeout(() => { shareBtn.textContent = original; }, 1800);
       });
       actionsDiv.insertBefore(shareBtn, saveJsonBtn);
+
+      // Embed button — opens the iframe-code generator dialog with
+      // size presets, options, live preview, and copy-to-clipboard.
+      // Hidden for private rows (the embed page refuses to render
+      // them anyway). For locked-premium rows the embed still works
+      // because the embed renders the watermarked preview + unlock
+      // CTA — embeddable as a teaser even pre-purchase.
+      if (!row.private) {
+        const embedBtn = document.createElement('button');
+        embedBtn.type = 'button';
+        embedBtn.textContent = 'Embed ↗';
+        embedBtn.title = 'Get an iframe code to embed this design on another site';
+        embedBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openEmbedCodeDialog(row);
+        });
+        actionsDiv.insertBefore(embedBtn, saveJsonBtn);
+      }
 
       // Gate Use/Fork + Save JSON when the row is a locked premium template
       // (the design content is encrypted; downloading the JSON would just
