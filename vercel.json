@@ -4,6 +4,16 @@
     { "source": "/share/:id", "destination": "/" },
     { "source": "/share/:id/", "destination": "/" },
     { "source": "/u/:npub", "destination": "/" },
-    { "source": "/u/:npub/", "destination": "/" }
+    { "source": "/u/:npub/", "destination": "/" },
+    { "source": "/embed/:id", "destination": "/" },
+    { "source": "/embed/:id/", "destination": "/" }
+  ],
+  "headers": [
+    {
+      "source": "/embed/:id",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "frame-ancestors *" }
+      ]
+    }
   ]
 }

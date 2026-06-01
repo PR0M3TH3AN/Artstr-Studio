@@ -576,6 +576,43 @@
     body.app-designer label[for="layerTarget"],
     body.app-designer #layerTarget { display: none !important; }
 
+    /* Embed viewer (docs/EXTERNAL_EMBED_FEATURE.md). When embed mode
+       is on, hide every existing top-level element and show only the
+       dedicated #embedRoot the embed boot path creates. */
+    body.embed-mode { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+    body.embed-mode > :not(#embedRoot) { display: none !important; }
+    #embedRoot {
+      position: fixed; inset: 0;
+      display: flex; flex-direction: column;
+      background: transparent;
+      font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #111827;
+    }
+    #embedRoot .embedStage {
+      flex: 1 1 auto;
+      position: relative;
+      overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #embedRoot .embedFooter {
+      flex: 0 0 auto;
+      padding: 6px 10px;
+      display: flex; gap: 12px;
+      align-items: center; justify-content: space-between;
+      font-size: 0.74rem;
+      background: rgba(255,255,255,0.78);
+      backdrop-filter: blur(6px);
+      border-top: 1px solid rgba(0,0,0,0.08);
+    }
+    #embedRoot .embedFooter[data-hidden="true"] { display: none; }
+    #embedRoot .embedFooter a { color: #1e40af; text-decoration: none; }
+    #embedRoot .embedFooter a:hover { text-decoration: underline; }
+    #embedRoot .embedStatus {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      padding: 14px 16px; text-align: center; color: #4b5563; font-size: 0.85rem;
+    }
+    #embedRoot .embedStatus.error { color: #92400e; }
+
     /* Designer single-disc preview */
     body.app-designer .sheetWrap { display: none !important; }
 
@@ -21175,6 +21212,223 @@
       return '';
     }
 
+    // Embed route detection (docs/EXTERNAL_EMBED_FEATURE.md §6).
+    // Supports three forms so the embed works on hosts that do
+    // and don't do SPA path rewrites:
+    //   /embed/<id>      — canonical (Vercel rewrites land here)
+    //   #/embed/<id>     — hash fallback (works on any static host)
+    //   ?embed=<id>      — query fallback (works anywhere too)
+    function parseEmbedRoute() {
+      const params = new URLSearchParams(location.search || '');
+      const path = location.pathname.match(/^\/embed\/([^/?#]+)/);
+      if (path) return { isEmbed: true, id: decodeURIComponent(path[1]), params };
+      const hash = (location.hash || '').replace(/^#\/?/, '');
+      const hm = hash.match(/^embed\/([^/?#]+)/);
+      if (hm) return { isEmbed: true, id: decodeURIComponent(hm[1]), params };
+      const qid = params.get('embed');
+      if (qid) return { isEmbed: true, id: qid, params };
+      return { isEmbed: false };
+    }
+
+    // Collect every linked-design ref reachable from a payload's
+    // top-level + per-slide layers. Mirrors the host-publish strip
+    // walker; used to warm the linked-design cache before paint.
+    function _collectLinkedSpecsFromPayload(payload) {
+      const out = [];
+      const visit = (layers) => {
+        if (!Array.isArray(layers)) return;
+        for (const l of layers) {
+          if (l?.type === 'design' && l.design?.kind === 'linked' && l.design.ref) {
+            out.push({ ref: l.design.ref, pinnedEventId: l.design.pinnedEventId || null });
+          }
+        }
+      };
+      visit(payload?.layers);
+      if (Array.isArray(payload?.deck?.slides)) {
+        for (const s of payload.deck.slides) visit(s?.layers);
+      }
+      return out;
+    }
+
+    // Build the chromeless DOM shell the embed paints into. body
+    // .embed-mode CSS hides everything else; we add a single
+    // #embedRoot with a stage + a footer.
+    function _ensureEmbedRoot() {
+      let root = document.getElementById('embedRoot');
+      if (root) return root;
+      root = document.createElement('div');
+      root.id = 'embedRoot';
+      const stage = document.createElement('div');
+      stage.className = 'embedStage';
+      const footer = document.createElement('div');
+      footer.className = 'embedFooter';
+      footer.dataset.hidden = 'true';
+      root.appendChild(stage);
+      root.appendChild(footer);
+      document.body.appendChild(root);
+      return root;
+    }
+
+    function _setEmbedStatus(root, kind, message) {
+      const stage = root.querySelector('.embedStage');
+      if (!stage) return;
+      stage.innerHTML = '';
+      const box = document.createElement('div');
+      box.className = `embedStatus${kind === 'error' ? ' error' : ''}`;
+      box.textContent = message || '';
+      stage.appendChild(box);
+    }
+
+    // Race relay hints first, fall back to the user's full relay
+    // list. Pared-down twin of loadSharedDesign — we only need the
+    // event itself; no reactions, deletions, profile lookups.
+    async function _resolveEmbedEvent(decoded) {
+      const userRelays = splitRelayList(state.community?.relays || '');
+      const defaults = Array.isArray(DEFAULT_NOSTR_RELAYS) ? DEFAULT_NOSTR_RELAYS : [];
+      const hintRelays = (decoded.relays || []).filter(r => r && /^wss?:\/\//.test(r));
+      const filter = decoded.type === 'naddr'
+        ? { kinds: [decoded.kind], authors: [decoded.pubkey], '#d': [decoded.dTag], limit: 3 }
+        : { ids: [decoded.eventId], limit: 1 };
+      const matches = (ev) => decoded.type === 'naddr'
+        ? (ev.kind === decoded.kind && ev.pubkey === decoded.pubkey)
+        : (ev.id === decoded.eventId);
+      const race = (relays, timeoutMs) => new Promise((resolve) => {
+        if (!relays.length) return resolve(null);
+        let done = false;
+        const finish = (ev) => { if (done) return; done = true; resolve(ev || null); };
+        const qp = queryRelays(relays, filter, {
+          timeoutMs,
+          onEvent: (ev) => { if (matches(ev)) finish(ev); },
+        });
+        qp.then((events) => {
+          if (done) return;
+          const t = decoded.type === 'naddr'
+            ? events.slice().sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0]
+            : events.find(e => e.id === decoded.eventId);
+          finish(t);
+        }).catch(() => finish(null));
+      });
+      let ev = hintRelays.length ? await race(hintRelays, 2500) : null;
+      if (!ev) {
+        const fallback = [...new Set([...userRelays, ...defaults])].filter(r => !hintRelays.includes(r));
+        if (fallback.length) ev = await race(fallback, 4500);
+      }
+      return ev;
+    }
+
+    // Paint the resolved payload into the chromeless embed stage
+    // and populate the footer (author + "Open in Artstr" link).
+    function _paintEmbed(root, payload, event, route, decoded) {
+      const stage = root.querySelector('.embedStage');
+      const footer = root.querySelector('.embedFooter');
+      if (!stage || !footer) return;
+      stage.innerHTML = '';
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden';
+      stage.appendChild(wrap);
+      try {
+        renderDesignPayloadPreview(wrap, payload, { compact: true, transparentPixelArt: true });
+        fitMiniPreview(wrap);
+      } catch (err) {
+        console.warn('[embed] render failed', err);
+        _setEmbedStatus(root, 'error', 'Design preview unavailable.');
+        return;
+      }
+      // Footer: author chip + Open in Artstr link, both togglable
+      // via query params per docs/EXTERNAL_EMBED_FEATURE.md §6.3.
+      footer.innerHTML = '';
+      const params = route.params || new URLSearchParams();
+      const showAttr = params.get('attr') !== '0';
+      const showOpen = params.get('open') !== '0';
+      const showControls = params.get('controls') !== '0';
+      const left = document.createElement('div');
+      const right = document.createElement('div');
+      left.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0';
+      right.style.cssText = 'display:flex;align-items:center;gap:8px';
+      if (showAttr && event?.pubkey) {
+        const profile = _feedCache.profiles?.[event.pubkey] || state.community?.profiles?.[event.pubkey] || null;
+        const name = profile?.display_name || profile?.name || shortPubkey(event.pubkey);
+        const a = document.createElement('a');
+        a.textContent = '@' + name;
+        a.title = profile?.nip05 || encodeNpub(event.pubkey) || event.pubkey;
+        a.href = `${location.origin}/u/${encodeNpub(event.pubkey) || event.pubkey}`;
+        a.target = '_top';
+        a.rel = 'noopener';
+        a.style.cssText = 'color:#1e40af;text-decoration:none;font-family:monospace;font-size:0.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px';
+        left.appendChild(a);
+      }
+      if (showOpen) {
+        const open = document.createElement('a');
+        open.textContent = 'Open in Artstr ↗';
+        open.href = `${location.origin}/#/share/${route.id}`;
+        open.target = '_top';
+        open.rel = 'noopener';
+        right.appendChild(open);
+      }
+      footer.appendChild(left);
+      footer.appendChild(right);
+      footer.dataset.hidden = (!showControls || (!showAttr && !showOpen)) ? 'true' : 'false';
+    }
+
+    // Embed boot path (docs/EXTERNAL_EMBED_FEATURE.md §12). Called
+    // from init() before any editor bootstrap when the route says
+    // we're in embed mode. Public-only in Phase 1 — premium and
+    // private sources refuse with a placeholder + Open in Artstr.
+    async function bootEmbedViewer(route) {
+      document.body.classList.add('embed-mode');
+      const root = _ensureEmbedRoot();
+      _setEmbedStatus(root, 'loading', '⟳ Loading Artstr design…');
+      const decoded = decodeNostrId(route.id);
+      if (!decoded) {
+        _setEmbedStatus(root, 'error', "That's not a valid Artstr identifier.");
+        return;
+      }
+      let event;
+      try { event = await _resolveEmbedEvent(decoded); }
+      catch (err) {
+        console.warn('[embed] resolver failed', err);
+        _setEmbedStatus(root, 'error', "Couldn't reach Nostr relays.");
+        return;
+      }
+      if (!event) {
+        _setEmbedStatus(root, 'error', 'Could not find this design on any relay.');
+        return;
+      }
+      // Premium / private boundary (spec §10). Phase 1 refuses both
+      // with an Open-in-Artstr CTA — Phase 2 will render the
+      // watermarked preview + 🔒 overlay for premium.
+      if (typeof isPremiumEvent === 'function' && isPremiumEvent(event)) {
+        _setEmbedStatus(root, 'error', '🔒 Premium design — open in Artstr to unlock.');
+        return;
+      }
+      let payload;
+      try { payload = JSON.parse(event.content || '{}'); }
+      catch {
+        _setEmbedStatus(root, 'error', "This event isn't a valid Artstr design.");
+        return;
+      }
+      if (typeof isEncryptedEnvelope === 'function' && isEncryptedEnvelope(payload)) {
+        _setEmbedStatus(root, 'error', '🔒 Private design — only sharers can view this.');
+        return;
+      }
+      if (typeof isDesignPayload !== 'function' || !isDesignPayload(payload)) {
+        _setEmbedStatus(root, 'error', "This event isn't an Artstr design.");
+        return;
+      }
+      // Warm the linked-design cache in one batched round-trip
+      // before paint so sub-designs paint from a hot cache rather
+      // than flicker through the placeholder.
+      try {
+        const specs = _collectLinkedSpecsFromPayload(payload);
+        if (specs.length && typeof linkedDesigns?.prefetchBatch === 'function') {
+          await linkedDesigns.prefetchBatch(specs);
+        }
+      } catch (err) {
+        console.warn('[embed] linked prefetch failed', err);
+      }
+      _paintEmbed(root, payload, event, route, decoded);
+    }
+
     function encodeNpub(pubkeyHex) {
       const bytes = hexToBytes(pubkeyHex);
       if (bytes.length !== 32) return '';
@@ -27987,6 +28241,16 @@
     }
 
     function init() {
+      // Embed mode: route check runs before any editor bootstrap so
+      // the iframe boots straight to the read-only viewer. Skips
+      // welcome modal, slot/disc/jewel controls, attachEvents,
+      // walletUI, autosave restore, popstate listener for shares —
+      // none of those apply in a chromeless read-only embed.
+      const embedRoute = parseEmbedRoute();
+      if (embedRoute.isEmbed) {
+        bootEmbedViewer(embedRoute);
+        return;
+      }
       restoreAutosave();
       state.appMode = state.appMode || 'template';
       normalizeDiscState();
