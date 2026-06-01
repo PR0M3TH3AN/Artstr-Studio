@@ -6491,6 +6491,12 @@
     const LINKED_DESIGN_MAX_EVENT_BYTES = 1024 * 1024;
     const LINKED_DESIGN_MAX_TREE_BYTES = 1024 * 1024;
     const LINKED_DESIGN_MAX_DEPTH = 3;
+    // Disk cache: 24-hour TTL (long enough to make return visits
+    // feel instant; short enough that source edits propagate
+    // within a day). 4 MB budget, LRU eviction.
+    const LINKED_DESIGN_DISK_KEY = 'artstr.linkedDesignCache.v1';
+    const LINKED_DESIGN_DISK_TTL_MS = 24 * 60 * 60 * 1000;
+    const LINKED_DESIGN_DISK_MAX_BYTES = 4 * 1024 * 1024;
     const linkedDesigns = (() => {
       const cache = new Map();          // key (address or eventId) → { payload, fetchedAt, sourceEvent }
       const inflight = new Map();       // key → Promise (deduplicates parallel resolves)
@@ -6525,38 +6531,72 @@
         return entry;
       }
 
-      async function _fetchPayload({ ref, pinnedEventId }) {
-        const relays = typeof _vaultRelayUnion === 'function' ? _vaultRelayUnion() : splitRelayList(state.community?.relays || '');
-        let filter = null;
-        if (pinnedEventId) {
-          if (!/^[0-9a-f]{64}$/i.test(pinnedEventId)) return null;
-          filter = { ids: [pinnedEventId], limit: 1 };
-        } else {
-          const coord = _parseAddressCoord(ref);
-          if (!coord) return null;
-          filter = {
-            kinds: [coord.kind],
-            authors: [coord.pubkey],
-            '#d': [coord.dTag],
-            limit: 5,
-          };
-        }
-        let events;
+      // Disk cache (LINKED_DESIGNS_FEATURE.md §7 polish). Mirror
+      // the in-memory cache to localStorage so a cold reload paints
+      // without waiting on relays. We store the raw sourceEvent
+      // only — premium/private detection + vault lookup + decrypt
+      // re-runs on every read so vault state, sign-in status, and
+      // unlock changes are always current. LRU-bounded at 4 MB.
+      function _diskLoad() {
         try {
-          events = await queryRelays(relays, filter, { timeoutMs: 4500 });
-        } catch (err) {
-          console.warn('[linked-designs] relay query failed', err);
-          return null;
+          const raw = localStorage.getItem(LINKED_DESIGN_DISK_KEY);
+          if (!raw) return { version: 1, entries: {} };
+          const parsed = JSON.parse(raw);
+          if (parsed?.version !== 1 || !parsed?.entries) return { version: 1, entries: {} };
+          return parsed;
+        } catch { return { version: 1, entries: {} }; }
+      }
+      function _diskSave(cache) {
+        try { localStorage.setItem(LINKED_DESIGN_DISK_KEY, JSON.stringify(cache)); }
+        catch (err) {
+          // Likely a quota error — drop the cache to recover.
+          console.warn('[linked-designs] disk cache save failed (clearing)', err);
+          try { localStorage.removeItem(LINKED_DESIGN_DISK_KEY); } catch {}
         }
-        if (!events || !events.length) {
-          console.warn('[linked-designs] no events returned for', ref || pinnedEventId);
-          return null;
+      }
+      function _diskRead(key) {
+        if (!key) return null;
+        const disk = _diskLoad();
+        const entry = disk.entries[key];
+        if (!entry) return null;
+        if (Date.now() - (entry.fetchedAt || 0) > LINKED_DESIGN_DISK_TTL_MS) return null;
+        return entry.sourceEvent || null;
+      }
+      function _diskWrite(key, sourceEvent) {
+        if (!key || !sourceEvent?.content) return;
+        const disk = _diskLoad();
+        disk.entries[key] = { sourceEvent, fetchedAt: Date.now() };
+        _diskEvictIfNeeded(disk);
+        _diskSave(disk);
+      }
+      function _diskDelete(key) {
+        if (!key) return;
+        const disk = _diskLoad();
+        if (!disk.entries[key]) return;
+        delete disk.entries[key];
+        _diskSave(disk);
+      }
+      function _diskEvictIfNeeded(disk) {
+        const arr = Object.entries(disk.entries);
+        let totalBytes = 0;
+        for (const [, e] of arr) totalBytes += (e?.sourceEvent?.content?.length || 0);
+        if (totalBytes <= LINKED_DESIGN_DISK_MAX_BYTES) return;
+        // LRU eviction by fetchedAt ascending.
+        arr.sort((a, b) => (a[1].fetchedAt || 0) - (b[1].fetchedAt || 0));
+        while (totalBytes > LINKED_DESIGN_DISK_MAX_BYTES && arr.length) {
+          const [k, e] = arr.shift();
+          delete disk.entries[k];
+          totalBytes -= (e?.sourceEvent?.content?.length || 0);
         }
-        // Pick the latest by created_at — relays should retain only
-        // the latest addressable event per address, but defensively
-        // sort in case more than one slipped through.
-        events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-        const ev = events[0];
+      }
+
+      // Build a resolver entry from a single raw source event. The
+      // input is whatever queryRelays / disk cache hands us; the
+      // output is the same { payload, sourceEvent, contentBytes,
+      // premium?, private? } shape resolveLinked stashes in the
+      // in-memory cache. Pure given vault state + signing extension
+      // — same event yields the same entry shape both times.
+      async function _entryFromEvent(ev) {
         if (!ev?.content) {
           console.warn('[linked-designs] source event has empty content', ev?.id);
           return null;
@@ -6668,6 +6708,52 @@
         return { payload: parsed, sourceEvent: ev, contentBytes: ev.content.length };
       }
 
+      // Try disk cache first; on miss query relays + write to disk.
+      // Either way, the post-fetch entry build runs the same code
+      // path through _entryFromEvent so vault/private/premium
+      // detection always reflects current state.
+      async function _fetchPayload({ ref, pinnedEventId }) {
+        const key = _cacheKey({ ref, pinnedEventId });
+        const cachedEv = _diskRead(key);
+        if (cachedEv) {
+          const entry = await _entryFromEvent(cachedEv);
+          if (entry) return entry;
+          // Cached event was malformed — drop it and fall through to a fresh fetch.
+          _diskDelete(key);
+        }
+        const relays = typeof _vaultRelayUnion === 'function' ? _vaultRelayUnion() : splitRelayList(state.community?.relays || '');
+        let filter = null;
+        if (pinnedEventId) {
+          if (!/^[0-9a-f]{64}$/i.test(pinnedEventId)) return null;
+          filter = { ids: [pinnedEventId], limit: 1 };
+        } else {
+          const coord = _parseAddressCoord(ref);
+          if (!coord) return null;
+          filter = {
+            kinds: [coord.kind],
+            authors: [coord.pubkey],
+            '#d': [coord.dTag],
+            limit: 5,
+          };
+        }
+        let events;
+        try {
+          events = await queryRelays(relays, filter, { timeoutMs: 4500 });
+        } catch (err) {
+          console.warn('[linked-designs] relay query failed', err);
+          return null;
+        }
+        if (!events || !events.length) {
+          console.warn('[linked-designs] no events returned for', ref || pinnedEventId);
+          return null;
+        }
+        events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+        const ev = events[0];
+        const entry = await _entryFromEvent(ev);
+        if (entry) _diskWrite(key, ev);
+        return entry;
+      }
+
       // Public: resolve a single linked layer's spec ({ ref, pinnedEventId }).
       // Returns { payload, sourceEvent, fetchedAt } or null when not
       // resolvable. Coalesces concurrent calls for the same key into
@@ -6747,8 +6833,13 @@
       }
 
       function clearCache(key) {
-        if (key) cache.delete(key);
-        else cache.clear();
+        if (key) {
+          cache.delete(key);
+          _diskDelete(key);
+        } else {
+          cache.clear();
+          try { localStorage.removeItem(LINKED_DESIGN_DISK_KEY); } catch {}
+        }
       }
 
       // Synchronous cache peek for renderers that want to skip the
