@@ -3377,7 +3377,10 @@
               <button type="button" id="editDesignLayerBtn">Edit embedded design</button>
               <button type="button" id="replaceDesignLayerBtn">Replace from file</button>
             </div>
-            <p class="hint" style="font-size:.72rem;margin:4px 0 0">Design objects keep the imported design editable inside this layer. Double-clicking the layer opens it too.</p>
+            <div class="buttonRow">
+              <button type="button" id="publishLinkDesignLayerBtn" title="Publish this layer's payload as its own Nostr design and replace this layer with a link to it. Future edits to that design will propagate to every host that links it.">🔗 Publish + link</button>
+            </div>
+            <p class="hint" style="font-size:.72rem;margin:4px 0 0">Design objects keep the imported design editable inside this layer. Double-clicking the layer opens it too. Publish + link extracts this layer into its own reusable Nostr design.</p>
           </div>
 
           <div id="linkedDesignLayerControls" style="display:none">
@@ -6853,7 +6856,22 @@
 
       function keyFor(linkSpec) { return _cacheKey(linkSpec || {}); }
 
-      return { resolveLinked, walkLinkedTree, walkContributors, clearCache, peek, keyFor, _parseAddressCoord, _cacheKey };
+      // Populate both caches from a freshly-published source event
+      // so a layer that was just extracted-and-linked paints
+      // instantly without waiting for relay propagation. Returns
+      // the entry that was cached so callers can verify the parse
+      // succeeded.
+      async function seed(spec, sourceEvent) {
+        const key = _cacheKey(spec || {});
+        if (!key || !sourceEvent?.content) return null;
+        const entry = await _entryFromEvent(sourceEvent);
+        if (!entry) return null;
+        cache.set(key, { ...entry, fetchedAt: _now() });
+        _diskWrite(key, sourceEvent);
+        return entry;
+      }
+
+      return { resolveLinked, walkLinkedTree, walkContributors, clearCache, peek, keyFor, seed, _parseAddressCoord, _cacheKey };
     })();
 
     // Walk the host's linked tree to collect (a) distinct contributor
@@ -11660,6 +11678,110 @@
       layer.design = { mode: normalizeTemplateMode(payload), payload: clonePayload(payload) };
       render();
       toastSuccess('Unlinked — source payload snapshotted into this layer.');
+    }
+
+    // Publish an embedded design layer as its own kind-30078 event,
+    // then replace the local layer with a linked layer pointing at
+    // the new event. Lets a user extract a reusable component
+    // (icon, sub-design, slide etc.) from a host design without
+    // re-importing it elsewhere by hand. Spec §10.3 — the new event
+    // is published under the *current user's* identity since we
+    // can't sign on behalf of whoever originally authored the
+    // embedded content; warn in the confirm copy.
+    async function publishSelectedLayerAsLinkedDesign() {
+      const layer = selectedLayer();
+      if (!layer || layer.type !== 'design') return;
+      if (layer.design?.kind === 'linked') {
+        toastError('This layer is already linked.');
+        return;
+      }
+      const myPubkey = state.community?.myPubkey || '';
+      if (!myPubkey) {
+        toastError('Sign in with Nostr first (Profile → Sign in).');
+        return;
+      }
+      const sourcePayload = layer.design?.payload || null;
+      if (!sourcePayload || !isDesignPayload(sourcePayload)) {
+        toastError('This layer has no design payload to publish.');
+        return;
+      }
+      const baseTitle = (layer.name || '').replace(/^🔗\s*/, '').trim()
+        || designObjectTitle(sourcePayload)
+        || 'Extracted layer';
+      const ok = confirm(
+        `Publish "${baseTitle}" as its own Nostr design and replace this layer with a link to it?\n\n` +
+        `• Publishes under your Nostr identity. Only do this for designs you made — published content is credited to your pubkey.\n` +
+        `• Edits to the new design propagate to every host that links it.\n` +
+        `• To bring the design back inline, use "Unlink to embed" on the linked layer.`
+      );
+      if (!ok) return;
+      const payload = clonePayload(sourcePayload);
+      // Carry the host's category / language / language defaults so
+      // the extracted event lands in the same discovery bucket; the
+      // title is the layer's own.
+      payload.meta = {
+        ...(state.meta || {}),
+        ...(payload.meta || {}),
+        title: baseTitle,
+      };
+      const mode = normalizeTemplateMode(payload) || layer.design.mode || 'cover';
+      stripLinkedDesignEphemera(payload);
+      let attributionTags = [];
+      try {
+        const built = await _buildLinkedAttributionTags(payload, myPubkey);
+        attributionTags = [...built.contributorTags, ...built.linkTags];
+      } catch (err) {
+        console.warn('[layer-extract] attribution build failed', err);
+      }
+      const slug = String(baseTitle).toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40) || 'layer';
+      const dTag = `extracted:${mode}:${slug}:${Math.random().toString(36).slice(2, 8)}`;
+      const typeTag = typeTagForMode(mode);
+      const tags = [
+        ['d', dTag],
+        ...getTemplateTags(payload, typeTag),
+        ...attributionTags,
+      ];
+      const evt = {
+        kind: 30078,
+        created_at: Math.floor(Date.now() / 1000),
+        tags,
+        content: JSON.stringify(payload),
+      };
+      const publishingToast = toast('Publishing extracted design…', { duration: 30000 });
+      let signed;
+      try {
+        signed = await publishCommunityEvent(evt);
+      } catch (err) {
+        publishingToast?.dismiss?.();
+        toastError(err?.message || 'Could not publish the extracted design.');
+        return;
+      }
+      publishingToast?.dismiss?.();
+      if (!signed?.id) {
+        toastError('Publish succeeded but the relay did not return the event id.');
+        return;
+      }
+      const ref = `30078:${myPubkey}:${dTag}`;
+      pushHistory('extract layer as linked design');
+      layer.name = '🔗 ' + baseTitle;
+      layer.design = {
+        kind: 'linked',
+        ref,
+        mode,
+        pinnedEventId: null,
+        ...(mode === 'deck' ? { slideIndex: 0 } : {}),
+      };
+      // Seed the resolver caches from the just-published event so
+      // the layer paints instantly without waiting on relay
+      // propagation.
+      try { await linkedDesigns.seed({ ref, pinnedEventId: null }, signed); } catch (err) {
+        console.warn('[layer-extract] cache seed failed', err);
+      }
+      render();
+      toastSuccess('🔗 Layer published as its own design and linked here.');
     }
 
     function handleDesignLayerFileImport(event) {
@@ -25929,6 +26051,7 @@
         if (l && l.type === 'design') beginDesignObjectEdit(l.id);
       });
       $('replaceDesignLayerBtn')?.addEventListener('click', replaceSelectedDesignLayerFromFile);
+      $('publishLinkDesignLayerBtn')?.addEventListener('click', publishSelectedLayerAsLinkedDesign);
       $('designLayerFile')?.addEventListener('change', handleDesignLayerFileImport);
       $('linkedDesignRefreshBtn')?.addEventListener('click', refreshSelectedLinkedDesignLayer);
       $('linkedDesignReplaceBtn')?.addEventListener('click', replaceSelectedLinkedDesignLayer);
