@@ -9828,12 +9828,16 @@
       return layer;
     }
 
-    // Pen nodes live in the path's 0–100 viewBox; map to/from canvas inches.
+    // Pen nodes live in a pixel-space viewBox (1 unit = 1px @ 96dpi).
+    // Layer dimensions are inches; map nodes ↔ canvas inches via /96.
+    // The viewBox dims (layer.w * 96, layer.h * 96) match the layer's
+    // aspect so stroke-width is consistent on-screen regardless of
+    // layer size.
     function penNodeToInch(layer, p) {
-      return { x: layer.x + (p.x / 100) * layer.w, y: layer.y + (p.y / 100) * layer.h };
+      return { x: layer.x + p.x / 96, y: layer.y + p.y / 96 };
     }
     function inchToPenNode(layer, pt) {
-      return { x: (pt.x - layer.x) / layer.w * 100, y: (pt.y - layer.y) / layer.h * 100 };
+      return { x: (pt.x - layer.x) * 96, y: (pt.y - layer.y) * 96 };
     }
 
     function hitTestPenEdit(layer, evt) {
@@ -9925,15 +9929,17 @@
     }
 
     function regenPenLayerD(layer) {
-      // The renderer applies sx=100/vb.w, sy=vbH/vb.h; we want sx==sy.
-      // So whenever we regenerate the d-string we also update the
-      // stored viewBox.h to match the layer's current aspect, keeping
-      // strokes uniform. Nodes are kept in 0-100 × 0-(100*h/w) space
-      // by the uniform-scale remap in finishPenPath + refit.
-      const vbH = layer.w > 0 ? 100 * layer.h / layer.w : 100;
+      // Pen nodes live in pixel-space (layer.w * 96 × layer.h * 96).
+      // We re-write the stored viewBox to match the layer's current
+      // inch dimensions so the renderer's path branch (sx=100/vb.w,
+      // sy=vbH/vb.h, vbH = 100*lh/lw) ends up uniform: sx == sy. Strokes
+      // stay constant width around curves and consistent across shapes
+      // regardless of size — same as the pencil tool's behavior.
+      const vbW = (layer.w || 0) * 96;
+      const vbH = (layer.h || 0) * 96;
       layer.shape = {
         ...layer.shape,
-        viewBox: { x: 0, y: 0, w: 100, h: vbH },
+        viewBox: { x: 0, y: 0, w: vbW, h: vbH },
         d: penNodesToPathD(layer.shape.pen.nodes, layer.shape.pen.closed)
       };
     }
@@ -10006,40 +10012,24 @@
         if (p.x > maxX) maxX = p.x;
         if (p.y > maxY) maxY = p.y;
       }
-      // Layer viewBox is 0-100 × 0-vbH where vbH = 100*layer.h/layer.w
-      // — the renderer's hard-coded formula. We want nodes to fit
-      // x:[0,100] and y:[0,vbH], matching the layer's actual aspect
-      // ratio after refit. The current viewBox-y bound is implied
-      // by what the renderer would compute given new layer.w/h.
-      //
-      // No-op unless we're outside the current viewBox on any side
-      // (with a small tolerance to avoid micro-jiggle during normal
-      // in-bounds drags). The current viewBox y-max is `vbH` computed
-      // from existing layer w/h.
-      const currentVbH = layer.w > 0 ? 100 * layer.h / layer.w : 100;
+      // Nodes live in pixel-space: x:[0, layer.w*96], y:[0, layer.h*96].
+      // Refit unless every point is inside (with a small tolerance to
+      // avoid micro-jiggle).
+      const vbWNow = (layer.w || 0) * 96;
+      const vbHNow = (layer.h || 0) * 96;
       const EPS = 0.5;
-      if (minX > -EPS && minY > -EPS && maxX < 100 + EPS && maxY < currentVbH + EPS) return;
+      if (minX > -EPS && minY > -EPS && maxX < vbWNow + EPS && maxY < vbHNow + EPS) return;
       const newW = Math.max(EPS, maxX - minX);
       const newH = Math.max(EPS, maxY - minY);
-      // Layer scales: in inches, layer.w grows in proportion to
-      // newW vs current viewBox-x (always 100); layer.h grows in
-      // proportion to newH vs the existing vbH.
-      const sx = newW / 100;
-      const sy = newH / currentVbH;
-      // Layer position shifts in inches by the bbox offset scaled
-      // to the existing layer w/h.
-      layer.x = layer.x + (minX / 100) * layer.w;
-      layer.y = layer.y + (minY / currentVbH) * layer.h;
-      layer.w = Math.max(0.01, layer.w * sx);
-      layer.h = Math.max(0.01, layer.h * sy);
-      // Uniform-scale remap so the new node range matches the new
-      // viewBox aspect exactly — no stretching when the SVG paints
-      // into the refitted layer rectangle.
-      const remapScale = 100 / newW;
-      const remap = (p) => ({
-        x: (p.x - minX) * remapScale,
-        y: (p.y - minY) * remapScale,
-      });
+      // Layer position shifts in inches by the bbox offset (in
+      // pixel-space) divided by 96 to convert back to inches.
+      layer.x = layer.x + minX / 96;
+      layer.y = layer.y + minY / 96;
+      // New layer dimensions in inches: pixel-space bbox / 96.
+      layer.w = Math.max(0.01, newW / 96);
+      layer.h = Math.max(0.01, newH / 96);
+      // Re-anchor nodes so the new bbox origin sits at (0, 0).
+      const remap = (p) => ({ x: p.x - minX, y: p.y - minY });
       for (const n of nodes) {
         const r = remap(n);
         n.x = r.x; n.y = r.y;
@@ -10446,26 +10436,28 @@
           width: Math.max(0.5, Number(sh.strokeWidth) || 6), dash: 'solid' };
         layer.fill = { type: 'none' };
       }
-      // primitiveToPenNodes / parsePathDToNodes return nodes in
-      // 0-100 × 0-100. The renderer paints pen paths with sx=100/vb.w,
-      // sy=vbH/vb.h, where vbH = 100*layer.h/layer.w — so for any
-      // non-square layer this would stretch the path. Remap node y
-      // coordinates to 0..vbH so the resulting viewBox is the layer's
-      // actual aspect, giving uniform sx==sy at render time.
+      // primitiveToPenNodes / parsePathDToNodes give nodes in 0-100×0-100.
+      // Pen paths now use a pixel-space viewBox (1 unit = 1px @ 96dpi)
+      // so stroke-width renders at a consistent device-pixel size across
+      // shapes (same pattern as the pencil tool). Map 0-100 → 0-(lw*96)
+      // along x and 0-100 → 0-(lh*96) along y; the resulting viewBox
+      // aspect matches the layer aspect, giving uniform scaling.
       const lw = Number(layer.w) > 0 ? Number(layer.w) : 1;
       const lh = Number(layer.h) > 0 ? Number(layer.h) : 1;
-      const vbH = 100 * lh / lw;
+      const vbW = lw * 96;
+      const vbH = lh * 96;
+      const xScale = vbW / 100;
       const yScale = vbH / 100;
       const scaledNodes = result.nodes.map(n => ({
-        x: n.x,
+        x: n.x * xScale,
         y: n.y * yScale,
-        hIn: n.hIn ? { x: n.hIn.x, y: n.hIn.y * yScale } : null,
-        hOut: n.hOut ? { x: n.hOut.x, y: n.hOut.y * yScale } : null,
+        hIn: n.hIn ? { x: n.hIn.x * xScale, y: n.hIn.y * yScale } : null,
+        hOut: n.hOut ? { x: n.hOut.x * xScale, y: n.hOut.y * yScale } : null,
         kind: n.kind || 'corner',
       }));
       layer.shape = {
         kind: 'path',
-        viewBox: { x: 0, y: 0, w: 100, h: vbH },
+        viewBox: { x: 0, y: 0, w: vbW, h: vbH },
         pen: { closed: result.closed, tool: 'pen', nodes: scaledNodes },
         d: penNodesToPathD(scaledNodes, result.closed)
       };
@@ -10514,22 +10506,22 @@
         if (n.hOut) allPts.push(n.hOut);
       }
       const bbox = pointsBbox(allPts);
-      // Uniform scaling: divide both x and y by bbox.w so nodes land
-      // in 0-100 × 0-(100*h/w). Then store shape.viewBox.h to match,
-      // so the renderer (buildShapeSvgInner path branch, sx = 100/vb.w,
-      // sy = H/vb.h) ends up with sx == sy = uniform scaling. The
-      // earlier hardcoded viewBox.h = 100 with bbox-rescaled nodes
-      // forced the renderer to stretch the path vertically into a
-      // non-square layer rectangle, varying stroke widths around
-      // curves.
-      const scale = bbox.w > 0 ? 100 / bbox.w : 1;
-      const remap = (pt) => ({ x: (pt.x - bbox.x) * scale, y: (pt.y - bbox.y) * scale });
+      // Store the path in a pixel-space viewBox (1 unit = 1px @ 96dpi).
+      // The pencil tool does the same thing (see commitPencilStroke) for
+      // exactly this reason: stroke-width becomes a true on-screen
+      // thickness regardless of how big the shape is — two pen paths
+      // with stroke "2" render at the same device-pixel width. The
+      // earlier 0-100 normalization made strokes scale with layer size,
+      // so identical stroke numbers visually differed across shapes.
+      const remap = (pt) => ({ x: (pt.x - bbox.x) * 96, y: (pt.y - bbox.y) * 96 });
       const normNodes = nodes.map(n => ({
         x: remap(n).x, y: remap(n).y,
         hIn: n.hIn ? remap(n.hIn) : null,
-        hOut: n.hOut ? remap(n.hOut) : null
+        hOut: n.hOut ? remap(n.hOut) : null,
+        kind: n.kind || 'corner',
       }));
-      const vbH = bbox.w > 0 ? 100 * bbox.h / bbox.w : 100;
+      const vbW = bbox.w * 96;
+      const vbH = bbox.h * 96;
       const d = penNodesToPathD(normNodes, closed);
       pushHistory('draw pen path');
       const fill = (closed && _penToolOpts.penFill)
@@ -10543,7 +10535,7 @@
         x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h,
         rotate: 0, opacity: 1, z: nextLayerZ(),
         shape: {
-          kind: 'path', d, viewBox: { x: 0, y: 0, w: 100, h: vbH },
+          kind: 'path', d, viewBox: { x: 0, y: 0, w: vbW, h: vbH },
           pen: { closed: !!closed, tool: 'pen', nodes: normNodes }
         },
         fill,
