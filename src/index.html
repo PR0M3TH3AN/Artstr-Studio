@@ -585,7 +585,16 @@
        host theme (light, dark, branded). Each chip carries its own
        semi-opaque dark background + blur so it stays readable
        regardless of what's behind. */
-    body.embed-mode { margin: 0; padding: 0; overflow: hidden; background: transparent; }
+    /* Force transparency from <html> down so embeds can sit over
+       any host background (color, image, gradient). The global
+       `html, body { background: var(--bg) }` rule at the top of
+       this file would otherwise paint the html element white in
+       embed mode, killing host-show-through. The :has() selector
+       targets html only when an embed-mode body is its descendant. */
+    html:has(body.embed-mode), body.embed-mode {
+      background: transparent !important;
+    }
+    body.embed-mode { margin: 0; padding: 0; overflow: hidden; }
     body.embed-mode > :not(#embedRoot) { display: none !important; }
     #embedRoot {
       position: fixed; inset: 0;
@@ -21536,10 +21545,15 @@
     // private sources refuse with a placeholder + Open in Artstr.
     async function bootEmbedViewer(route) {
       document.body.classList.add('embed-mode');
-      // Force the <html> root transparent too — body alone leaves
-      // the browser's default white element behind, which kills
-      // host-bg-show-through for transparent pixel art etc.
-      document.documentElement.style.background = 'transparent';
+      // Force the <html> + <body> backgrounds transparent with
+      // !important so the global `html, body { background:
+      // var(--bg) }` rule near the top of this file (which would
+      // otherwise paint the iframe document with the light theme's
+      // #e8f4f8) doesn't bleed through transparent pixel art. The
+      // CSS :has()-rule we set covers modern browsers; this inline
+      // is the belt-and-suspenders for any specificity edge case.
+      document.documentElement.style.setProperty('background', 'transparent', 'important');
+      document.body.style.setProperty('background', 'transparent', 'important');
       const root = _ensureEmbedRoot();
       _setEmbedStatus(root, 'loading', '⟳ Loading Artstr design…');
       const retry = () => bootEmbedViewer(route);
