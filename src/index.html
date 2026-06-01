@@ -9925,8 +9925,15 @@
     }
 
     function regenPenLayerD(layer) {
+      // The renderer applies sx=100/vb.w, sy=vbH/vb.h; we want sx==sy.
+      // So whenever we regenerate the d-string we also update the
+      // stored viewBox.h to match the layer's current aspect, keeping
+      // strokes uniform. Nodes are kept in 0-100 × 0-(100*h/w) space
+      // by the uniform-scale remap in finishPenPath + refit.
+      const vbH = layer.w > 0 ? 100 * layer.h / layer.w : 100;
       layer.shape = {
         ...layer.shape,
+        viewBox: { x: 0, y: 0, w: 100, h: vbH },
         d: penNodesToPathD(layer.shape.pen.nodes, layer.shape.pen.closed)
       };
     }
@@ -10439,11 +10446,28 @@
           width: Math.max(0.5, Number(sh.strokeWidth) || 6), dash: 'solid' };
         layer.fill = { type: 'none' };
       }
+      // primitiveToPenNodes / parsePathDToNodes return nodes in
+      // 0-100 × 0-100. The renderer paints pen paths with sx=100/vb.w,
+      // sy=vbH/vb.h, where vbH = 100*layer.h/layer.w — so for any
+      // non-square layer this would stretch the path. Remap node y
+      // coordinates to 0..vbH so the resulting viewBox is the layer's
+      // actual aspect, giving uniform sx==sy at render time.
+      const lw = Number(layer.w) > 0 ? Number(layer.w) : 1;
+      const lh = Number(layer.h) > 0 ? Number(layer.h) : 1;
+      const vbH = 100 * lh / lw;
+      const yScale = vbH / 100;
+      const scaledNodes = result.nodes.map(n => ({
+        x: n.x,
+        y: n.y * yScale,
+        hIn: n.hIn ? { x: n.hIn.x, y: n.hIn.y * yScale } : null,
+        hOut: n.hOut ? { x: n.hOut.x, y: n.hOut.y * yScale } : null,
+        kind: n.kind || 'corner',
+      }));
       layer.shape = {
         kind: 'path',
-        viewBox: { x: 0, y: 0, w: 100, h: 100 },
-        pen: { closed: result.closed, tool: 'pen', nodes: result.nodes },
-        d: penNodesToPathD(result.nodes, result.closed)
+        viewBox: { x: 0, y: 0, w: 100, h: vbH },
+        pen: { closed: result.closed, tool: 'pen', nodes: scaledNodes },
+        d: penNodesToPathD(scaledNodes, result.closed)
       };
       render();
       return { ok: true };
@@ -10491,11 +10515,13 @@
       }
       const bbox = pointsBbox(allPts);
       // Uniform scaling: divide both x and y by bbox.w so nodes land
-      // in 0-100 × 0-(100*h/w) — matching the renderer's vbH formula
-      // (= 100 * layer.h / layer.w). Independent x/y scaling here
-      // forces a 0-100×0-100 node range into a non-square viewBox
-      // later, stretching curves and varying stroke widths around
-      // the path. Uniform scaling keeps strokes a constant width.
+      // in 0-100 × 0-(100*h/w). Then store shape.viewBox.h to match,
+      // so the renderer (buildShapeSvgInner path branch, sx = 100/vb.w,
+      // sy = H/vb.h) ends up with sx == sy = uniform scaling. The
+      // earlier hardcoded viewBox.h = 100 with bbox-rescaled nodes
+      // forced the renderer to stretch the path vertically into a
+      // non-square layer rectangle, varying stroke widths around
+      // curves.
       const scale = bbox.w > 0 ? 100 / bbox.w : 1;
       const remap = (pt) => ({ x: (pt.x - bbox.x) * scale, y: (pt.y - bbox.y) * scale });
       const normNodes = nodes.map(n => ({
@@ -10503,6 +10529,7 @@
         hIn: n.hIn ? remap(n.hIn) : null,
         hOut: n.hOut ? remap(n.hOut) : null
       }));
+      const vbH = bbox.w > 0 ? 100 * bbox.h / bbox.w : 100;
       const d = penNodesToPathD(normNodes, closed);
       pushHistory('draw pen path');
       const fill = (closed && _penToolOpts.penFill)
@@ -10516,7 +10543,7 @@
         x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h,
         rotate: 0, opacity: 1, z: nextLayerZ(),
         shape: {
-          kind: 'path', d, viewBox: { x: 0, y: 0, w: 100, h: 100 },
+          kind: 'path', d, viewBox: { x: 0, y: 0, w: 100, h: vbH },
           pen: { closed: !!closed, tool: 'pen', nodes: normNodes }
         },
         fill,
