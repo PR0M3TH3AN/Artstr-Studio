@@ -21317,13 +21317,24 @@
       return root;
     }
 
-    function _setEmbedStatus(root, kind, message) {
+    function _setEmbedStatus(root, kind, message, opts = {}) {
       const stage = root.querySelector('.embedStage');
       if (!stage) return;
       stage.innerHTML = '';
       const box = document.createElement('div');
       box.className = `embedStatus${kind === 'error' ? ' error' : ''}`;
-      box.textContent = message || '';
+      const msg = document.createElement('div');
+      msg.textContent = message || '';
+      box.appendChild(msg);
+      if (typeof opts.retry === 'function') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'embedChip';
+        btn.style.marginTop = '8px';
+        btn.textContent = '↻ Refresh';
+        btn.addEventListener('click', () => opts.retry());
+        box.appendChild(btn);
+      }
       stage.appendChild(box);
     }
 
@@ -21525,8 +21536,13 @@
     // private sources refuse with a placeholder + Open in Artstr.
     async function bootEmbedViewer(route) {
       document.body.classList.add('embed-mode');
+      // Force the <html> root transparent too — body alone leaves
+      // the browser's default white element behind, which kills
+      // host-bg-show-through for transparent pixel art etc.
+      document.documentElement.style.background = 'transparent';
       const root = _ensureEmbedRoot();
       _setEmbedStatus(root, 'loading', '⟳ Loading Artstr design…');
+      const retry = () => bootEmbedViewer(route);
       const decoded = decodeNostrId(route.id);
       if (!decoded) {
         _setEmbedStatus(root, 'error', "That's not a valid Artstr identifier.");
@@ -21536,11 +21552,11 @@
       try { event = await _resolveEmbedEvent(decoded); }
       catch (err) {
         console.warn('[embed] resolver failed', err);
-        _setEmbedStatus(root, 'error', "Couldn't reach Nostr relays.");
+        _setEmbedStatus(root, 'error', "Couldn't reach Nostr relays.", { retry });
         return;
       }
       if (!event) {
-        _setEmbedStatus(root, 'error', 'Could not find this design on any relay.');
+        _setEmbedStatus(root, 'error', 'Could not find this design on any relay.', { retry });
         return;
       }
       // Premium boundary (spec §10): the envelope ships an
