@@ -21436,7 +21436,155 @@
 
     // Paint the resolved payload into the chromeless embed stage
     // and populate the footer (author + "Open in Artstr" link).
+    // Deck embed player (EXTERNAL_EMBED_FEATURE.md §11.3 / §18 Phase 4).
+    // Multi-slide decks paginate inside the iframe with prev/next +
+    // counter chips in the footer, keyboard nav, and a fullscreen
+    // toggle. ?slide=N (1-based) deep-links to a starting slide.
+    function _paintEmbedDeck(root, payload, event, route) {
+      const stage = root.querySelector('.embedStage');
+      const footer = root.querySelector('.embedFooter');
+      if (!stage || !footer) return;
+      const slides = payload.deck?.slides || [];
+      const theme = payload.deck?.theme || {};
+      const params = route.params || new URLSearchParams();
+      const requested = Math.max(1, parseInt(params.get('slide') || '1', 10)) - 1;
+      let idx = Math.min(slides.length - 1, Math.max(0, requested));
+      stage.innerHTML = '';
+      footer.innerHTML = '';
+
+      const wrap = document.createElement('div');
+      wrap.className = 'designObjectFitWrap';
+      wrap.style.cssText = 'position:relative;width:100%;height:100%;overflow:hidden;display:flex;align-items:center;justify-content:center';
+      stage.appendChild(wrap);
+
+      const showControls = params.get('controls') !== '0';
+      const showAttr     = params.get('attr') !== '0';
+      const showOpen     = params.get('open') !== '0';
+
+      const left = document.createElement('div');
+      left.className = 'embedSide';
+      const right = document.createElement('div');
+      right.className = 'embedSide';
+      right.style.justifyContent = 'flex-end';
+
+      let counter = null;
+      let prevBtn = null;
+      let nextBtn = null;
+
+      const paintSlide = () => {
+        wrap.innerHTML = '';
+        const composed = composeSlideForDeck(slides[idx], theme);
+        try {
+          renderDesignPayloadPreview(wrap, composed, { compact: true, transparentPixelArt: true });
+          fitMiniPreview(wrap);
+        } catch (err) {
+          console.warn('[embed] deck slide render failed', err);
+          wrap.innerHTML = '<div class="embedStatus error">Slide preview unavailable.</div>';
+        }
+        if (counter) counter.textContent = `${idx + 1} / ${slides.length}`;
+      };
+
+      const go = (newIdx) => {
+        idx = Math.min(slides.length - 1, Math.max(0, newIdx));
+        paintSlide();
+      };
+
+      if (showControls && slides.length > 1) {
+        prevBtn = document.createElement('button');
+        prevBtn.type = 'button';
+        prevBtn.className = 'embedChip';
+        prevBtn.textContent = '◂';
+        prevBtn.title = 'Previous slide';
+        prevBtn.addEventListener('click', () => go((idx - 1 + slides.length) % slides.length));
+        counter = document.createElement('span');
+        counter.className = 'embedChip embedChipCounter';
+        nextBtn = document.createElement('button');
+        nextBtn.type = 'button';
+        nextBtn.className = 'embedChip';
+        nextBtn.textContent = '▸';
+        nextBtn.title = 'Next slide';
+        nextBtn.addEventListener('click', () => go((idx + 1) % slides.length));
+        left.append(prevBtn, counter, nextBtn);
+      }
+      if (showAttr && event?.pubkey) {
+        left.appendChild(_makeAuthorChip(event.pubkey));
+      }
+
+      if (showControls) {
+        const fsBtn = document.createElement('button');
+        fsBtn.type = 'button';
+        fsBtn.className = 'embedChip';
+        fsBtn.textContent = '⛶';
+        fsBtn.title = 'Toggle fullscreen';
+        fsBtn.addEventListener('click', () => _toggleEmbedFullscreen(root));
+        right.appendChild(fsBtn);
+      }
+      if (showOpen) {
+        const openLink = document.createElement('a');
+        openLink.className = 'embedChip';
+        openLink.textContent = 'Open in Artstr ↗';
+        openLink.href = `${location.origin}/#/share/${route.id}`;
+        openLink.target = '_top';
+        openLink.rel = 'noopener';
+        right.appendChild(openLink);
+      }
+      footer.appendChild(left);
+      footer.appendChild(right);
+      footer.dataset.hidden = (!showControls && !showAttr && !showOpen) ? 'true' : 'false';
+
+      // Keyboard navigation. Re-attaches on every _paintEmbedDeck
+      // call (e.g., the Refresh button on an error state), so swap
+      // any prior handler off first to avoid double-firing.
+      if (_paintEmbedDeck._kbd) {
+        document.removeEventListener('keydown', _paintEmbedDeck._kbd);
+      }
+      const onKey = (e) => {
+        const tag = (e.target?.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+        switch (e.key) {
+          case 'ArrowRight':
+          case 'PageDown':
+          case ' ':
+            e.preventDefault(); go((idx + 1) % slides.length); break;
+          case 'ArrowLeft':
+          case 'PageUp':
+            e.preventDefault(); go((idx - 1 + slides.length) % slides.length); break;
+          case 'Home':
+            e.preventDefault(); go(0); break;
+          case 'End':
+            e.preventDefault(); go(slides.length - 1); break;
+          case 'f':
+          case 'F':
+            e.preventDefault(); _toggleEmbedFullscreen(root); break;
+        }
+      };
+      document.addEventListener('keydown', onKey);
+      _paintEmbedDeck._kbd = onKey;
+
+      paintSlide();
+    }
+
+    function _toggleEmbedFullscreen(root) {
+      const target = root || document.documentElement;
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.().catch(() => {});
+      } else {
+        target.requestFullscreen?.().catch((err) => {
+          console.warn('[embed] fullscreen request failed', err);
+        });
+      }
+    }
+
     function _paintEmbed(root, payload, event, route, decoded) {
+      // Deck payloads with more than one slide get a paginated
+      // player (Phase 4). Single-slide decks fall through to the
+      // standard single-design paint path.
+      const mode = (typeof normalizeTemplateMode === 'function')
+        ? normalizeTemplateMode(payload) : payload?.templateMode;
+      if (mode === 'deck' && Array.isArray(payload?.deck?.slides) && payload.deck.slides.length > 1) {
+        _paintEmbedDeck(root, payload, event, route);
+        return;
+      }
       const stage = root.querySelector('.embedStage');
       const footer = root.querySelector('.embedFooter');
       if (!stage || !footer) return;
