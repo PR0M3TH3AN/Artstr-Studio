@@ -11732,7 +11732,10 @@
         customArt: {
           width: Math.round(bbox.w * 96),
           height: Math.round(bbox.h * 96),
-          background: '#ffffff',
+          // Transparent so the extracted design composites cleanly
+          // into any host. Users can pick a solid fill later via
+          // the customart background control if they want one.
+          background: 'transparent',
         },
         layers: clonedLayers,
         layerGroups: {},
@@ -11939,23 +11942,57 @@
         toastError('Finish the current embedded-design edit first.');
         return;
       }
+      // Linked layers don't carry a payload locally — the source
+      // lives on relays. Open the cached resolved payload for
+      // editing and remember the linked context so finishDesignObjectEdit
+      // can republish the source under the same d-tag on save.
+      const isLinked = layer.design?.kind === 'linked';
+      let editingPayload = null;
+      let linkedContext = null;
+      if (isLinked) {
+        const spec = { ref: layer.design.ref, pinnedEventId: layer.design.pinnedEventId };
+        const cached = linkedDesigns.peek(spec);
+        if (!cached?.payload) {
+          toastError('Linked source is still loading or unavailable. Refresh the layer and try again.');
+          return;
+        }
+        if (layer.design.pinnedEventId) {
+          toastError('Unpin this layer to edit its source — pinned versions are frozen.');
+          return;
+        }
+        const sourcePubkey = cached.sourceEvent?.pubkey;
+        const myPubkey = state.community?.myPubkey || '';
+        if (sourcePubkey && myPubkey && sourcePubkey !== myPubkey) {
+          toastError("Only the source author can edit a linked design. Fork or unlink it to edit a local copy.");
+          return;
+        }
+        editingPayload = cached.payload;
+        linkedContext = { ref: layer.design.ref, sourceEvent: cached.sourceEvent };
+      } else {
+        editingPayload = layer.design?.payload || {};
+      }
       _designObjectEdit = {
         hostPayload: currentEditableDesignPayload(),
         layerId: layer.id,
-        layerName: layer.name || designObjectTitle(layer.design?.payload)
+        layerName: layer.name || designObjectTitle(editingPayload),
+        isLinked,
+        linkedContext,
       };
       try {
-        loadProjectFromText(JSON.stringify(layer.design?.payload || {}));
+        loadProjectFromText(JSON.stringify(editingPayload));
       } catch (err) {
         _designObjectEdit = null;
-        toastError(`Could not open embedded design: ${err?.message || err}`);
+        toastError(`Could not open design: ${err?.message || err}`);
         return;
       }
       paintDesignObjectBanner();
-      toastSuccess('Editing embedded design object. Use Done editing object to write it back.');
+      toastSuccess(isLinked
+        ? '🔗 Editing linked source — Done republishes it to every host that links it.'
+        : 'Editing embedded design object. Use Done editing object to write it back.'
+      );
     }
 
-    function finishDesignObjectEdit(saveChanges) {
+    async function finishDesignObjectEdit(saveChanges) {
       if (!_designObjectEdit) return;
       const edit = _designObjectEdit;
       const updatedPayload = saveChanges ? currentEditableDesignPayload() : null;
@@ -11967,17 +12004,89 @@
       }
       _designObjectEdit = null;
       const layer = getLayer(edit.layerId);
-      if (saveChanges && layer && layer.type === 'design') {
-        pushHistory('update design object');
-        layer.design = { mode: normalizeTemplateMode(updatedPayload), payload: clonePayload(updatedPayload) };
-        layer.name = updatedPayload?.meta?.title || edit.layerName || layer.name;
-        setLayerSelection([layer.id], layer.id);
-        render();
-        toastSuccess('Embedded design object updated.');
+      if (saveChanges && layer && layer.type === 'design' && updatedPayload) {
+        if (edit.isLinked && edit.linkedContext) {
+          await _republishLinkedDesignSource(layer, updatedPayload, edit.linkedContext, edit.layerName);
+        } else {
+          pushHistory('update design object');
+          layer.design = { mode: normalizeTemplateMode(updatedPayload), payload: clonePayload(updatedPayload) };
+          layer.name = updatedPayload?.meta?.title || edit.layerName || layer.name;
+          setLayerSelection([layer.id], layer.id);
+          render();
+          toastSuccess('Embedded design object updated.');
+        }
       } else {
         toastSuccess('Returned to parent design.');
       }
       paintDesignObjectBanner();
+    }
+
+    // Republish a linked-design source under the same d-tag with
+    // the edited payload, then seed the resolver caches with the
+    // new signed event so every linked layer on this canvas paints
+    // the updated version on the next render. Only safe for the
+    // source author — beginDesignObjectEdit blocks non-authors
+    // from reaching this path.
+    async function _republishLinkedDesignSource(layer, updatedPayload, linkedContext, prevLayerName) {
+      const myPubkey = state.community?.myPubkey || '';
+      if (!myPubkey) {
+        toastError('Sign in with Nostr first.');
+        return;
+      }
+      const ref = linkedContext.ref;
+      const parsed = linkedDesigns._parseAddressCoord(ref);
+      if (!parsed || parsed.pubkey !== myPubkey) {
+        toastError('Only the source author can republish a linked design.');
+        return;
+      }
+      const dTag = parsed.dTag;
+      const mode = normalizeTemplateMode(updatedPayload);
+      const payload = clonePayload(updatedPayload);
+      stripLinkedDesignEphemera(payload);
+      let attributionTags = [];
+      try {
+        const built = await _buildLinkedAttributionTags(payload, myPubkey);
+        attributionTags = [...built.contributorTags, ...built.linkTags];
+      } catch (err) {
+        console.warn('[linked-edit] attribution build failed', err);
+      }
+      const typeTag = typeTagForMode(mode);
+      const tags = [
+        ['d', dTag],
+        ...getTemplateTags(payload, typeTag),
+        ...attributionTags,
+      ];
+      const evt = {
+        kind: 30078,
+        created_at: Math.floor(Date.now() / 1000),
+        tags,
+        content: JSON.stringify(payload),
+      };
+      const publishingToast = toast('Re-publishing linked source…', { duration: 30000 });
+      let signed;
+      try { signed = await publishCommunityEvent(evt); }
+      catch (err) {
+        publishingToast?.dismiss?.();
+        toastError(err?.message || 'Could not re-publish the linked source.');
+        return;
+      }
+      publishingToast?.dismiss?.();
+      if (!signed?.id) {
+        toastError('Republish succeeded but the relay did not return the event id.');
+        return;
+      }
+      pushHistory('republish linked source');
+      const key = linkedDesigns.keyFor({ ref, pinnedEventId: null });
+      if (key) linkedDesigns.clearCache(key);
+      try { await linkedDesigns.seed({ ref, pinnedEventId: null }, signed); }
+      catch (err) { console.warn('[linked-edit] cache seed failed', err); }
+      // Refresh the layer name from the (possibly edited) payload title.
+      const newTitle = updatedPayload?.meta?.title?.trim();
+      if (newTitle) layer.name = '🔗 ' + newTitle;
+      else if (prevLayerName) layer.name = prevLayerName;
+      setLayerSelection([layer.id], layer.id);
+      render();
+      toastSuccess('🔗 Linked source updated — every host that links it shows the new version on next refresh.');
     }
 
     function paintDesignObjectBanner() {
