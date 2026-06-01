@@ -23591,9 +23591,9 @@
       }
       const actions = document.createElement('div');
       actions.className = 'feedCardActions';
-      const prevBtn = document.createElement('button');
-      prevBtn.type = 'button'; prevBtn.textContent = 'Preview';
-      prevBtn.addEventListener('click', e => { e.stopPropagation(); openDesignPreview(row); });
+      // The whole card is a click-target for openDesignPreview (see
+      // el.addEventListener('click', ...) below), so a separate
+      // "Preview" button would just duplicate that interaction.
       const btn = document.createElement('button');
       btn.type = 'button';
       // Zap-gated: replace Use/Fork with an unlock-with-zap CTA. We still
@@ -23613,7 +23613,7 @@
       const tipBtn = makeFeedCardTipButton(row);
       const editBtn = makeFeedCardEditButton(row);
       const isMine = rowIsOwnedByMe(row);
-      actions.append(makeReactionBtn(row), prevBtn, btn);
+      actions.append(makeReactionBtn(row), btn);
       if (editBtn) actions.appendChild(editBtn);
       const moreMenu = makeActionMenu([
         blockAuthorAction(row, 'card'),
@@ -24380,16 +24380,15 @@
 
       const actions = document.createElement('div');
       actions.style.cssText = 'display:flex;flex-direction:column;gap:4px;align-items:stretch';
-      const prevBtn = document.createElement('button');
-      prevBtn.type = 'button';
-      prevBtn.textContent = 'Preview';
-      prevBtn.addEventListener('click', e => { e.stopPropagation(); openDesignPreview(row); });
+      // Whole-card click already opens the preview (see the
+      // el.addEventListener('click', ...) below) so a dedicated
+      // Preview button would just duplicate that interaction.
       const useBtn = document.createElement('button');
       useBtn.type = 'button';
       useBtn.textContent = 'Use/Fork';
       useBtn.title = 'Fork this design — opens it in the editor so you can save your own version';
       useBtn.addEventListener('click', e => { e.stopPropagation(); onUse(); });
-      actions.append(makeReactionBtn(row), prevBtn, useBtn);
+      actions.append(makeReactionBtn(row), useBtn);
       const moreMenu = makeActionMenu([
         blockAuthorAction(row, 'result'),
         reportTemplateAction(row)
