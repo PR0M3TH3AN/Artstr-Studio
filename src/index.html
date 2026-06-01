@@ -6612,6 +6612,39 @@
             premium: { state: 'locked', envelope, addressCoord },
           };
         }
+        // Private (visibility) sources carry a NIP-44/04-wrapped
+        // envelope addressed to specific recipients. The viewer can
+        // see the source iff their pubkey is in envelope.recipients
+        // — the source author is always self-addressed, so they
+        // always succeed. decryptProjectEnvelope throws when the
+        // viewer isn't in the recipients list (or has no signing
+        // extension); we catch and surface as locked.
+        if (typeof isEncryptedEnvelope === 'function' && isEncryptedEnvelope(parsed)) {
+          if (typeof decryptProjectEnvelope === 'function') {
+            try {
+              const decrypted = await decryptProjectEnvelope(parsed);
+              if (decrypted) {
+                return {
+                  payload: decrypted,
+                  sourceEvent: ev,
+                  contentBytes: ev.content.length,
+                  private: { state: 'unlocked' },
+                };
+              }
+            } catch (err) {
+              // Fall through to the locked branch — the most common
+              // path is "not in recipients" but we also land here if
+              // the user isn't signed in or the extension can't
+              // decrypt for any other reason.
+            }
+          }
+          return {
+            payload: null,
+            sourceEvent: ev,
+            contentBytes: ev.content.length,
+            private: { state: 'locked' },
+          };
+        }
         return { payload: parsed, sourceEvent: ev, contentBytes: ev.content.length };
       }
 
@@ -11058,6 +11091,19 @@
         }
       };
 
+      // Locked-private paint helper. No unlock CTA — access to a
+      // private design is granted at the source's publish time
+      // (the author adds the viewer to envelope.recipients), not
+      // via a buyer-side action. The host just shows that the
+      // layer exists but isn't readable from this account.
+      const renderLockedPrivate = () => {
+        fitWrap.innerHTML = '';
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#1f2937;color:#e5e7eb;padding:8px;text-align:center;gap:4px;font-size:.74rem;line-height:1.3';
+        wrap.innerHTML = '<div style="font-size:1.4em">🔒</div><div>Private design</div><div style="font-size:.66rem;opacity:.7">Not shared with this account</div>';
+        fitWrap.appendChild(wrap);
+      };
+
       // Locked-premium paint helper (LINKED_DESIGNS_FEATURE.md §12.1).
       // Shows the watermarked preview JPEG from the envelope + a
       // semi-transparent lock overlay + an inline unlock CTA. After
@@ -11134,6 +11180,11 @@
         renderLockedPremium(cached);
         return;
       }
+      if (cached?.private?.state === 'locked') {
+        layer.design.lastResolvedAt = cached.fetchedAt;
+        renderLockedPrivate();
+        return;
+      }
 
       // No cache hit — show a placeholder (or the persisted fallback
       // preview if the user opted in to one) and kick off the async
@@ -11153,6 +11204,11 @@
         if (entry?.premium?.state === 'locked') {
           layer.design.lastResolvedAt = entry.fetchedAt;
           renderLockedPremium(entry);
+          return;
+        }
+        if (entry?.private?.state === 'locked') {
+          layer.design.lastResolvedAt = entry.fetchedAt;
+          renderLockedPrivate();
           return;
         }
         if (!entry?.payload) {
