@@ -21372,12 +21372,13 @@
       if (!stage || !footer) return;
       stage.innerHTML = '';
       const wrap = document.createElement('div');
-      // display:grid avoids flex-shrink crushing the renderer's
-      // fixed-pixel box to wrap width (which makes fitMiniPreview's
-      // uniform-scale calc squish the image non-uniformly). The box
-      // stays at its natural PREVIEW_BASE_PX dimensions; fitMiniPreview
-      // scales around transform-origin: center center.
-      wrap.style.cssText = 'position:relative;width:100%;height:100%;display:grid;place-items:center;overflow:hidden';
+      // Reuse the .designObjectFitWrap class — its `> * { flex: 0 0
+      // auto }` rule keeps the renderer's fixed-720px box from
+      // being flex-shrunk to wrap width (the source of the earlier
+      // horizontal-squish bug). fitMiniPreview then scales around
+      // transform-origin: center center, which the class also sets.
+      wrap.className = 'designObjectFitWrap';
+      wrap.style.cssText = 'position:relative;width:100%;height:100%;overflow:hidden;display:flex;align-items:center;justify-content:center';
       stage.appendChild(wrap);
       try {
         renderDesignPayloadPreview(wrap, payload, { compact: true, transparentPixelArt: true });
