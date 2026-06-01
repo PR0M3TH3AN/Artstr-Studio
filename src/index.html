@@ -6687,51 +6687,44 @@
       return { contributorTags, linkTags };
     }
 
-    // Build the Credits panel that lives in the metadata sidebar
-    // (LINKED_DESIGNS_FEATURE.md §10.1). Walks state.layers + every
-    // deck slide's layers, groups distinct linked refs by pubkey,
-    // and renders one anchor per contributor with a click-through to
-    // the /u/<npub> profile page. Excludes the current user — they
-    // already authored the host, so self-attribution is noise.
-    //
-    // The contributor pubkey comes straight from the address coord
-    // in `design.ref`, so this can populate immediately without
-    // waiting for the resolver. Hidden when there are no linked
-    // layers so non-collaborative designs stay clutter-free.
-    function renderCreditsPanel() {
-      const fieldset = $('creditsFieldset');
-      const list = $('creditsList');
-      if (!fieldset || !list) return;
+    // Shared collector behind both the editor's Credits panel and the
+    // template-browser preview's credits section. Walks layers +
+    // every deck slide's layers from a payload-shaped object,
+    // groups distinct linked refs by pubkey (so 5 copies of the same
+    // source count as 1 design from that creator), and excludes the
+    // host author. Returns sorted [[pubkey, Set<ref>], ...].
+    function collectLinkedCredits(payloadLike, hostPubkey) {
       const allLayers = [];
-      if (Array.isArray(state.layers)) allLayers.push(...state.layers);
-      if (Array.isArray(state.deck?.slides)) {
-        for (const s of state.deck.slides) {
+      if (Array.isArray(payloadLike?.layers)) allLayers.push(...payloadLike.layers);
+      const slides = payloadLike?.deck?.slides;
+      if (Array.isArray(slides)) {
+        for (const s of slides) {
           if (Array.isArray(s?.layers)) allLayers.push(...s.layers);
         }
       }
-      const myPubkey = state.community?.myPubkey || '';
-      // pubkey → Set<ref> so multiple layers pointing at the same
-      // source count as one design.
       const byPubkey = new Map();
       for (const l of allLayers) {
         if (l?.type !== 'design' || l.design?.kind !== 'linked' || !l.design.ref) continue;
         const coord = linkedDesigns._parseAddressCoord(l.design.ref);
         if (!coord?.pubkey) continue;
-        if (coord.pubkey === myPubkey) continue;
+        if (coord.pubkey === hostPubkey) continue;
         let refs = byPubkey.get(coord.pubkey);
         if (!refs) { refs = new Set(); byPubkey.set(coord.pubkey, refs); }
         refs.add(l.design.ref);
       }
-      if (byPubkey.size === 0) {
-        fieldset.style.display = 'none';
-        list.innerHTML = '';
-        return;
-      }
-      // Descending design count, then by pubkey for stable ordering.
-      const entries = [...byPubkey.entries()].sort(
+      return [...byPubkey.entries()].sort(
         (a, b) => b[1].size - a[1].size || a[0].localeCompare(b[0])
       );
-      list.innerHTML = '';
+    }
+
+    // Build a <ul> of contributor entries from a credits entry array.
+    // Returns null when there are no contributors so callers can skip
+    // rendering an empty container. Each entry is an anchor to the
+    // /u/<npub> profile page with a short npub label.
+    function buildCreditsListElement(entries) {
+      if (!entries.length) return null;
+      const ul = document.createElement('ul');
+      ul.style.cssText = 'margin:6px 0 0;padding:0;list-style:none;font-size:.82rem';
       for (const [pk, refs] of entries) {
         const li = document.createElement('li');
         li.style.cssText = 'margin:4px 0;line-height:1.35';
@@ -6749,8 +6742,28 @@
         count.style.cssText = 'color:#666;margin-left:4px';
         count.textContent = ` (${refs.size} design${refs.size === 1 ? '' : 's'})`;
         li.appendChild(count);
-        list.appendChild(li);
+        ul.appendChild(li);
       }
+      return ul;
+    }
+
+    // Editor-mode Credits panel (LINKED_DESIGNS_FEATURE.md §10.1).
+    // Lives in the metadata sidebar; hidden when there are no
+    // linked layers so non-collaborative designs stay clutter-free.
+    function renderCreditsPanel() {
+      const fieldset = $('creditsFieldset');
+      const list = $('creditsList');
+      if (!fieldset || !list) return;
+      const entries = collectLinkedCredits(state, state.community?.myPubkey || '');
+      list.innerHTML = '';
+      if (!entries.length) {
+        fieldset.style.display = 'none';
+        return;
+      }
+      const ul = buildCreditsListElement(entries);
+      // Move children into the existing #creditsList <ul> so any
+      // pre-applied styles on the fieldset stay coherent.
+      while (ul.firstChild) list.appendChild(ul.firstChild);
       fieldset.style.display = '';
     }
 
@@ -23302,6 +23315,27 @@
         renderPixelArtPreviewDOM(content, p);
       } else {
         renderTemplatePreviewDOM(content, p);
+      }
+
+      // Credits section — surfaces the same contributor list as the
+      // editor's metadata-sidebar panel, but driven by the previewed
+      // row's payload + author pubkey. Lets viewers see who
+      // contributed before importing or unlocking.
+      const credits = collectLinkedCredits(p, row.e?.pubkey || '');
+      if (credits.length) {
+        const wrap = document.createElement('section');
+        wrap.style.cssText = 'margin-top:14px;padding:10px;border:1px solid var(--line, #e5e7eb);border-radius:6px;background:#fafbff';
+        const h = document.createElement('div');
+        h.style.cssText = 'font-weight:600;font-size:.85rem;margin-bottom:4px';
+        h.textContent = '🔗 Credits';
+        wrap.appendChild(h);
+        wrap.appendChild(buildCreditsListElement(credits));
+        const note = document.createElement('p');
+        note.className = 'hint';
+        note.style.cssText = 'margin:6px 0 0;font-size:.7rem';
+        note.textContent = 'Contributors reachable via linked layers in this design.';
+        wrap.appendChild(note);
+        content.appendChild(wrap);
       }
     }
 
