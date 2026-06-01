@@ -3387,6 +3387,10 @@
               <div style="margin-top:2px"><span style="color:#666">by</span> <span id="linkedDesignSourceCreator" style="font-family:monospace;font-size:.7rem">—</span></div>
               <div style="margin-top:2px"><span style="color:#666">Last resolved</span> <span id="linkedDesignResolvedAt">—</span></div>
             </div>
+            <div id="linkedDesignSlideRow" style="display:none;margin:4px 0">
+              <label for="linkedDesignSlidePicker" style="font-size:.78rem;display:block;margin-bottom:2px">Slide</label>
+              <select id="linkedDesignSlidePicker" style="width:100%;font-size:.78rem"></select>
+            </div>
             <label style="display:flex;align-items:center;gap:6px;font-size:.78rem;margin:4px 0;cursor:pointer">
               <input type="checkbox" id="linkedDesignPinToggle">
               <span>📌 Pin to current version</span>
@@ -6480,7 +6484,11 @@
     //   - cycle + depth-3 detection — visited Set short-circuits
     //     A→B→A, depth counter caps at MAX_LINK_DEPTH
     const LINKED_DESIGN_TTL_MS = 5 * 60 * 1000;
-    const LINKED_DESIGN_MAX_EVENT_BYTES = 256 * 1024;
+    // Per-event cap matches the per-tree cap. Decks legitimately ship
+    // hundreds of KB (multiple slides × layers + theme), and the
+    // tree cap already bounds the worst-case host render. The cap
+    // is still a defensive trip wire against single-event abuse.
+    const LINKED_DESIGN_MAX_EVENT_BYTES = 1024 * 1024;
     const LINKED_DESIGN_MAX_TREE_BYTES = 1024 * 1024;
     const LINKED_DESIGN_MAX_DEPTH = 3;
     const linkedDesigns = (() => {
@@ -6540,18 +6548,30 @@
           console.warn('[linked-designs] relay query failed', err);
           return null;
         }
-        if (!events || !events.length) return null;
+        if (!events || !events.length) {
+          console.warn('[linked-designs] no events returned for', ref || pinnedEventId);
+          return null;
+        }
         // Pick the latest by created_at — relays should retain only
         // the latest addressable event per address, but defensively
         // sort in case more than one slipped through.
         events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
         const ev = events[0];
-        if (!ev?.content || ev.content.length > LINKED_DESIGN_MAX_EVENT_BYTES) {
+        if (!ev?.content) {
+          console.warn('[linked-designs] source event has empty content', ev?.id);
+          return null;
+        }
+        if (ev.content.length > LINKED_DESIGN_MAX_EVENT_BYTES) {
+          console.warn('[linked-designs] source event exceeds per-event cap',
+            { eventId: ev.id, bytes: ev.content.length, cap: LINKED_DESIGN_MAX_EVENT_BYTES });
           return null;
         }
         let parsed;
         try { parsed = JSON.parse(ev.content); }
-        catch { return null; }
+        catch (err) {
+          console.warn('[linked-designs] JSON.parse failed for source', ev.id, err);
+          return null;
+        }
         // Premium sources (LINKED_DESIGNS_FEATURE.md §12.1) carry an
         // encrypted envelope instead of a raw payload. Access is
         // gated by the buyer's purchase-vault entry — NOT the
@@ -11018,6 +11038,26 @@
       return keys;
     }
 
+    // Project a single slide out of a deck payload as a stand-alone
+    // slide payload so the linked-design renderer can show one
+    // slide instead of the whole multi-slide thumbnail. Returns null
+    // if the index is out of range or the source isn't a deck.
+    function _deckSlideToSlidePayload(deckPayload, index) {
+      const slides = deckPayload?.deck?.slides;
+      if (!Array.isArray(slides)) return null;
+      const slide = slides[index];
+      if (!slide) return null;
+      return {
+        version: deckPayload.version,
+        templateMode: 'slide',
+        templateType: 'slide',
+        meta: deckPayload.meta || {},
+        slide: slide.slide || { width: 1920, height: 1080, background: '#ffffff' },
+        layers: Array.isArray(slide.layers) ? slide.layers : [],
+        layerGroups: {},
+      };
+    }
+
     // Helper: pull a sensible (w, h) hint out of an arbitrary design
     // payload, used so the layer-options panel can report dimensions
     // + so initial sizing can pick a reasonable aspect.
@@ -11083,8 +11123,17 @@
       // even appended to the overlay, so don't guard inside.
       const renderResolved = (payload) => {
         fitWrap.innerHTML = '';
+        let p = payload;
+        // Deck source + explicit slideIndex → render just that
+        // slide as a stand-alone slide payload. Without slideIndex
+        // a deck still renders as the multi-slide thumbnail
+        // (existing behavior for "embed the whole deck" use cases).
+        if (Number.isFinite(layer.design?.slideIndex) && p?.deck?.slides) {
+          const conv = _deckSlideToSlidePayload(p, layer.design.slideIndex);
+          if (conv) p = conv;
+        }
         try {
-          renderDesignPayloadPreview(fitWrap, payload, { compact: true, transparentPixelArt: true });
+          renderDesignPayloadPreview(fitWrap, p, { compact: true, transparentPixelArt: true });
           fitMiniPreview(fitWrap);
         } catch {
           fitWrap.innerHTML = `<div class="hint" style="padding:8px;font-size:.72rem">Design preview unavailable.</div>`;
@@ -11358,6 +11407,11 @@
           ref,
           mode,
           pinnedEventId: null,
+          // Decks default to slide 0 so the layer renders one slide
+          // instead of the multi-slide thumbnail. User picks a
+          // different slide via the slide dropdown in the layer
+          // options panel.
+          ...(mode === 'deck' ? { slideIndex: 0 } : {}),
         },
       });
       // Warm the resolver cache — the user just had the payload in
@@ -11429,7 +11483,13 @@
       const mode = normalizeTemplateMode(payload);
       pushHistory('replace linked source');
       layer.name = '🔗 ' + designObjectTitle(payload);
-      layer.design = { kind: 'linked', ref, mode, pinnedEventId: null };
+      layer.design = {
+        kind: 'linked',
+        ref,
+        mode,
+        pinnedEventId: null,
+        ...(mode === 'deck' ? { slideIndex: 0 } : {}),
+      };
       try { linkedDesigns.resolveLinked({ ref, pinnedEventId: null }); } catch {}
       render();
       return true;
@@ -17103,6 +17163,30 @@
         resolvedEl.textContent = _relativeTimeShort(at) || '⟳ resolving…';
       }
       if (pinEl) pinEl.checked = !!d.pinnedEventId;
+      // Slide picker: only when the cached source resolved to a deck.
+      // Until we have the deck contents we can't list slide names —
+      // the row hides itself, and a later render() (after the
+      // resolver completes) re-runs this sync and reveals it.
+      const slideRow = $('linkedDesignSlideRow');
+      const slidePicker = $('linkedDesignSlidePicker');
+      const slides = cached?.payload?.deck?.slides;
+      if (slideRow && slidePicker) {
+        if (Array.isArray(slides) && slides.length) {
+          slidePicker.innerHTML = '';
+          slides.forEach((s, i) => {
+            const opt = document.createElement('option');
+            opt.value = String(i);
+            const name = (s?.name || '').trim();
+            opt.textContent = `${i + 1}. ${name || 'Untitled slide'}`;
+            slidePicker.appendChild(opt);
+          });
+          const currentIdx = Number.isFinite(d.slideIndex) ? d.slideIndex : 0;
+          slidePicker.value = String(Math.min(currentIdx, slides.length - 1));
+          slideRow.style.display = '';
+        } else {
+          slideRow.style.display = 'none';
+        }
+      }
     }
 
     function updateQrField(field, value) {
@@ -25760,6 +25844,15 @@
       $('linkedDesignUnlinkBtn')?.addEventListener('click', unlinkSelectedDesignLayer);
       $('linkedDesignPinToggle')?.addEventListener('change', (e) => {
         togglePinSelectedLinkedDesignLayer(!!e.target.checked);
+      });
+      $('linkedDesignSlidePicker')?.addEventListener('change', (e) => {
+        const layer = selectedLayer();
+        if (!layer || layer.type !== 'design' || layer.design?.kind !== 'linked') return;
+        const idx = Number(e.target.value);
+        if (!Number.isFinite(idx)) return;
+        pushHistory('change linked slide');
+        layer.design.slideIndex = idx;
+        render();
       });
       $('designObjectDoneBtn')?.addEventListener('click', () => finishDesignObjectEdit(true));
       $('designObjectCancelBtn')?.addEventListener('click', () => finishDesignObjectEdit(false));
