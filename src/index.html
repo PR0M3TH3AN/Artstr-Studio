@@ -6646,6 +6646,32 @@
       return { resolveLinked, walkLinkedTree, walkContributors, clearCache, peek, keyFor, _parseAddressCoord, _cacheKey };
     })();
 
+    // Pre-publish hook. Linked layers carry render-only fields
+    // (lastResolvedAt, lastResolvedSize, transient fallbackPreview)
+    // that are session-local and should not ship in the published
+    // event. Walks the host payload's layers + every deck slide's
+    // layers and strips them in place. fallbackPreview survives only
+    // when the user explicitly opted in via design.snapshotPreview =
+    // true (a future polish-phase UI surface; not exposed yet).
+    function stripLinkedDesignEphemera(payload) {
+      if (!payload || typeof payload !== 'object') return payload;
+      const strip = (l) => {
+        if (l?.type !== 'design' || l.design?.kind !== 'linked') return;
+        delete l.design.lastResolvedAt;
+        delete l.design.lastResolvedSize;
+        if (!l.design.snapshotPreview) delete l.design.fallbackPreview;
+      };
+      if (Array.isArray(payload.layers)) {
+        for (const l of payload.layers) strip(l);
+      }
+      if (Array.isArray(payload.deck?.slides)) {
+        for (const s of payload.deck.slides) {
+          if (Array.isArray(s?.layers)) for (const l of s.layers) strip(l);
+        }
+      }
+      return payload;
+    }
+
     // ---- NWC sync (cross-device wallet credential sharing) -----------------
     // Stores the NWC connection URI in a NIP-44-self-encrypted kind-30078
     // event with d=artstr:nwc-connection:v1. Mirrors the purchase-vault
@@ -15428,6 +15454,11 @@
           throw new Error('Add cover artwork or at least one layer before publishing.');
         }
       }
+      // Linked-design layers carry session-only fields (lastResolvedAt,
+      // lastResolvedSize, transient fallbackPreview) that must not ship
+      // in the published event. Strip them once here, before the path
+      // branches into private/premium/public publish.
+      stripLinkedDesignEphemera(payload);
       // Private: encrypt and publish a feed-invisible event instead of the
       // normal public, tagged one.
       if (state.visibility === 'private') {
@@ -26867,6 +26898,29 @@
         }
         if ((parsed.appMode || parsed.ui?.appMode) === 'designer') {
           loadCurrentDiscDesignLayers();
+        }
+        // Kick off the linked-design resolver for every restored
+        // linked layer so the cache warms in parallel with the first
+        // render. The renderer's async branch handles the empty-cache
+        // case correctly on its own, but pre-warming dedupes
+        // duplicate refs across slides via the inflight map and lets
+        // the slot's renderResolved fire from a synchronous peek on
+        // subsequent re-renders. Non-blocking.
+        const linkedSpecs = [];
+        const collect = (layers) => {
+          if (!Array.isArray(layers)) return;
+          for (const l of layers) {
+            if (l?.type === 'design' && l.design?.kind === 'linked' && l.design.ref) {
+              linkedSpecs.push({ ref: l.design.ref, pinnedEventId: l.design.pinnedEventId || null });
+            }
+          }
+        };
+        collect(state.layers);
+        if (Array.isArray(state.deck?.slides)) {
+          for (const s of state.deck.slides) collect(s?.layers);
+        }
+        for (const spec of linkedSpecs) {
+          try { linkedDesigns.resolveLinked(spec); } catch {}
         }
       } catch (error) {
         console.warn('Autosave restore failed', error);
