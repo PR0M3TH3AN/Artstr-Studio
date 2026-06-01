@@ -6549,10 +6549,70 @@
         if (!ev?.content || ev.content.length > LINKED_DESIGN_MAX_EVENT_BYTES) {
           return null;
         }
-        let payload;
-        try { payload = JSON.parse(ev.content); }
+        let parsed;
+        try { parsed = JSON.parse(ev.content); }
         catch { return null; }
-        return { payload, sourceEvent: ev, contentBytes: ev.content.length };
+        // Premium sources (LINKED_DESIGNS_FEATURE.md §12.1) carry an
+        // encrypted envelope instead of a raw payload. Access is
+        // gated by the buyer's purchase-vault entry — NOT the
+        // decryption itself, since the soft-gate KDF is deterministic
+        // from public material (any browser could technically
+        // decrypt). Check the vault first; if there's no entry,
+        // try a self-authored decrypt; else return a locked entry
+        // the renderer can show with an unlock CTA.
+        if (typeof isPremiumEvent === 'function' && isPremiumEvent(ev)) {
+          const envelope = parsed;
+          const addressCoord = typeof premiumAddressCoord === 'function' ? premiumAddressCoord(ev) : '';
+          const vaultEntry = typeof findUnlockedEntry === 'function' ? findUnlockedEntry(ev.id, addressCoord) : null;
+          if (vaultEntry?.payload) {
+            return {
+              payload: vaultEntry.payload,
+              sourceEvent: ev,
+              contentBytes: ev.content.length,
+              premium: { state: 'unlocked', envelope, addressCoord },
+            };
+          }
+          // Self-authored sources auto-decrypt — soft-gate KDF is
+          // deterministic from public material, so the host author
+          // can always decrypt their own premium designs.
+          const myPubkey = state.community?.myPubkey || '';
+          if (myPubkey && ev.pubkey === myPubkey && typeof Premium?.decryptPayload === 'function') {
+            try {
+              const decrypted = await Premium.decryptPayload(envelope, {
+                creatorPubkey: ev.pubkey,
+                dTag: typeof premiumEventDTag === 'function' ? premiumEventDTag(ev) : '',
+                schemaVersion: envelope?.payloadSchemaVersion || 5,
+              });
+              if (decrypted) {
+                // Mirror the unlock into the vault so the rest of
+                // the app sees it too (My Designs, feed, etc).
+                if (typeof markUnlocked === 'function') {
+                  markUnlocked(ev.id, {
+                    source: 'self-authored-link',
+                    address: addressCoord,
+                    payload: decrypted,
+                    previewJpegDataUrl: envelope?.preview?.dataUrl || undefined,
+                  });
+                }
+                return {
+                  payload: decrypted,
+                  sourceEvent: ev,
+                  contentBytes: ev.content.length,
+                  premium: { state: 'unlocked', envelope, addressCoord },
+                };
+              }
+            } catch (err) {
+              console.warn('[linked-designs] self-authored premium decrypt failed', err);
+            }
+          }
+          return {
+            payload: null,
+            sourceEvent: ev,
+            contentBytes: ev.content.length,
+            premium: { state: 'locked', envelope, addressCoord },
+          };
+        }
+        return { payload: parsed, sourceEvent: ev, contentBytes: ev.content.length };
       }
 
       // Public: resolve a single linked layer's spec ({ ref, pinnedEventId }).
@@ -10998,6 +11058,67 @@
         }
       };
 
+      // Locked-premium paint helper (LINKED_DESIGNS_FEATURE.md §12.1).
+      // Shows the watermarked preview JPEG from the envelope + a
+      // semi-transparent lock overlay + an inline unlock CTA. After
+      // a successful unlock the vault has an entry; we clear the
+      // resolver cache and trigger a global render so the layer
+      // re-resolves into the decrypted payload.
+      const renderLockedPremium = (entry) => {
+        fitWrap.innerHTML = '';
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#111';
+        const previewUrl = entry?.premium?.envelope?.preview?.dataUrl;
+        if (previewUrl) {
+          const img = document.createElement('img');
+          img.src = previewUrl;
+          img.alt = 'Linked premium preview';
+          img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:.45;pointer-events:none';
+          wrap.appendChild(img);
+        }
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px;text-align:center;font-size:.74rem;line-height:1.3;color:#fff;background:rgba(0,0,0,.55);border-radius:6px;max-width:90%;pointer-events:auto';
+        overlay.innerHTML = '<div style="font-size:1.4em">🔒</div><div>Linked premium design</div>';
+        const min = (typeof getZapMin === 'function' ? getZapMin(entry.sourceEvent) : null) || 100;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = `⚡ Unlock for ${min} sats`;
+        btn.style.cssText = 'background:#fbbf24;color:#1f2937;border:none;border-radius:4px;padding:5px 10px;font-weight:600;cursor:pointer;font-size:.72rem';
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          if (typeof openUnlockConfirm !== 'function') return;
+          const ev = entry.sourceEvent;
+          const fakeRow = {
+            e: ev,
+            title: (layer.name || '').replace(/^🔗\s*/, '') || 'Linked premium design',
+            zapGate: { gated: true, min },
+            premium: {
+              envelope: entry.premium.envelope,
+              previewJpegDataUrl: entry.premium.envelope?.preview?.dataUrl || '',
+              decrypted: false,
+              address: entry.premium.addressCoord,
+              dTag: typeof premiumEventDTag === 'function' ? premiumEventDTag(ev) : '',
+            },
+          };
+          try { await openUnlockConfirm(fakeRow); } catch (err) { console.warn('[linked-designs] unlock failed', err); }
+          // Vault check — openUnlockConfirm awaits all the way through
+          // markUnlocked + vault sync, so if it succeeded the entry is
+          // there now. Clear our cache for this layer's key and
+          // re-render; the resolver will see the vault entry and
+          // return the decrypted payload on the next round.
+          const vaultEntry = typeof findUnlockedEntry === 'function' ? findUnlockedEntry(ev.id, entry.premium.addressCoord) : null;
+          if (vaultEntry?.payload) {
+            const k = linkedDesigns.keyFor(spec);
+            if (k) linkedDesigns.clearCache(k);
+            render();
+          }
+        });
+        overlay.appendChild(btn);
+        wrap.appendChild(overlay);
+        fitWrap.appendChild(wrap);
+      };
+
       // Sync cache peek: skip the placeholder flicker for sources we
       // resolved earlier this session.
       const cached = linkedDesigns.peek(spec);
@@ -11006,6 +11127,11 @@
         const sz = _sizeFromDesignPayload(cached.payload);
         if (sz) layer.design.lastResolvedSize = sz;
         renderResolved(cached.payload);
+        return;
+      }
+      if (cached?.premium?.state === 'locked') {
+        layer.design.lastResolvedAt = cached.fetchedAt;
+        renderLockedPremium(cached);
         return;
       }
 
@@ -11024,6 +11150,11 @@
       (async () => {
         const entry = await linkedDesigns.resolveLinked(spec);
         if (!el.isConnected) return;
+        if (entry?.premium?.state === 'locked') {
+          layer.design.lastResolvedAt = entry.fetchedAt;
+          renderLockedPremium(entry);
+          return;
+        }
         if (!entry?.payload) {
           // Source missing on relays. Keep the fallback preview if
           // one was already drawn; otherwise show an inline note.
