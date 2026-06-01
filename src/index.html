@@ -21717,13 +21717,18 @@
     }
 
     function _buildEmbedUrlString(id, opts) {
+      // Use the ?embed=<id> query form rather than the clean
+      // /embed/<id> path so the URL works on hosts without SPA
+      // rewrites (including local dev with python http.server).
+      // Vercel's rewrite handles the clean path too if anyone
+      // hand-edits the URL.
       const params = new URLSearchParams();
+      params.set('embed', id);
       if (!opts.controls) params.set('controls', '0');
       if (!opts.attr)     params.set('attr', '0');
       if (!opts.open)     params.set('open', '0');
       if (opts.credits)   params.set('credits', '1');
-      const qs = params.toString();
-      return `${location.origin}/embed/${id}${qs ? '?' + qs : ''}`;
+      return `${location.origin}/?${params.toString()}`;
     }
 
     function refreshEmbedDialog() {
