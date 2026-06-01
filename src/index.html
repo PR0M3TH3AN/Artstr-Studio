@@ -21544,16 +21544,22 @@
     // we're in embed mode. Public-only in Phase 1 — premium and
     // private sources refuse with a placeholder + Open in Artstr.
     async function bootEmbedViewer(route) {
+      console.log('[embed] boot v3', { route });
       document.body.classList.add('embed-mode');
       // Force the <html> + <body> backgrounds transparent with
       // !important so the global `html, body { background:
       // var(--bg) }` rule near the top of this file (which would
       // otherwise paint the iframe document with the light theme's
-      // #e8f4f8) doesn't bleed through transparent pixel art. The
-      // CSS :has()-rule we set covers modern browsers; this inline
-      // is the belt-and-suspenders for any specificity edge case.
+      // #e8f4f8) doesn't bleed through transparent pixel art. Also
+      // clear background-image on html in case any other rule
+      // applied one (the :root selector elsewhere sets --noise
+      // patterns that some hosts inherit).
       document.documentElement.style.setProperty('background', 'transparent', 'important');
+      document.documentElement.style.setProperty('background-image', 'none', 'important');
+      document.documentElement.style.setProperty('background-color', 'transparent', 'important');
       document.body.style.setProperty('background', 'transparent', 'important');
+      document.body.style.setProperty('background-image', 'none', 'important');
+      document.body.style.setProperty('background-color', 'transparent', 'important');
       const root = _ensureEmbedRoot();
       _setEmbedStatus(root, 'loading', '⟳ Loading Artstr design…');
       const retry = () => bootEmbedViewer(route);
