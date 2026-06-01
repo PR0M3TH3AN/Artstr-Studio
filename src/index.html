@@ -578,38 +578,86 @@
 
     /* Embed viewer (docs/EXTERNAL_EMBED_FEATURE.md). When embed mode
        is on, hide every existing top-level element and show only the
-       dedicated #embedRoot the embed boot path creates. */
+       dedicated #embedRoot the embed boot path creates.
+
+       Frame is fully transparent — controls float as individual
+       pill chips over the bottom edge so the embed blends with any
+       host theme (light, dark, branded). Each chip carries its own
+       semi-opaque dark background + blur so it stays readable
+       regardless of what's behind. */
     body.embed-mode { margin: 0; padding: 0; overflow: hidden; background: transparent; }
     body.embed-mode > :not(#embedRoot) { display: none !important; }
     #embedRoot {
       position: fixed; inset: 0;
-      display: flex; flex-direction: column;
       background: transparent;
       font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
       color: #111827;
     }
     #embedRoot .embedStage {
-      flex: 1 1 auto;
-      position: relative;
+      position: absolute; inset: 0;
       overflow: hidden;
       display: flex; align-items: center; justify-content: center;
+      background: transparent;
     }
     #embedRoot .embedFooter {
-      flex: 0 0 auto;
-      padding: 6px 10px;
-      display: flex; gap: 12px;
-      align-items: center; justify-content: space-between;
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      padding: 8px 10px;
+      display: flex; gap: 8px;
+      align-items: flex-end; justify-content: space-between;
+      pointer-events: none;
       font-size: 0.74rem;
-      background: rgba(255,255,255,0.78);
-      backdrop-filter: blur(6px);
-      border-top: 1px solid rgba(0,0,0,0.08);
     }
     #embedRoot .embedFooter[data-hidden="true"] { display: none; }
-    #embedRoot .embedFooter a { color: #1e40af; text-decoration: none; }
-    #embedRoot .embedFooter a:hover { text-decoration: underline; }
+    #embedRoot .embedFooter > * { pointer-events: auto; }
+    #embedRoot .embedFooter .embedSide {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      align-items: center;
+      max-width: 100%;
+    }
+    /* Pill chip: floats over any host theme. */
+    #embedRoot .embedChip {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: rgba(17,24,39,0.7);
+      color: #ffffff;
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 999px;
+      padding: 3px 10px;
+      text-decoration: none;
+      font-size: 0.7rem;
+      line-height: 1.25;
+      white-space: nowrap;
+      backdrop-filter: blur(8px) saturate(120%);
+      -webkit-backdrop-filter: blur(8px) saturate(120%);
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #embedRoot a.embedChip, #embedRoot button.embedChip { color: #ffffff; }
+    #embedRoot .embedChip:hover { background: rgba(17,24,39,0.88); }
+    #embedRoot .embedChip[disabled] { opacity: 0.5; cursor: default; }
+    #embedRoot .embedChipUnlock { color: #fbbf24; border-color: rgba(251,191,36,0.45); }
+    #embedRoot .embedChipUnlock:hover { background: rgba(0,0,0,0.85); }
+    #embedRoot .embedChipCounter {
+      background: rgba(17,24,39,0.55);
+      cursor: default;
+      font-variant-numeric: tabular-nums;
+    }
+    #embedRoot .embedChipBadge {
+      background: rgba(0,0,0,0.6);
+      color: #fbbf24;
+      cursor: default;
+      letter-spacing: 0.04em;
+      font-weight: 600;
+    }
     #embedRoot .embedStatus {
       display: flex; flex-direction: column; align-items: center; gap: 6px;
       padding: 14px 16px; text-align: center; color: #4b5563; font-size: 0.85rem;
+      background: rgba(255,255,255,0.86);
+      border-radius: 8px;
+      max-width: 80%;
     }
     #embedRoot .embedStatus.error { color: #92400e; }
 
@@ -21334,31 +21382,26 @@
         _setEmbedStatus(root, 'error', 'Design preview unavailable.');
         return;
       }
-      // Footer: author chip + Open in Artstr link, both togglable
-      // via query params per docs/EXTERNAL_EMBED_FEATURE.md §6.3.
+      // Footer: chip-style controls float over the bottom edge of
+      // the stage with no background band — so the embed blends
+      // into any host theme. Each chip carries its own dark blur
+      // for cross-theme legibility.
       footer.innerHTML = '';
       const params = route.params || new URLSearchParams();
       const showAttr = params.get('attr') !== '0';
       const showOpen = params.get('open') !== '0';
       const showControls = params.get('controls') !== '0';
       const left = document.createElement('div');
+      left.className = 'embedSide';
       const right = document.createElement('div');
-      left.style.cssText = 'display:flex;align-items:center;gap:6px;min-width:0';
-      right.style.cssText = 'display:flex;align-items:center;gap:8px';
+      right.className = 'embedSide';
+      right.style.justifyContent = 'flex-end';
       if (showAttr && event?.pubkey) {
-        const profile = _feedCache.profiles?.[event.pubkey] || state.community?.profiles?.[event.pubkey] || null;
-        const name = profile?.display_name || profile?.name || shortPubkey(event.pubkey);
-        const a = document.createElement('a');
-        a.textContent = '@' + name;
-        a.title = profile?.nip05 || encodeNpub(event.pubkey) || event.pubkey;
-        a.href = `${location.origin}/u/${encodeNpub(event.pubkey) || event.pubkey}`;
-        a.target = '_top';
-        a.rel = 'noopener';
-        a.style.cssText = 'color:#1e40af;text-decoration:none;font-family:monospace;font-size:0.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px';
-        left.appendChild(a);
+        left.appendChild(_makeAuthorChip(event.pubkey));
       }
       if (showOpen) {
         const open = document.createElement('a');
+        open.className = 'embedChip';
         open.textContent = 'Open in Artstr ↗';
         open.href = `${location.origin}/#/share/${route.id}`;
         open.target = '_top';
@@ -21368,6 +21411,22 @@
       footer.appendChild(left);
       footer.appendChild(right);
       footer.dataset.hidden = (!showControls || (!showAttr && !showOpen)) ? 'true' : 'false';
+    }
+
+    // Author chip used by both the public and premium-locked
+    // paint paths. Resolves to display name when cached; falls
+    // back to a short pubkey otherwise.
+    function _makeAuthorChip(pubkey) {
+      const profile = _feedCache.profiles?.[pubkey] || state.community?.profiles?.[pubkey] || null;
+      const name = profile?.display_name || profile?.name || shortPubkey(pubkey);
+      const a = document.createElement('a');
+      a.className = 'embedChip';
+      a.textContent = '@' + name;
+      a.title = profile?.nip05 || encodeNpub(pubkey) || pubkey;
+      a.href = `${location.origin}/u/${encodeNpub(pubkey) || pubkey}`;
+      a.target = '_top';
+      a.rel = 'noopener';
+      return a;
     }
 
     // Paint a premium-locked embed: watermarked preview (single
@@ -21387,31 +21446,27 @@
       const totalDeck = isDeck ? (preview.totalSlides || slides.length) : 0;
       let idx = 0;
       const wrap = document.createElement('div');
-      wrap.style.cssText = 'position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#0b0b0c;overflow:hidden';
+      wrap.style.cssText = 'position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden';
       const img = document.createElement('img');
       img.alt = 'Premium Artstr preview';
       img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;display:block';
       wrap.appendChild(img);
-      // Soft lock badge — sits in the top-right of the stage so
-      // it's always visible but doesn't fight the artwork.
+      // Lock badge — sits top-right of the stage, same chip system
+      // as the footer so the visual language stays uniform.
       const badge = document.createElement('div');
-      badge.style.cssText = 'position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.55);color:#fbbf24;padding:3px 7px;border-radius:4px;font-size:0.72rem;font-weight:600;letter-spacing:0.04em;display:flex;align-items:center;gap:4px;pointer-events:none';
+      badge.className = 'embedChip embedChipBadge';
+      badge.style.cssText = 'position:absolute;top:8px;right:8px';
       badge.textContent = '🔒 PREMIUM';
       wrap.appendChild(badge);
       stage.appendChild(wrap);
-      // Deck pager: only when more than one slide is available.
       let counter = null;
-      let prev = null;
-      let next = null;
       const paint = () => {
         const s = slides[idx] || slides[0];
         img.src = s?.dataUrl || '';
         if (counter) {
-          if (isDeck && totalDeck > slides.length) {
-            counter.textContent = `Slide ${idx + 1} of ${slides.length} · ${totalDeck} in deck`;
-          } else {
-            counter.textContent = `Slide ${idx + 1} of ${slides.length}`;
-          }
+          counter.textContent = (isDeck && totalDeck > slides.length)
+            ? `${idx + 1} / ${slides.length} · ${totalDeck} in deck`
+            : `${idx + 1} / ${slides.length}`;
         }
       };
       paint();
@@ -21420,46 +21475,37 @@
       const showOpen = params.get('open') !== '0';
       const showAttr = params.get('attr') !== '0';
       const left = document.createElement('div');
-      left.style.cssText = 'display:flex;align-items:center;gap:8px;min-width:0';
+      left.className = 'embedSide';
       const right = document.createElement('div');
-      right.style.cssText = 'display:flex;align-items:center;gap:8px';
+      right.className = 'embedSide';
+      right.style.justifyContent = 'flex-end';
       if (isDeck && slides.length > 1 && showControls) {
-        prev = document.createElement('button');
+        const prev = document.createElement('button');
         prev.type = 'button';
+        prev.className = 'embedChip';
         prev.textContent = '◂';
         prev.title = 'Previous slide';
-        next = document.createElement('button');
+        const next = document.createElement('button');
         next.type = 'button';
+        next.className = 'embedChip';
         next.textContent = '▸';
         next.title = 'Next slide';
         counter = document.createElement('span');
-        counter.style.cssText = 'color:#374151;font-variant-numeric:tabular-nums';
-        for (const b of [prev, next]) {
-          b.style.cssText = 'background:#fef3c7;color:#1f2937;border:1px solid #fcd34d;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:0.85rem';
-        }
+        counter.className = 'embedChip embedChipCounter';
         prev.addEventListener('click', () => { idx = (idx - 1 + slides.length) % slides.length; paint(); });
         next.addEventListener('click', () => { idx = (idx + 1) % slides.length; paint(); });
         left.append(prev, counter, next);
       }
       if (showAttr && event?.pubkey) {
-        const profile = _feedCache.profiles?.[event.pubkey] || state.community?.profiles?.[event.pubkey] || null;
-        const name = profile?.display_name || profile?.name || shortPubkey(event.pubkey);
-        const a = document.createElement('a');
-        a.textContent = '@' + name;
-        a.href = `${location.origin}/u/${encodeNpub(event.pubkey) || event.pubkey}`;
-        a.target = '_top';
-        a.rel = 'noopener';
-        a.style.cssText = 'color:#1e40af;text-decoration:none;font-family:monospace;font-size:0.78rem';
-        if (left.firstChild) left.appendChild(document.createTextNode(' · '));
-        left.appendChild(a);
+        left.appendChild(_makeAuthorChip(event.pubkey));
       }
       if (showOpen) {
         const open = document.createElement('a');
+        open.className = 'embedChip embedChipUnlock';
         open.textContent = '🔒 Open in Artstr to unlock ↗';
         open.href = `${location.origin}/#/share/${route.id}`;
         open.target = '_top';
         open.rel = 'noopener';
-        open.style.cssText = 'color:#92400e;font-weight:600';
         right.appendChild(open);
       }
       footer.appendChild(left);
