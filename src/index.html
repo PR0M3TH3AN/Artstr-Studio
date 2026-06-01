@@ -2955,6 +2955,12 @@
         <p class="hint">Title and category are required to save or publish.</p>
       </fieldset>
 
+      <fieldset class="template-only" id="creditsFieldset" style="display:none;margin-top:10px">
+        <legend style="font-size:.85rem;font-weight:600">🔗 Credits</legend>
+        <ul id="creditsList" style="margin:6px 0 0;padding:0;list-style:none;font-size:.82rem"></ul>
+        <p class="hint" style="margin:6px 0 0;font-size:.7rem">Distinct creators reachable via the linked layers in this design. Tagged on the published event for indexers.</p>
+      </fieldset>
+
 
       <fieldset class="workflowStep template-only" id="exportFieldset">
         <legend data-step="4">Display options</legend>
@@ -6681,6 +6687,73 @@
       return { contributorTags, linkTags };
     }
 
+    // Build the Credits panel that lives in the metadata sidebar
+    // (LINKED_DESIGNS_FEATURE.md §10.1). Walks state.layers + every
+    // deck slide's layers, groups distinct linked refs by pubkey,
+    // and renders one anchor per contributor with a click-through to
+    // the /u/<npub> profile page. Excludes the current user — they
+    // already authored the host, so self-attribution is noise.
+    //
+    // The contributor pubkey comes straight from the address coord
+    // in `design.ref`, so this can populate immediately without
+    // waiting for the resolver. Hidden when there are no linked
+    // layers so non-collaborative designs stay clutter-free.
+    function renderCreditsPanel() {
+      const fieldset = $('creditsFieldset');
+      const list = $('creditsList');
+      if (!fieldset || !list) return;
+      const allLayers = [];
+      if (Array.isArray(state.layers)) allLayers.push(...state.layers);
+      if (Array.isArray(state.deck?.slides)) {
+        for (const s of state.deck.slides) {
+          if (Array.isArray(s?.layers)) allLayers.push(...s.layers);
+        }
+      }
+      const myPubkey = state.community?.myPubkey || '';
+      // pubkey → Set<ref> so multiple layers pointing at the same
+      // source count as one design.
+      const byPubkey = new Map();
+      for (const l of allLayers) {
+        if (l?.type !== 'design' || l.design?.kind !== 'linked' || !l.design.ref) continue;
+        const coord = linkedDesigns._parseAddressCoord(l.design.ref);
+        if (!coord?.pubkey) continue;
+        if (coord.pubkey === myPubkey) continue;
+        let refs = byPubkey.get(coord.pubkey);
+        if (!refs) { refs = new Set(); byPubkey.set(coord.pubkey, refs); }
+        refs.add(l.design.ref);
+      }
+      if (byPubkey.size === 0) {
+        fieldset.style.display = 'none';
+        list.innerHTML = '';
+        return;
+      }
+      // Descending design count, then by pubkey for stable ordering.
+      const entries = [...byPubkey.entries()].sort(
+        (a, b) => b[1].size - a[1].size || a[0].localeCompare(b[0])
+      );
+      list.innerHTML = '';
+      for (const [pk, refs] of entries) {
+        const li = document.createElement('li');
+        li.style.cssText = 'margin:4px 0;line-height:1.35';
+        const a = document.createElement('a');
+        a.href = profileUrlForPubkey(pk);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.style.cssText = 'font-family:monospace;color:#1e40af;text-decoration:none';
+        let np = '';
+        try { np = encodeNpub(pk); } catch {}
+        a.textContent = '@' + (np ? np.slice(0, 12) + '…' + np.slice(-6) : pk.slice(0, 10) + '…');
+        a.title = np || pk;
+        li.appendChild(a);
+        const count = document.createElement('span');
+        count.style.cssText = 'color:#666;margin-left:4px';
+        count.textContent = ` (${refs.size} design${refs.size === 1 ? '' : 's'})`;
+        li.appendChild(count);
+        list.appendChild(li);
+      }
+      fieldset.style.display = '';
+    }
+
     // Pre-publish hook. Linked layers carry render-only fields
     // (lastResolvedAt, lastResolvedSize, transient fallbackPreview)
     // that are session-local and should not ship in the published
@@ -9744,6 +9817,7 @@
       syncDesignerInputs();
       updateBodyClasses();
       renderDeckSorter();
+      renderCreditsPanel();
       if (state.templateMode === 'pixelart') ensureStandalonePixelEditor();
       // After updateBodyClasses so the designer view is displayed/laid out —
       // the disc image's cover-pan math needs the wrapper's real size.
