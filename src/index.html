@@ -21588,6 +21588,30 @@
       const stage = root.querySelector('.embedStage');
       const footer = root.querySelector('.embedFooter');
       if (!stage || !footer) return;
+      const params = route.params || new URLSearchParams();
+      // Pixel-art animation controls (Phase 5). ?play=0 starts
+      // paused; ?fps=N overrides frame rate (clamped 1-60). Also
+      // start paused if the visitor prefers reduced motion, unless
+      // they've explicitly opted in via play=1.
+      const isAnimatedPixel = mode === 'pixelart'
+        && Array.isArray(payload?.pixelArt?.frames)
+        && payload.pixelArt.frames.length > 1;
+      const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+      const playParam = params.get('play');
+      const autoplay = isAnimatedPixel
+        ? (playParam === '1' ? true
+          : playParam === '0' ? false
+          : !prefersReducedMotion)
+        : true;
+      const fpsParam = parseInt(params.get('fps') || '', 10);
+      const fpsOverride = Number.isFinite(fpsParam) ? Math.max(1, Math.min(60, fpsParam)) : null;
+      const renderOpts = {
+        compact: true,
+        transparentPixelArt: true,
+        autoplay,
+        ...(fpsOverride ? { fps: fpsOverride } : {}),
+      };
+
       stage.innerHTML = '';
       const wrap = document.createElement('div');
       // Reuse the .designObjectFitWrap class — its `> * { flex: 0 0
@@ -21598,20 +21622,25 @@
       wrap.className = 'designObjectFitWrap';
       wrap.style.cssText = 'position:relative;width:100%;height:100%;overflow:hidden;display:flex;align-items:center;justify-content:center';
       stage.appendChild(wrap);
-      try {
-        renderDesignPayloadPreview(wrap, payload, { compact: true, transparentPixelArt: true });
-        fitMiniPreview(wrap);
-      } catch (err) {
-        console.warn('[embed] render failed', err);
-        _setEmbedStatus(root, 'error', 'Design preview unavailable.');
-        return;
-      }
+      const paint = (playing) => {
+        wrap.innerHTML = '';
+        try {
+          renderDesignPayloadPreview(wrap, payload, { ...renderOpts, autoplay: playing });
+          fitMiniPreview(wrap);
+          return true;
+        } catch (err) {
+          console.warn('[embed] render failed', err);
+          _setEmbedStatus(root, 'error', 'Design preview unavailable.');
+          return false;
+        }
+      };
+      if (!paint(autoplay)) return;
+
       // Footer: chip-style controls float over the bottom edge of
       // the stage with no background band — so the embed blends
       // into any host theme. Each chip carries its own dark blur
       // for cross-theme legibility.
       footer.innerHTML = '';
-      const params = route.params || new URLSearchParams();
       const showAttr = params.get('attr') !== '0';
       const showOpen = params.get('open') !== '0';
       const showControls = params.get('controls') !== '0';
@@ -21620,6 +21649,24 @@
       const right = document.createElement('div');
       right.className = 'embedSide';
       right.style.justifyContent = 'flex-end';
+      // Multi-frame pixel art gets a play/pause chip so viewers can
+      // pause an animation that's distracting on a host page — and
+      // play if it started paused due to prefers-reduced-motion.
+      if (isAnimatedPixel && showControls) {
+        let playing = autoplay;
+        const pp = document.createElement('button');
+        pp.type = 'button';
+        pp.className = 'embedChip';
+        pp.textContent = playing ? '⏸' : '▶';
+        pp.title = playing ? 'Pause' : 'Play';
+        pp.addEventListener('click', () => {
+          playing = !playing;
+          pp.textContent = playing ? '⏸' : '▶';
+          pp.title = playing ? 'Pause' : 'Play';
+          paint(playing);
+        });
+        left.appendChild(pp);
+      }
       if (showAttr && event?.pubkey) {
         left.appendChild(_makeAuthorChip(event.pubkey));
       }
@@ -25927,6 +25974,11 @@
     function renderPixelArtPreviewDOM(container, payload, opts = {}) {
       const compact = !!opts.compact;
       const transparentBackground = !!opts.transparentPixelArt;
+      // Embed-mode overrides for animated pixel art. Defaults preserve
+      // existing behavior in every other caller (autoplay=true, fps
+      // from payload).
+      const autoplay = opts.autoplay !== false;
+      const fpsOverride = Number.isFinite(opts.fps) ? opts.fps : null;
       const pa = (payload && payload.pixelArt) || {};
       const w = (pa.width | 0) || 32, h = (pa.height | 0) || 32;
       const naturalW = PREVIEW_BASE_PX;
@@ -25947,7 +25999,7 @@
           // Pre-render every frame to its own native-size canvas, then animate
           // by blitting from the cached canvases onto the display canvas. Much
           // cheaper than re-decoding RLE each tick.
-          const fps = Math.max(1, Math.min(60, pa.fps | 0 || 8));
+          const fps = Math.max(1, Math.min(60, fpsOverride || pa.fps | 0 || 8));
           const loop = pa.loop !== false;
           const cached = frames.map((_, i) => renderPixelGridToCanvas(pa, i));
           const cv = document.createElement('canvas');
@@ -25978,7 +26030,11 @@
             ctx.drawImage(cached[frameIdx], 0, 0);
             if (!ended) requestAnimationFrame(tick);
           };
-          requestAnimationFrame(tick);
+          // Only start the RAF when autoplay is on. Otherwise we
+          // leave the canvas showing frame 0 — the embed paint path
+          // will re-call this renderer with autoplay:true if the
+          // viewer clicks the play chip.
+          if (autoplay) requestAnimationFrame(tick);
           box.appendChild(cv);
         } else {
           const cv = renderPixelGridToCanvas(pa);
