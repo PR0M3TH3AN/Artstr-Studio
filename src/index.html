@@ -21372,7 +21372,12 @@
       if (!stage || !footer) return;
       stage.innerHTML = '';
       const wrap = document.createElement('div');
-      wrap.style.cssText = 'position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden';
+      // display:grid avoids flex-shrink crushing the renderer's
+      // fixed-pixel box to wrap width (which makes fitMiniPreview's
+      // uniform-scale calc squish the image non-uniformly). The box
+      // stays at its natural PREVIEW_BASE_PX dimensions; fitMiniPreview
+      // scales around transform-origin: center center.
+      wrap.style.cssText = 'position:relative;width:100%;height:100%;display:grid;place-items:center;overflow:hidden';
       stage.appendChild(wrap);
       try {
         renderDesignPayloadPreview(wrap, payload, { compact: true, transparentPixelArt: true });
@@ -21446,7 +21451,7 @@
       const totalDeck = isDeck ? (preview.totalSlides || slides.length) : 0;
       let idx = 0;
       const wrap = document.createElement('div');
-      wrap.style.cssText = 'position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden';
+      wrap.style.cssText = 'position:relative;width:100%;height:100%;display:grid;place-items:center;overflow:hidden';
       const img = document.createElement('img');
       img.alt = 'Premium Artstr preview';
       img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;display:block';
