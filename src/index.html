@@ -6758,7 +6758,8 @@
     // collectLinkedCredits walker only knows pubkeys (parsed from
     // the address coord) — display names come from kind-0 events
     // that aren't always cached. Fetch any uncached contributors
-    // in the background, then call onUpdate so callers can rebuild
+    // in the background using the same user-relay-∪-defaults union
+    // the resolver uses, then call onUpdate so callers can rebuild
     // their UI with the freshly-resolved names. Per-pubkey inflight
     // tracking prevents duplicate relay round-trips when render()
     // fires repeatedly during the same fetch.
@@ -6774,7 +6775,29 @@
       if (!uncached.length) return;
       for (const pk of uncached) _creditsProfileInflight.add(pk);
       try {
-        await populateCommunityProfiles(uncached);
+        const relays = typeof _vaultRelayUnion === 'function'
+          ? _vaultRelayUnion()
+          : splitRelayList(state.community?.relays || '');
+        const events = await queryRelays(
+          relays,
+          { kinds: [0], authors: uncached },
+          { timeoutMs: 3500 }
+        );
+        // Keep the latest kind-0 per pubkey when multiple relays
+        // return different versions.
+        const latestByPk = new Map();
+        for (const ev of (events || [])) {
+          const prev = latestByPk.get(ev.pubkey);
+          if (!prev || (ev.created_at || 0) > (prev.created_at || 0)) {
+            latestByPk.set(ev.pubkey, ev);
+          }
+        }
+        for (const [pk, ev] of latestByPk) {
+          const parsed = safeJsonParse(ev.content, {}) || {};
+          const profile = { pubkey: pk, ...parsed, created_at: ev.created_at };
+          if (state.community?.profiles) state.community.profiles[pk] = profile;
+          if (_feedCache?.profiles) _feedCache.profiles[pk] = profile;
+        }
       } catch (err) {
         console.warn('[credits] profile fetch failed', err);
       } finally {
