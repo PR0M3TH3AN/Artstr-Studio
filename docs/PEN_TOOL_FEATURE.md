@@ -24,12 +24,18 @@ tool-mode system with flanking toolbars to host it.
   shape-layer commit.
 - **Phase C** — done. Pen click/drag anchors, rubber-band preview, close /
   Enter / dbl-click / Esc, closed-fill-on-close, `shape.pen.nodes` stored.
-- **Phase D** — partial. Editable anchors + Bézier handles for selected
-  `tool:'pen'` paths; drag-to-move anchor (carries handles) and drag-to-move
-  handle, regenerates `d`, one undo per drag. *Deferred:* add/delete anchor,
-  corner↔smooth toggle, click-segment-to-insert, and bbox-refit when an
-  anchor is dragged past the original 0–100 viewBox (path clips at the box
-  edge until refit lands). Rotated paths are not node-editable in v1.
+- **Phase D** — done (close-out 2026-06-01). On top of the existing
+  drag-anchor / drag-handle path: click on a segment between anchors
+  inserts a new anchor via a de Casteljau cubic split (curve shape
+  preserved exactly); right-click or Backspace on a selected anchor
+  deletes it; Alt-click on an anchor toggles between **corner**
+  (handles move independently, square anchor glyph) and **smooth**
+  (handles stay mirrored across the anchor, circle anchor glyph);
+  dragging a node or handle past the original 0–100 viewBox refits
+  the layer's bounding rect + remaps coordinates so the path stays
+  visually anchored without clipping. The currently-selected anchor
+  renders with an amber stroke so Backspace-to-delete is unambiguous.
+  Rotated paths are still not node-editable in v1.
 - **Phase E** — done. `layer.hidden` flag, eye toggle in the layer list, all
   six renderers + Canvas2D export skip hidden layers.
 - **Unified vector editing** — done. With the Pen tool active, the options
