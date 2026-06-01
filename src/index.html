@@ -21370,6 +21370,103 @@
       footer.dataset.hidden = (!showControls || (!showAttr && !showOpen)) ? 'true' : 'false';
     }
 
+    // Paint a premium-locked embed: watermarked preview (single
+    // image OR paginated deck slides) + a "🔒 Open in Artstr to
+    // unlock" footer CTA. The iframe never initiates a zap; visitors
+    // follow the CTA out to the main app for any unlock flow.
+    function _paintEmbedLockedPremium(root, event, preview, route) {
+      const stage = root.querySelector('.embedStage');
+      const footer = root.querySelector('.embedFooter');
+      if (!stage || !footer) return;
+      stage.innerHTML = '';
+      footer.innerHTML = '';
+      const isDeck = preview.kind === 'watermarked-deck' && Array.isArray(preview.slides) && preview.slides.length > 0;
+      const slides = isDeck
+        ? preview.slides
+        : [{ dataUrl: preview.dataUrl, width: preview.width, height: preview.height }];
+      const totalDeck = isDeck ? (preview.totalSlides || slides.length) : 0;
+      let idx = 0;
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#0b0b0c;overflow:hidden';
+      const img = document.createElement('img');
+      img.alt = 'Premium Artstr preview';
+      img.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain;display:block';
+      wrap.appendChild(img);
+      // Soft lock badge — sits in the top-right of the stage so
+      // it's always visible but doesn't fight the artwork.
+      const badge = document.createElement('div');
+      badge.style.cssText = 'position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.55);color:#fbbf24;padding:3px 7px;border-radius:4px;font-size:0.72rem;font-weight:600;letter-spacing:0.04em;display:flex;align-items:center;gap:4px;pointer-events:none';
+      badge.textContent = '🔒 PREMIUM';
+      wrap.appendChild(badge);
+      stage.appendChild(wrap);
+      // Deck pager: only when more than one slide is available.
+      let counter = null;
+      let prev = null;
+      let next = null;
+      const paint = () => {
+        const s = slides[idx] || slides[0];
+        img.src = s?.dataUrl || '';
+        if (counter) {
+          if (isDeck && totalDeck > slides.length) {
+            counter.textContent = `Slide ${idx + 1} of ${slides.length} · ${totalDeck} in deck`;
+          } else {
+            counter.textContent = `Slide ${idx + 1} of ${slides.length}`;
+          }
+        }
+      };
+      paint();
+      const params = route.params || new URLSearchParams();
+      const showControls = params.get('controls') !== '0';
+      const showOpen = params.get('open') !== '0';
+      const showAttr = params.get('attr') !== '0';
+      const left = document.createElement('div');
+      left.style.cssText = 'display:flex;align-items:center;gap:8px;min-width:0';
+      const right = document.createElement('div');
+      right.style.cssText = 'display:flex;align-items:center;gap:8px';
+      if (isDeck && slides.length > 1 && showControls) {
+        prev = document.createElement('button');
+        prev.type = 'button';
+        prev.textContent = '◂';
+        prev.title = 'Previous slide';
+        next = document.createElement('button');
+        next.type = 'button';
+        next.textContent = '▸';
+        next.title = 'Next slide';
+        counter = document.createElement('span');
+        counter.style.cssText = 'color:#374151;font-variant-numeric:tabular-nums';
+        for (const b of [prev, next]) {
+          b.style.cssText = 'background:#fef3c7;color:#1f2937;border:1px solid #fcd34d;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:0.85rem';
+        }
+        prev.addEventListener('click', () => { idx = (idx - 1 + slides.length) % slides.length; paint(); });
+        next.addEventListener('click', () => { idx = (idx + 1) % slides.length; paint(); });
+        left.append(prev, counter, next);
+      }
+      if (showAttr && event?.pubkey) {
+        const profile = _feedCache.profiles?.[event.pubkey] || state.community?.profiles?.[event.pubkey] || null;
+        const name = profile?.display_name || profile?.name || shortPubkey(event.pubkey);
+        const a = document.createElement('a');
+        a.textContent = '@' + name;
+        a.href = `${location.origin}/u/${encodeNpub(event.pubkey) || event.pubkey}`;
+        a.target = '_top';
+        a.rel = 'noopener';
+        a.style.cssText = 'color:#1e40af;text-decoration:none;font-family:monospace;font-size:0.78rem';
+        if (left.firstChild) left.appendChild(document.createTextNode(' · '));
+        left.appendChild(a);
+      }
+      if (showOpen) {
+        const open = document.createElement('a');
+        open.textContent = '🔒 Open in Artstr to unlock ↗';
+        open.href = `${location.origin}/#/share/${route.id}`;
+        open.target = '_top';
+        open.rel = 'noopener';
+        open.style.cssText = 'color:#92400e;font-weight:600';
+        right.appendChild(open);
+      }
+      footer.appendChild(left);
+      footer.appendChild(right);
+      footer.dataset.hidden = (!showControls && !showOpen && !showAttr) ? 'true' : 'false';
+    }
+
     // Embed boot path (docs/EXTERNAL_EMBED_FEATURE.md §12). Called
     // from init() before any editor bootstrap when the route says
     // we're in embed mode. Public-only in Phase 1 — premium and
@@ -21394,10 +21491,20 @@
         _setEmbedStatus(root, 'error', 'Could not find this design on any relay.');
         return;
       }
-      // Premium / private boundary (spec §10). Phase 1 refuses both
-      // with an Open-in-Artstr CTA — Phase 2 will render the
-      // watermarked preview + 🔒 overlay for premium.
+      // Premium boundary (spec §10): the envelope ships an
+      // unencrypted preview field (watermarked JPEG for single
+      // designs, paginated watermarked slides for decks). Show
+      // that preview + a "🔒 Open in Artstr to unlock" CTA in the
+      // footer. No unlock flow inside the iframe by design.
       if (typeof isPremiumEvent === 'function' && isPremiumEvent(event)) {
+        let envelope;
+        try { envelope = JSON.parse(event.content || '{}'); }
+        catch { envelope = null; }
+        const preview = envelope?.preview;
+        if (preview && (preview.dataUrl || (Array.isArray(preview.slides) && preview.slides.length))) {
+          _paintEmbedLockedPremium(root, event, preview, route);
+          return;
+        }
         _setEmbedStatus(root, 'error', '🔒 Premium design — open in Artstr to unlock.');
         return;
       }
