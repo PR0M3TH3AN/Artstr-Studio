@@ -6646,6 +6646,41 @@
       return { resolveLinked, walkLinkedTree, walkContributors, clearCache, peek, keyFor, _parseAddressCoord, _cacheKey };
     })();
 
+    // Walk the host's linked tree to collect (a) distinct contributor
+    // pubkeys (excluding the host author — they're already the event
+    // signer) and (b) distinct linked refs. Returns the two tag
+    // arrays ready to splice into a kind-30078 tag set per
+    // LINKED_DESIGNS_FEATURE.md §10.2:
+    //   ['p', <pubkey>, <relay-hint>, 'design-contributor']
+    //   ['link', <kind:pubkey:dTag>, <relay-hint>]
+    // Resolves each linked layer through linkedDesigns.walkLinkedTree
+    // (already cycle- + depth- + byte-capped). Encrypted sources
+    // return null payloads, so their authors silently don't get
+    // p-tagged — which is what we want for Phase 1.
+    async function _buildLinkedAttributionTags(payload, myPubkey) {
+      const contributors = new Set();
+      const refs = new Set();
+      try {
+        await linkedDesigns.walkLinkedTree(payload, {
+          onLink: ({ spec, entry }) => {
+            const pk = entry?.sourceEvent?.pubkey;
+            if (pk && /^[0-9a-f]{64}$/i.test(pk) && pk !== myPubkey) {
+              contributors.add(pk);
+            }
+            if (spec?.ref) refs.add(spec.ref);
+          },
+        });
+      } catch (err) {
+        console.warn('[linked-designs] attribution build failed', err);
+      }
+      const relayHint = (splitRelayList(state.community?.relays || '')[0]) || '';
+      const contributorTags = Array.from(contributors).map(
+        (pk) => ['p', pk, relayHint, 'design-contributor']
+      );
+      const linkTags = Array.from(refs).map((ref) => ['link', ref, relayHint]);
+      return { contributorTags, linkTags };
+    }
+
     // Pre-publish hook. Linked layers carry render-only fields
     // (lastResolvedAt, lastResolvedSize, transient fallbackPreview)
     // that are session-local and should not ship in the published
@@ -15459,6 +15494,16 @@
       // in the published event. Strip them once here, before the path
       // branches into private/premium/public publish.
       stripLinkedDesignEphemera(payload);
+      // Attribution chain (LINKED_DESIGNS_FEATURE.md §10.2). Resolve the
+      // linked tree once and gather contributor `p` tags + `link` tags
+      // for the published event. Skipped for private publishes to
+      // avoid leaking the link graph through unencrypted tags.
+      const myPubkey = state.community?.myPubkey || '';
+      let attributionTags = [];
+      if (state.visibility !== 'private') {
+        const built = await _buildLinkedAttributionTags(payload, myPubkey);
+        attributionTags = [...built.contributorTags, ...built.linkTags];
+      }
       // Private: encrypt and publish a feed-invisible event instead of the
       // normal public, tagged one.
       if (state.visibility === 'private') {
@@ -15475,7 +15520,7 @@
       // preview JPEG, with the §5.1 tag set. Soft-gate; honest about the
       // limitation in the publish-modal copy.
       if (state.publish?.zapGate) {
-        const signed = await _publishPremiumDesign(payload, mode, typeTag);
+        const signed = await _publishPremiumDesign(payload, mode, typeTag, attributionTags);
         const label = isEditing() ? `Updated "${state.meta.title}" (premium)` : `Premium "${state.meta.title}"`;
         await finalizePublishedTemplateEvent(signed, { label });
         if (isEditing()) exitEditMode();
@@ -15489,7 +15534,8 @@
       const dTag = isEditing() ? state.editingDTag : `${mode}:${dBase}`;
       const tags = [
         ['d', dTag],
-        ...getTemplateTags(payload, typeTag)
+        ...getTemplateTags(payload, typeTag),
+        ...attributionTags,
       ];
       const evt = { kind: 30078, created_at: Math.floor(Date.now() / 1000), tags, content: JSON.stringify(payload) };
       const signed = await publishCommunityEvent(evt);
@@ -15503,7 +15549,7 @@
     // Encrypts the payload via Premium.encryptPayload, renders the
     // watermarked preview JPEG, builds the §5.1 tag set including the
     // platform-fee zap split, and publishes a single kind-30078 event.
-    async function _publishPremiumDesign(payload, mode, typeTag) {
+    async function _publishPremiumDesign(payload, mode, typeTag, attributionTags = []) {
       // Pre-flight: lud16 on creator (already enforced at the modal level),
       // and resolve the platform lud16 so the split-zap actually works for
       // buyers later.
@@ -15590,6 +15636,9 @@
         // consumers don't depend on the client constant.
         ['zap', myPubkey, relayHint, String(10000 - PLATFORM_FEE_BPS)],
         ['zap', platformPubkey, relayHint, String(PLATFORM_FEE_BPS)],
+        // Linked-design attribution (LINKED_DESIGNS_FEATURE.md §10.2).
+        // Empty when the host has no linked layers.
+        ...attributionTags,
       ];
       const evt = {
         kind: 30078,
