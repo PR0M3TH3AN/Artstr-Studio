@@ -10983,13 +10983,13 @@
       clearPenDraftRender();
       const dims = currentCanvasDims();
       const unit = Math.max(dims.w, dims.h);
-      // Smaller, less prominent anchors/handles — earlier sizes
-      // (0.003 stroke, 0.013 anchor) rendered ~25px dots on a
-      // 1920px-wide preview, which obscured short paths and made
-      // the canvas feel cluttered. ~50% smaller reads as deliberate
-      // editing UI without dominating.
-      const lineW = unit * 0.0018;
-      const dotR = unit * 0.0075;
+      // Tiny anchor / handle glyphs — closer to Illustrator's default
+      // editing dots than a giant on-canvas widget. On a 1920px-wide
+      // preview these read as ~7px squares / circles, which is small
+      // enough that they don't obscure short paths but still big
+      // enough to click reliably.
+      const lineW = unit * 0.0008;
+      const dotR = unit * 0.0028;
       const nodes = layer.shape.pen.nodes;
       // In select mode the overlay base passes pointer events through
       // to the layer underneath (so clicks on empty canvas still
@@ -11580,8 +11580,8 @@
       const unit = Math.max(dims.w, dims.h);
       // Sized to match renderPenEditHandles so the in-progress
       // draw and the post-commit edit handles look consistent.
-      const lineW = unit * 0.0025;
-      const dotR = unit * 0.0075;
+      const lineW = unit * 0.0012;
+      const dotR = unit * 0.0028;
 
       if (_penDraft.tool === 'pencil') {
         const pts = _penDraft.points;
