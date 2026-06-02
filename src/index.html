@@ -10452,6 +10452,50 @@
       deletePenAnchors(layer, [idx]);
     }
 
+    // Close an open path when both its endpoints are part of the
+    // current selection. Illustrator's Cmd+J. Operates on the
+    // editable pen layer. No-op if the path is already closed or
+    // if the selection doesn't pick out both endpoints.
+    function joinSelectedPenAnchors(layer) {
+      const nodes = layer.shape?.pen?.nodes;
+      if (!nodes || layer.shape.pen.closed) return false;
+      if (_penSelectedAnchors.size !== 2) return false;
+      const last = nodes.length - 1;
+      if (!_penSelectedAnchors.has(0) || !_penSelectedAnchors.has(last)) return false;
+      pushHistory('join pen path');
+      layer.shape.pen.closed = true;
+      regenPenLayerD(layer);
+      render();
+      return true;
+    }
+
+    // Average the selected anchors. With no axis restriction every
+    // anchor (and its handles) slides to the centroid of the
+    // selection; the handles are translated by the same delta so
+    // the local curvature is preserved.
+    function averageSelectedPenAnchors(layer, axis) {
+      const nodes = layer.shape?.pen?.nodes;
+      if (!nodes || _penSelectedAnchors.size < 2) return false;
+      let sx = 0, sy = 0;
+      for (const i of _penSelectedAnchors) { sx += nodes[i].x; sy += nodes[i].y; }
+      const cx = sx / _penSelectedAnchors.size;
+      const cy = sy / _penSelectedAnchors.size;
+      pushHistory('average pen anchors');
+      for (const i of _penSelectedAnchors) {
+        const n = nodes[i];
+        const tx = (axis === 'vertical')   ? n.x : cx;
+        const ty = (axis === 'horizontal') ? n.y : cy;
+        const dx = tx - n.x, dy = ty - n.y;
+        n.x = tx; n.y = ty;
+        if (n.hIn)  { n.hIn.x  += dx; n.hIn.y  += dy; }
+        if (n.hOut) { n.hOut.x += dx; n.hOut.y += dy; }
+      }
+      refitPenLayerIfNeeded(layer);
+      regenPenLayerD(layer);
+      render();
+      return true;
+    }
+
     function deletePenAnchors(layer, idxList) {
       const nodes = layer.shape.pen.nodes;
       const sorted = Array.from(new Set(idxList))
@@ -29944,6 +29988,25 @@
           if (k === 'c' && selectedLayer()) { e.preventDefault(); copySelectedLayerToClipboard(); return; }
           if (k === 'x' && selectedLayer()) { e.preventDefault(); cutSelectedLayerToClipboard(); return; }
           if (k === 'v') { e.preventDefault(); pasteLayersFromClipboard(); return; }
+          // Pen path ops on the editable pen layer (Illustrator parity).
+          if (k === 'j') {
+            const penEdit = getEditablePenLayer?.();
+            if (penEdit) {
+              e.preventDefault();
+              if (e.altKey) {
+                // Cmd+Alt+J → average selected anchors to their centroid.
+                if (!averageSelectedPenAnchors(penEdit)) {
+                  toastError?.('Select at least two anchors to average.');
+                }
+              } else {
+                // Cmd+J → close the path if both endpoints are selected.
+                if (!joinSelectedPenAnchors(penEdit)) {
+                  toastError?.('Select both endpoints of an open path to join.');
+                }
+              }
+              return;
+            }
+          }
         }
         // Tool shortcuts + layer keys — only when not typing and no modifier held.
         if (!mod && !isEditableFocus()) {
