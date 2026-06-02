@@ -4031,7 +4031,8 @@
       </div>
 
         <div class="toolPalette" id="toolPalette">
-          <button type="button" class="toolPaletteBtn active" id="tool-select" data-tool="select" title="Select tool (V)" aria-label="Select tool"><span style="display:inline-block;transform:rotate(-135deg)">➤</span></button>
+          <button type="button" class="toolPaletteBtn active" id="tool-select" data-tool="select" title="Select tool (V) — move/scale/rotate whole layers" aria-label="Select tool"><span style="display:inline-block;transform:rotate(-135deg)">➤</span></button>
+          <button type="button" class="toolPaletteBtn" id="tool-direct-select" data-tool="direct-select" title="Direct Selection (A) — edit anchors / handles on a path" aria-label="Direct Selection tool"><span style="display:inline-block;color:#fff;-webkit-text-stroke:1px currentColor;transform:rotate(-135deg)">➤</span></button>
           <button type="button" class="toolPaletteBtn" id="tool-hand" data-tool="hand" title="Hand / pan tool (H)" aria-label="Hand tool">✋</button>
           <div class="toolPaletteDivider" aria-hidden="true"></div>
           <button type="button" class="toolPaletteBtn" id="tool-pen" data-tool="pen" title="Pen tool (P)" aria-label="Pen tool">✒</button>
@@ -9316,7 +9317,7 @@
     const PEN_SEGMENT_HIT_TOL = 0.012; // segment-click tolerance (fraction of canvas unit) for insert-anchor
     const PEN_MIN_DIST = 0.012;        // min inch gap between pencil points
     const PEN_CLOSE_HIT = 0.09;        // inch radius to "click the first anchor"
-    const EDITOR_TOOLS = ['select', 'hand', 'pen', 'pencil', 'shape', 'text'];
+    const EDITOR_TOOLS = ['select', 'direct-select', 'hand', 'pen', 'pencil', 'shape', 'text'];
     // Tools with a contextual right-side options panel.
     const EDITOR_TOOLS_WITH_PANEL = ['pen', 'pencil', 'shape', 'text'];
     // Shape kinds the Shape tool can draw (excludes uploaded 'path'/'svg').
@@ -9367,8 +9368,13 @@
         const btn = $(`tool-${t}`);
         if (btn) btn.classList.toggle('active', t === _editorTool);
       }
-      const drawing = _editorTool !== 'select';
+      // "drawing" mode = the cursor is on the canvas overlay doing
+      // something other than layer-level selection. Direct Selection
+      // is layer-aware too (passes empty clicks through), so it
+      // doesn't claim the drawing class either.
+      const drawing = _editorTool !== 'select' && _editorTool !== 'direct-select';
       document.body.classList.toggle('tool-drawing', drawing);
+      document.body.classList.toggle('tool-direct-select', _editorTool === 'direct-select');
       document.body.classList.toggle('tool-hand', _editorTool === 'hand');
       document.body.classList.toggle('tool-text', _editorTool === 'text');
       if (_editorTool !== 'hand') document.body.classList.remove('tool-panning');
@@ -9485,12 +9491,19 @@
     function syncPenOverlay() {
       if (_penOverlay && _penOverlay.parentNode) _penOverlay.parentNode.removeChild(_penOverlay);
       _penOverlay = null;
-      if (_editorTool === 'select') {
+      const t = effectiveEditorTool();
+      // V tool stays layer-only — no anchor editing — to match
+      // Illustrator's V vs A split. Direct Selection (A) and Pen (P)
+      // are the anchor-editing tools.
+      if (t === 'select') {
         document.body.classList.remove('tool-drawing');
-        // Skip creating the overlay unless a pen-shape layer is
-        // selected. With one selected, the overlay renders anchor /
-        // handle glyphs so the user can drag-edit or right-click
-        // delete without switching to the pen tool.
+        return;
+      }
+      if (t === 'direct-select') {
+        document.body.classList.remove('tool-drawing');
+        // Skip overlay unless a pen-shape layer is selected — the
+        // overlay renders anchor / handle glyphs for drag-edit /
+        // right-click delete. Falls through to creation below.
         if (!getEditablePenLayer()) return;
       }
       const host = currentCanvasHost();
@@ -9612,11 +9625,15 @@
     // ---- Pen (Bézier path authoring) ----
 
     function penPointerDown(evt) {
-      const p = overlayPointToInches(evt);
+      let p = overlayPointToInches(evt);
       if (!p) return;
       if (!_penDraft || _penDraft.tool !== 'pen') {
         _penDraft = { tool: 'pen', nodes: [], cursor: p };
       }
+      // Shift while clicking → constrain the new anchor to a
+      // 45°-multiple angle from the previous one. Same snap math
+      // as the hover preview so what-you-see-is-what-you-place.
+      p = _maybeConstrainAngle(p, _penDraft.nodes, evt.shiftKey);
       // Clicking near the first node closes the path.
       if (_penDraft.nodes.length >= 2) {
         const first = _penDraft.nodes[0];
@@ -9656,15 +9673,17 @@
     }
 
     function onPenPointerDown(evt) {
-      // In select mode the overlay base has pointer-events:none and
-      // events only reach this handler via anchor/handle elements
-      // with pointer-events:all. The pen-only branches (pencil /
-      // hand / shape / text / new-path) shouldn't run in select mode.
-      if (_editorTool === 'select') {
+      const t = effectiveEditorTool();
+      // Direct Selection (and the Cmd/Ctrl temporary toggle): the
+      // overlay base has pointer-events:none, so events only reach
+      // this handler when an anchor or handle is clicked. Segment
+      // clicks fall through to the layer; pen tool's segment-click
+      // insert lives below.
+      if (t === 'direct-select') {
         const editLayer = getEditablePenLayer();
         if (!editLayer) return;
         const hit = hitTestPenEdit(editLayer, evt);
-        if (!hit || hit.part === 'segment') return; // pass empty/segment clicks through to layer
+        if (!hit || hit.part === 'segment') return; // pass through to layer
         evt.preventDefault();
         evt.stopPropagation();
         if (hit.part === 'anchor' && evt.altKey) {
@@ -9843,13 +9862,13 @@
     // ---- Phase D: editing an existing pen path's anchors / handles ----
 
     function getEditablePenLayer() {
-      // Anchors are exposed for editing in BOTH pen mode and select
-      // mode — select-mode editing lets the user drag / delete an
-      // anchor without having to switch tools first. Pen mode keeps
-      // its richer affordances (segment-click to insert anchor,
-      // Alt-click to toggle corner/smooth) since those would conflict
-      // with the select tool's normal layer-click behavior.
-      if (_editorTool !== 'pen' && _editorTool !== 'select') return null;
+      // Anchor editing happens in Pen mode and Direct Selection mode
+      // (and during a Cmd/Ctrl temporary toggle from any tool — see
+      // _penTempDirectSelect). The plain Select tool stays
+      // layer-only to match Illustrator's V/A split, so users get a
+      // predictable mental model: V = whole layer, A = anchors.
+      const t = effectiveEditorTool();
+      if (t !== 'pen' && t !== 'direct-select') return null;
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return null;
       const sh = layer.shape;
@@ -9857,6 +9876,15 @@
       if (sh.pen.tool !== 'pen') return null;          // pencil paths aren't node-editable
       if (Number(layer.rotate) || 0) return null;      // skip rotated paths in v1
       return layer;
+    }
+
+    // The "effective" tool may differ from _editorTool when the user
+    // is holding Cmd/Ctrl — Illustrator's convention temporarily
+    // promotes any tool into Direct Selection so you can tweak an
+    // anchor without dropping the current tool.
+    let _penTempDirectSelect = false;
+    function effectiveEditorTool() {
+      return _penTempDirectSelect ? 'direct-select' : _editorTool;
     }
 
     // Pen nodes live in a pixel-space viewBox (1 unit = 1px @ 96dpi).
@@ -10509,11 +10537,74 @@
     }
 
     function onPenPointerHover(evt) {
-      if (_editorTool !== 'pen' || !_penDraft || _penDraft.tool !== 'pen') return;
-      const p = overlayPointToInches(evt);
-      if (!p) return;
-      _penDraft.cursor = p;
-      renderPenDraft();
+      const t = effectiveEditorTool();
+      // Cursor feedback: hovering over an editable pen layer's
+      // anchors / segments / endpoints changes the pen cursor to
+      // hint what a click will do (Illustrator parity — −, +,
+      // continue-from-endpoint hints).
+      if (t === 'pen' || t === 'direct-select') {
+        _updatePenHoverCursor(evt);
+      }
+      // Live cursor preview during in-progress draft (with optional
+      // Shift-constrain snap to the last anchor).
+      if (_editorTool === 'pen' && _penDraft && _penDraft.tool === 'pen') {
+        const p = overlayPointToInches(evt);
+        if (!p) return;
+        _penDraft.cursor = _maybeConstrainAngle(p, _penDraft.nodes, evt.shiftKey);
+        renderPenDraft();
+      }
+    }
+
+    // Snap an in-progress cursor position to a 45°-multiple angle
+    // from the previous anchor when Shift is held. No previous
+    // anchor → return the point unchanged. Matches Illustrator's
+    // Shift-constrain behavior while drawing.
+    function _maybeConstrainAngle(pt, nodes, shiftHeld) {
+      if (!shiftHeld || !nodes?.length) return pt;
+      const a = nodes[nodes.length - 1];
+      const dx = pt.x - a.x, dy = pt.y - a.y;
+      const ang = Math.atan2(dy, dx);
+      const step = Math.PI / 4; // 45°
+      const snapped = Math.round(ang / step) * step;
+      const len = Math.hypot(dx, dy);
+      return { x: a.x + Math.cos(snapped) * len, y: a.y + Math.sin(snapped) * len };
+    }
+
+    // Pen / Direct Selection hover cursor. Inspects the hit-test
+    // and picks a cursor that matches Illustrator's pen sub-modes:
+    //   anchor   → "delete" (−)
+    //   handle   → "move"
+    //   segment  → "add anchor" (+)  — pen tool only; DSel ignores
+    //   open-end → "continue path"   — pen tool only
+    //   else     → default (crosshair / move)
+    function _updatePenHoverCursor(evt) {
+      if (!_penOverlay) return;
+      const editLayer = getEditablePenLayer();
+      const t = effectiveEditorTool();
+      let cursor = (t === 'pen') ? 'crosshair' : 'default';
+      if (editLayer) {
+        const hit = hitTestPenEdit(editLayer, evt);
+        if (hit) {
+          if (hit.part === 'anchor') {
+            // Pen tool's "click anchor" deletes; DSel's "click anchor" selects/drags.
+            cursor = (t === 'pen') ? 'crosshair' : 'pointer';
+            // Endpoint of an open path → "continue from here" affordance
+            // in pen mode (we won't wire the continue behavior in this
+            // commit, but the cursor cue is what makes the affordance
+            // discoverable; the actual resume-drawing logic lands in
+            // the polish commit).
+            if (t === 'pen' && !editLayer.shape.pen.closed) {
+              const lastIdx = editLayer.shape.pen.nodes.length - 1;
+              if (hit.nodeIndex === 0 || hit.nodeIndex === lastIdx) cursor = 'pointer';
+            }
+          } else if (hit.part === 'hIn' || hit.part === 'hOut') {
+            cursor = 'move';
+          } else if (hit.part === 'segment') {
+            cursor = (t === 'pen') ? 'copy' : 'default'; // 'copy' is browsers' "+"-style cursor
+          }
+        }
+      }
+      _penOverlay.style.cursor = cursor;
     }
 
     // Build an SVG path d-string from pen nodes. `coords` are taken as-is;
@@ -10712,13 +10803,14 @@
       // After updateBodyClasses so the designer view is displayed/laid out —
       // the disc image's cover-pan math needs the wrapper's real size.
       renderDesignerDisc();
-      // In select mode the overlay is conditionally present based on
-      // whether an editable pen layer is selected — re-sync each
-      // render so the overlay appears / disappears with selection
-      // changes. Cheap (a single removeChild + recreate when
-      // needed). In tool-drawing modes setEditorTool already created
-      // the overlay; this is a no-op idempotent refresh.
-      const wantsOverlayNow = _editorTool !== 'select' || !!getEditablePenLayer();
+      // Direct Selection (A) shows the overlay only when an editable
+      // pen layer is selected; the V tool never shows the overlay
+      // (it stays layer-level per Illustrator's V/A split); the
+      // drawing tools always have it. Re-sync each render so the
+      // overlay appears / disappears as selection changes without
+      // requiring a tool change.
+      const tEff = effectiveEditorTool();
+      const wantsOverlayNow = tEff !== 'select' && (tEff !== 'direct-select' || !!getEditablePenLayer());
       if (wantsOverlayNow !== !!_penOverlay) syncPenOverlay();
       refreshPenOverlayGeometry();
       refreshPenOverlayContent();
@@ -29405,6 +29497,27 @@
       });
       syncToolUI();
 
+      // Cmd/Ctrl temporary toggle to Direct Selection (Illustrator
+      // parity). While held, the effective tool flips to A so users
+      // can tweak an anchor without dropping the current tool;
+      // release returns to whatever was active. We flip a sentinel
+      // and re-sync the overlay so anchor handles appear / vanish.
+      const onModifierToggle = (held) => {
+        if (held === _penTempDirectSelect) return;
+        _penTempDirectSelect = held;
+        syncPenOverlay();
+        if (_penOverlay) refreshPenOverlayContent();
+      };
+      document.addEventListener('keydown', (e) => {
+        if ((e.key === 'Meta' || e.key === 'Control') && !isEditableFocus() && _editorTool !== 'pen') {
+          onModifierToggle(true);
+        }
+      });
+      document.addEventListener('keyup', (e) => {
+        if (e.key === 'Meta' || e.key === 'Control') onModifierToggle(false);
+      });
+      window.addEventListener('blur', () => onModifierToggle(false));
+
       // Global undo/redo keyboard shortcuts. Bypass when an editable
       // element is focused so the browser's native text-input undo runs.
       document.addEventListener('keydown', (e) => {
@@ -29430,6 +29543,7 @@
         // Tool shortcuts + layer keys — only when not typing and no modifier held.
         if (!mod && !isEditableFocus()) {
           if (k === 'v') { setEditorTool('select'); return; }
+          if (k === 'a') { setEditorTool('direct-select'); return; }
           if (k === 'h') { setEditorTool('hand'); return; }
           if (k === 'p') { setEditorTool('pen'); return; }
           if (k === 'b') { setEditorTool('pencil'); return; }
