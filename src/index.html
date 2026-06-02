@@ -4042,6 +4042,7 @@
           <button type="button" class="toolPaletteBtn" id="tool-pencil" data-tool="pencil" title="Pencil tool (B)" aria-label="Pencil tool">✎</button>
           <button type="button" class="toolPaletteBtn" id="tool-shape" data-tool="shape" title="Shape tool (S)" aria-label="Shape tool">▢</button>
           <button type="button" class="toolPaletteBtn" id="tool-text" data-tool="text" title="Text tool (T)" aria-label="Text tool">T</button>
+          <button type="button" class="toolPaletteBtn" id="tool-eyedropper" data-tool="eyedropper" title="Eyedropper (I) — sample a color from anywhere on screen" aria-label="Eyedropper tool">⊙</button>
           <div class="pixelToolWrap">
             <button type="button" class="toolPaletteBtn" id="tool-pixel" title="Pixel art layer" aria-haspopup="true" aria-expanded="false" aria-label="Pixel art layer">▦</button>
             <div id="pixelToolMenu" class="pixelToolMenu">
@@ -9532,6 +9533,50 @@
       layer.stroke = { type: 'solid', color: _penToolOpts.pencilStrokeColor,
         width: _penToolOpts.pencilStrokeWidth, dash: (layer.stroke && layer.stroke.dash) || 'solid' };
       render();
+    }
+
+    // Eyedropper: invoke the browser's native EyeDropper picker so
+    // the user can sample any pixel anywhere on screen (not just our
+    // canvas). Applies the picked hex to the most-relevant target:
+    //   shape layer → fill (or stroke if Shift was held)
+    //   text layer  → text color
+    //   nothing     → the pen / shape tool's default fill colour so
+    //                 the next thing drawn picks up the sampled hue.
+    // Not supported in Safari yet — show a hint toast there.
+    async function invokeEyedropper(toStroke) {
+      if (typeof window.EyeDropper !== 'function') {
+        toastError?.('Eyedropper needs Chrome, Edge, or Firefox 124+. Safari support is still pending.');
+        return;
+      }
+      let hex = '';
+      try {
+        const res = await new window.EyeDropper().open();
+        hex = (res && res.sRGBHex) || '';
+      } catch (err) {
+        // User pressed Escape — silent abort.
+        return;
+      }
+      if (!hex) return;
+      const layer = selectedLayer?.();
+      if (layer && layer.type === 'shape') {
+        pushHistory('eyedropper');
+        if (toStroke) layer.stroke = { type: 'none', color: '#000000', width: 2, dash: 'solid', ...(layer.stroke || {}), type: 'solid', color: hex };
+        else          layer.fill   = { ...(layer.fill   || {}), type: 'solid', color: hex };
+        render();
+      } else if (layer && layer.type === 'text') {
+        pushHistory('eyedropper');
+        layer.color = hex;
+        render();
+      } else {
+        // No layer selected — stash the color on the active drawing
+        // tool's defaults so the next stroke / fill uses it.
+        if (toStroke) _penToolOpts.penStrokeColor = hex;
+        else          _penToolOpts.penFillColor   = hex;
+        _shapeToolOpts.fillColor   = toStroke ? _shapeToolOpts.fillColor   : hex;
+        _shapeToolOpts.strokeColor = toStroke ? hex                        : _shapeToolOpts.strokeColor;
+        syncToolOptionInputs?.();
+        toast?.(`Sampled ${hex} — applied to current ${toStroke ? 'stroke' : 'fill'} color.`);
+      }
     }
 
     function syncPenOverlay() {
@@ -30053,6 +30098,11 @@
       for (const t of EDITOR_TOOLS) {
         on(`tool-${t}`, 'click', () => setEditorTool(t));
       }
+      // Eyedropper is a transient action, not a persistent tool — its
+      // button immediately opens the native picker and the previous
+      // tool stays active. Shift-click samples into the stroke color
+      // instead of the fill.
+      on('tool-eyedropper', 'click', (e) => invokeEyedropper(!!e.shiftKey));
       on('penFinishBtn', 'click', () => { finishPenPath(false); setEditorTool('select'); });
       on('penCancelBtn', 'click', () => setEditorTool('select'));
       // Path actions side-panel buttons. Each grabs the currently
@@ -30191,6 +30241,7 @@
           if (k === 'b') { setEditorTool('pencil'); return; }
           if (k === 's') { setEditorTool('shape'); return; }
           if (k === 't') { setEditorTool('text'); return; }
+          if (k === 'i') { invokeEyedropper(e.shiftKey); return; }
           if (k === 'enter' && _penDraft && _penDraft.tool === 'pen') { e.preventDefault(); finishPenPath(false); return; }
           if (!_penDraft) {
             if (k === 'delete' || k === 'backspace') {
