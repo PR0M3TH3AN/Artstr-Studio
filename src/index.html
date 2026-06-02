@@ -1720,6 +1720,29 @@
     .lh-s  { left: 50%;  top: 100%; cursor: ns-resize; }
     .lh-sw { left: 0;    top: 100%; cursor: nesw-resize; }
     .lh-w  { left: 0;    top: 50%;  cursor: ew-resize; }
+    /* Free Transform rotation handle: sits above the bbox top edge,
+       connected by a thin line, with a circular pill so it's visually
+       distinct from the square scale handles. */
+    .lh-rot {
+      left: 50%; top: 0;
+      margin-top: -36px;
+      margin-left: -8px;
+      width: 15px; height: 15px;
+      border-radius: 50%;
+      background: var(--accent);
+      border-color: #fff;
+      cursor: grab;
+    }
+    .lh-rot:active { cursor: grabbing; }
+    .lh-rot::after {
+      content: '';
+      position: absolute;
+      left: 50%; top: 100%;
+      width: 1px; height: 23px;
+      background: var(--accent);
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
 
     .freeLayer img {
       width: 100%;
@@ -2494,7 +2517,29 @@
     .toolOptions .buttonRow { margin:6px 0 0; }
     .toolOptHint { font-size:.7rem; color:var(--muted); margin:4px 0 0; line-height:1.35; }
     .penOverlay { position:absolute; inset:0; z-index:998; pointer-events:none; }
+    /* Marching-ants marquee box drawn while drag-selecting on the
+       canvas. CSS animation shifts four 1px dashed borders so the
+       outline reads as moving — same effect as Photoshop / Figma. */
+    .marqueeSelectBox {
+      position: absolute;
+      pointer-events: none;
+      z-index: 10000;
+      background:
+        linear-gradient(90deg, rgba(15,23,42,0.95) 50%, rgba(255,255,255,0.95) 50%) 0 0/8px 1px repeat-x,
+        linear-gradient(90deg, rgba(15,23,42,0.95) 50%, rgba(255,255,255,0.95) 50%) 0 100%/8px 1px repeat-x,
+        linear-gradient(0deg, rgba(15,23,42,0.95) 50%, rgba(255,255,255,0.95) 50%) 0 0/1px 8px repeat-y,
+        linear-gradient(0deg, rgba(15,23,42,0.95) 50%, rgba(255,255,255,0.95) 50%) 100% 0/1px 8px repeat-y;
+      animation: marqueeAntsMarch 0.6s linear infinite;
+    }
+    @keyframes marqueeAntsMarch {
+      to {
+        background-position: 8px 0, -8px 100%, 0 -8px, 100% 8px;
+      }
+    }
     body.tool-drawing .penOverlay { pointer-events:auto; cursor:crosshair; }
+    /* Direct Selection captures segment + marquee drags too, but
+       individual anchor / handle dots still set their own cursors. */
+    body.tool-direct-select .penOverlay { pointer-events:auto; cursor:default; }
     body.tool-drawing .freeLayer { pointer-events:none !important; }
     body.tool-hand .penOverlay { cursor:grab; }
     body.tool-panning .penOverlay { cursor:grabbing; }
@@ -3701,6 +3746,38 @@
             <button type="button" id="layerUngroupBtn">Ungroup</button>
             <button type="button" class="danger" id="deleteLayer">Delete layer</button>
           </div>
+
+          <details id="alignDetails" style="margin-top:10px" open>
+            <summary style="cursor:pointer;font-size:.82rem;font-weight:600">Align &amp; distribute</summary>
+            <p class="hint" id="alignHint" style="margin:4px 0">Select 2+ layers to align to their bounding box, or 1 layer to align to the page bounds. 3+ layers needed to distribute.</p>
+            <div class="buttonRow">
+              <button type="button" id="alignLeft"   title="Align left edges">⫷ L</button>
+              <button type="button" id="alignCX"     title="Align horizontal centers">⊟ H</button>
+              <button type="button" id="alignRight"  title="Align right edges">R ⫸</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="alignTop"    title="Align top edges">⫶ T</button>
+              <button type="button" id="alignCY"     title="Align vertical centers">⊟ V</button>
+              <button type="button" id="alignBottom" title="Align bottom edges">B ⫶</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="distributeX" title="Distribute horizontal spacing evenly">↔ Distribute H</button>
+              <button type="button" id="distributeY" title="Distribute vertical spacing evenly">↕ Distribute V</button>
+            </div>
+          </details>
+
+          <details id="pathfinderDetails" style="margin-top:10px">
+            <summary style="cursor:pointer;font-size:.82rem;font-weight:600">Pathfinder</summary>
+            <p class="hint">Boolean ops on 2+ selected shape layers. Result is a polygon approximation (curves get flattened). Non-pen primitives are auto-converted; rotated shapes aren’t supported yet.</p>
+            <div class="buttonRow">
+              <button type="button" id="pathfinderUnite"     title="Combine all selected shapes into one">Unite</button>
+              <button type="button" id="pathfinderSubtract"  title="Subtract upper shapes from the bottom-most one">Subtract</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="pathfinderIntersect" title="Keep only the overlapping region">Intersect</button>
+              <button type="button" id="pathfinderExclude"   title="Keep only the non-overlapping regions">Exclude</button>
+            </div>
+          </details>
         </details>
 
         <p class="hint">Click a layer to select it. Shift/Ctrl/Cmd-click to select multiple layers, then drag any selected layer to move the set together. Text layers are editable in place.</p>
@@ -4031,13 +4108,15 @@
       </div>
 
         <div class="toolPalette" id="toolPalette">
-          <button type="button" class="toolPaletteBtn active" id="tool-select" data-tool="select" title="Select tool (V)" aria-label="Select tool"><span style="display:inline-block;transform:rotate(-135deg)">➤</span></button>
+          <button type="button" class="toolPaletteBtn active" id="tool-select" data-tool="select" title="Select tool (V) — move/scale/rotate whole layers" aria-label="Select tool"><span style="display:inline-block;transform:rotate(-135deg)">➤</span></button>
+          <button type="button" class="toolPaletteBtn" id="tool-direct-select" data-tool="direct-select" title="Direct Selection (A) — edit anchors / handles on a path" aria-label="Direct Selection tool"><span style="display:inline-block;color:#60a5fa;transform:rotate(-135deg)">➤</span></button>
           <button type="button" class="toolPaletteBtn" id="tool-hand" data-tool="hand" title="Hand / pan tool (H)" aria-label="Hand tool">✋</button>
           <div class="toolPaletteDivider" aria-hidden="true"></div>
           <button type="button" class="toolPaletteBtn" id="tool-pen" data-tool="pen" title="Pen tool (P)" aria-label="Pen tool">✒</button>
           <button type="button" class="toolPaletteBtn" id="tool-pencil" data-tool="pencil" title="Pencil tool (B)" aria-label="Pencil tool">✎</button>
           <button type="button" class="toolPaletteBtn" id="tool-shape" data-tool="shape" title="Shape tool (S)" aria-label="Shape tool">▢</button>
           <button type="button" class="toolPaletteBtn" id="tool-text" data-tool="text" title="Text tool (T)" aria-label="Text tool">T</button>
+          <button type="button" class="toolPaletteBtn" id="tool-eyedropper" data-tool="eyedropper" title="Eyedropper (I) — sample a color from anywhere on screen" aria-label="Eyedropper tool">⊙</button>
           <div class="pixelToolWrap">
             <button type="button" class="toolPaletteBtn" id="tool-pixel" title="Pixel art layer" aria-haspopup="true" aria-expanded="false" aria-label="Pixel art layer">▦</button>
             <div id="pixelToolMenu" class="pixelToolMenu">
@@ -4068,6 +4147,29 @@
             <div class="buttonRow">
               <button type="button" id="penFinishBtn">Finish</button>
               <button type="button" id="penCancelBtn">Cancel</button>
+            </div>
+          </div>
+          <div id="directSelectToolOptions" style="display:none">
+            <h4>Direct Selection</h4>
+            <p class="toolOptHint">Click a path to reveal its anchors, then drag anchors / handles to reshape. Shift-click or drag a marquee to multi-select; arrow keys nudge selected anchors.</p>
+          </div>
+          <div id="pathActionsBlock" style="display:none">
+            <h4>Path actions</h4>
+            <p class="toolOptHint" id="pathActionsHint">Operations apply to the selected anchors on the editable path.</p>
+            <div class="buttonRow">
+              <button type="button" id="pathActionPointed" title="Drop handles on the selected anchor(s) — sharp corner">Pointed corner</button>
+              <button type="button" id="pathActionCurved" title="Grow symmetric handles on the selected anchor(s) — smooth curve">Curved smooth</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="pathActionDelete" title="Delete the selected anchor(s) (Backspace)">Delete anchor</button>
+              <button type="button" id="pathActionAverage" title="Move selected anchors to their centroid (Cmd+Alt+J)">Average</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="pathActionJoin" title="Close the path by joining its two endpoints (Cmd+J)">Join endpoints</button>
+              <button type="button" id="pathActionToggleClose" title="Toggle the path between open and closed">Close path</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="pathActionReverse" title="Reverse the direction the path is drawn in">Reverse direction</button>
             </div>
           </div>
           <div id="pencilToolOptions" style="display:none">
@@ -4849,6 +4951,7 @@
   </div>
 
   <script src="vendor/qrcode.min.js"></script>
+  <script src="vendor/polygon-clipping.min.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
     const safe$ = (id) => { try { return $(id); } catch { return null; } };
@@ -9312,11 +9415,29 @@
     let _editorTool = 'select';
     let _penOverlay = null;            // active SVG overlay element
     let _penDraft = null;              // in-progress drawing state
+    let _penSelectedAnchor = -1;       // primary (last-clicked) anchor index, or -1. Mirrors max of _penSelectedAnchors.
+    const _penSelectedAnchors = new Set(); // Set of indices for multi-anchor selection (Shift-click, marquee).
+    function setPenAnchorSelection(idx, additive) {
+      if (idx == null || idx < 0) {
+        if (!additive) _penSelectedAnchors.clear();
+        _penSelectedAnchor = _penSelectedAnchors.size ? Math.max(..._penSelectedAnchors) : -1;
+        return;
+      }
+      if (additive) {
+        if (_penSelectedAnchors.has(idx)) _penSelectedAnchors.delete(idx);
+        else _penSelectedAnchors.add(idx);
+      } else {
+        _penSelectedAnchors.clear();
+        _penSelectedAnchors.add(idx);
+      }
+      _penSelectedAnchor = _penSelectedAnchors.size ? (additive ? idx : idx) : -1;
+    }
+    const PEN_SEGMENT_HIT_TOL = 0.012; // segment-click tolerance (fraction of canvas unit) for insert-anchor
     const PEN_MIN_DIST = 0.012;        // min inch gap between pencil points
     const PEN_CLOSE_HIT = 0.09;        // inch radius to "click the first anchor"
-    const EDITOR_TOOLS = ['select', 'hand', 'pen', 'pencil', 'shape', 'text'];
+    const EDITOR_TOOLS = ['select', 'direct-select', 'hand', 'pen', 'pencil', 'shape', 'text'];
     // Tools with a contextual right-side options panel.
-    const EDITOR_TOOLS_WITH_PANEL = ['pen', 'pencil', 'shape', 'text'];
+    const EDITOR_TOOLS_WITH_PANEL = ['pen', 'direct-select', 'pencil', 'shape', 'text'];
     // Shape kinds the Shape tool can draw (excludes uploaded 'path'/'svg').
     const SHAPE_TOOL_KINDS = ['rect', 'rounded-rect', 'circle', 'ellipse', 'triangle', 'polygon', 'star', 'line'];
 
@@ -9354,6 +9475,8 @@
       if (!EDITOR_TOOLS.includes(tool)) tool = 'select';
       if (_editorTool === tool) return;
       cancelPenDraft();
+      _penSelectedAnchor = -1;
+      _penSelectedAnchors.clear();
       _editorTool = tool;
       syncToolUI();
       syncPenOverlay();
@@ -9364,18 +9487,26 @@
         const btn = $(`tool-${t}`);
         if (btn) btn.classList.toggle('active', t === _editorTool);
       }
-      const drawing = _editorTool !== 'select';
+      // "drawing" mode = the cursor is on the canvas overlay doing
+      // something other than layer-level selection. Direct Selection
+      // is layer-aware too (passes empty clicks through), so it
+      // doesn't claim the drawing class either.
+      const drawing = _editorTool !== 'select' && _editorTool !== 'direct-select';
       document.body.classList.toggle('tool-drawing', drawing);
+      document.body.classList.toggle('tool-direct-select', _editorTool === 'direct-select');
       document.body.classList.toggle('tool-hand', _editorTool === 'hand');
       document.body.classList.toggle('tool-text', _editorTool === 'text');
       if (_editorTool !== 'hand') document.body.classList.remove('tool-panning');
       const hasPanel = EDITOR_TOOLS_WITH_PANEL.includes(_editorTool);
       const opts = $('toolOptions');
       if (opts) opts.style.display = hasPanel ? '' : 'none';
-      for (const [id, tool] of [['penToolOptions','pen'],['pencilToolOptions','pencil'],['shapeToolOptions','shape'],['textToolOptions','text']]) {
+      for (const [id, tool] of [['penToolOptions','pen'],['directSelectToolOptions','direct-select'],['pencilToolOptions','pencil'],['shapeToolOptions','shape'],['textToolOptions','text']]) {
         const el = $(id);
         if (el) el.style.display = _editorTool === tool ? '' : 'none';
       }
+      // The shared path-actions block appears whenever an editable
+      // pen layer is selected and we're in a tool that can edit it.
+      syncPathActionsBlock();
       if (hasPanel) syncToolOptionInputs();
     }
 
@@ -9479,10 +9610,68 @@
       render();
     }
 
+    // Eyedropper: invoke the browser's native EyeDropper picker so
+    // the user can sample any pixel anywhere on screen (not just our
+    // canvas). Applies the picked hex to the most-relevant target:
+    //   shape layer → fill (or stroke if Shift was held)
+    //   text layer  → text color
+    //   nothing     → the pen / shape tool's default fill colour so
+    //                 the next thing drawn picks up the sampled hue.
+    // Not supported in Safari yet — show a hint toast there.
+    async function invokeEyedropper(toStroke) {
+      if (typeof window.EyeDropper !== 'function') {
+        toastError?.('Eyedropper needs Chrome, Edge, or Firefox 124+. Safari support is still pending.');
+        return;
+      }
+      let hex = '';
+      try {
+        const res = await new window.EyeDropper().open();
+        hex = (res && res.sRGBHex) || '';
+      } catch (err) {
+        // User pressed Escape — silent abort.
+        return;
+      }
+      if (!hex) return;
+      const layer = selectedLayer?.();
+      if (layer && layer.type === 'shape') {
+        pushHistory('eyedropper');
+        if (toStroke) layer.stroke = { type: 'none', color: '#000000', width: 2, dash: 'solid', ...(layer.stroke || {}), type: 'solid', color: hex };
+        else          layer.fill   = { ...(layer.fill   || {}), type: 'solid', color: hex };
+        render();
+      } else if (layer && layer.type === 'text') {
+        pushHistory('eyedropper');
+        layer.color = hex;
+        render();
+      } else {
+        // No layer selected — stash the color on the active drawing
+        // tool's defaults so the next stroke / fill uses it.
+        if (toStroke) _penToolOpts.penStrokeColor = hex;
+        else          _penToolOpts.penFillColor   = hex;
+        _shapeToolOpts.fillColor   = toStroke ? _shapeToolOpts.fillColor   : hex;
+        _shapeToolOpts.strokeColor = toStroke ? hex                        : _shapeToolOpts.strokeColor;
+        syncToolOptionInputs?.();
+        toast?.(`Sampled ${hex} — applied to current ${toStroke ? 'stroke' : 'fill'} color.`);
+      }
+    }
+
     function syncPenOverlay() {
       if (_penOverlay && _penOverlay.parentNode) _penOverlay.parentNode.removeChild(_penOverlay);
       _penOverlay = null;
-      if (_editorTool === 'select') { document.body.classList.remove('tool-drawing'); return; }
+      const t = effectiveEditorTool();
+      // V tool stays layer-only — no anchor editing — to match
+      // Illustrator's V vs A split. Direct Selection (A) and Pen (P)
+      // are the anchor-editing tools.
+      if (t === 'select') {
+        document.body.classList.remove('tool-drawing');
+        return;
+      }
+      if (t === 'direct-select') {
+        document.body.classList.remove('tool-drawing');
+        // Skip overlay unless a pen-shape layer is selected — the
+        // overlay renders anchor / handle glyphs for drag-edit /
+        // right-click delete. Falls through to creation below.
+        if (!getEditablePenLayer()) return;
+      }
       const host = currentCanvasHost();
       if (!host) return;
       const dims = currentCanvasDims();
@@ -9495,6 +9684,16 @@
       svg.addEventListener('pointerdown', onPenPointerDown);
       svg.addEventListener('pointermove', onPenPointerHover);
       svg.addEventListener('dblclick', (e) => { e.preventDefault(); finishPenPath(false); });
+      // Right-click on an editable pen anchor deletes it. Suppress
+      // the browser context menu on the overlay always, then route
+      // the actual delete through the regular hit-test.
+      svg.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const editLayer = getEditablePenLayer();
+        if (!editLayer) return;
+        const hit = hitTestPenEdit(editLayer, e);
+        if (hit && hit.part === 'anchor') deletePenAnchor(editLayer, hit.nodeIndex);
+      });
     }
 
     // Keep the overlay glued to the right host + viewBox after a render
@@ -9592,11 +9791,15 @@
     // ---- Pen (Bézier path authoring) ----
 
     function penPointerDown(evt) {
-      const p = overlayPointToInches(evt);
+      let p = overlayPointToInches(evt);
       if (!p) return;
       if (!_penDraft || _penDraft.tool !== 'pen') {
         _penDraft = { tool: 'pen', nodes: [], cursor: p };
       }
+      // Shift while clicking → constrain the new anchor to a
+      // 45°-multiple angle from the previous one. Same snap math
+      // as the hover preview so what-you-see-is-what-you-place.
+      p = _maybeConstrainAngle(p, _penDraft.nodes, evt.shiftKey);
       // Clicking near the first node closes the path.
       if (_penDraft.nodes.length >= 2) {
         const first = _penDraft.nodes[0];
@@ -9606,25 +9809,83 @@
           return;
         }
       }
-      const node = { x: p.x, y: p.y, hIn: null, hOut: null };
+      // kind='corner' by default; click-drag below promotes it to 'smooth'
+      // so editing later keeps the handles mirrored across the anchor.
+      const node = { x: p.x, y: p.y, hIn: null, hOut: null, kind: 'corner' };
       _penDraft.nodes.push(node);
       _penDraft.cursor = p;
       renderPenDraft();
       // Drag from this anchor pulls out symmetric Bézier handles.
+      // Two modifier-driven variants (Illustrator parity):
+      //   Alt held during drag → asymmetric (only outgoing handle is
+      //     pulled; incoming side stays at the anchor for a corner
+      //     transition into the next segment).
+      //   Spacebar held during drag → reposition the anchor itself
+      //     (and slide its handles along) instead of growing handles.
+      //     Releasing Space resumes handle-pulling from the new anchor
+      //     position.
       try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
       let dragged = false;
+      let spaceHeld = false;
+      let mode = 'handles'; // 'handles' | 'reposition'
+      let modeStartMouse = { x: p.x, y: p.y };
+      let modeStartNode = {
+        x: node.x, y: node.y,
+        hIn: node.hIn ? { ...node.hIn } : null,
+        hOut: node.hOut ? { ...node.hOut } : null,
+      };
+      const snapshotNode = (mousePt) => {
+        modeStartMouse = mousePt;
+        modeStartNode = {
+          x: node.x, y: node.y,
+          hIn: node.hIn ? { ...node.hIn } : null,
+          hOut: node.hOut ? { ...node.hOut } : null,
+        };
+      };
+      const onKey = (e) => {
+        if (e.code !== 'Space' && e.key !== ' ') return;
+        e.preventDefault();
+        const next = e.type === 'keydown';
+        if (next === spaceHeld) return;
+        spaceHeld = next;
+      };
+      document.addEventListener('keydown', onKey);
+      document.addEventListener('keyup', onKey);
       const move = (e) => {
         const pt = overlayPointToInches(e);
         if (!pt) return;
         dragged = true;
-        node.hOut = { x: pt.x, y: pt.y };
-        node.hIn = { x: node.x - (pt.x - node.x), y: node.y - (pt.y - node.y) };
+        const wantMode = spaceHeld ? 'reposition' : 'handles';
+        if (wantMode !== mode) {
+          mode = wantMode;
+          snapshotNode(pt);
+        }
+        if (mode === 'reposition') {
+          const dx = pt.x - modeStartMouse.x;
+          const dy = pt.y - modeStartMouse.y;
+          node.x = modeStartNode.x + dx;
+          node.y = modeStartNode.y + dy;
+          if (modeStartNode.hIn)  node.hIn  = { x: modeStartNode.hIn.x  + dx, y: modeStartNode.hIn.y  + dy };
+          if (modeStartNode.hOut) node.hOut = { x: modeStartNode.hOut.x + dx, y: modeStartNode.hOut.y + dy };
+        } else {
+          node.hOut = { x: pt.x, y: pt.y };
+          if (e.altKey) {
+            // Asymmetric corner: only the outgoing handle is set.
+            node.hIn = null;
+            node.kind = 'corner';
+          } else {
+            node.hIn = { x: 2 * node.x - pt.x, y: 2 * node.y - pt.y };
+            node.kind = 'smooth';
+          }
+        }
         renderPenDraft();
       };
       const up = () => {
         _penOverlay.removeEventListener('pointermove', move);
         _penOverlay.removeEventListener('pointerup', up);
         _penOverlay.removeEventListener('pointercancel', up);
+        document.removeEventListener('keydown', onKey);
+        document.removeEventListener('keyup', onKey);
         renderPenDraft();
       };
       _penOverlay.addEventListener('pointermove', move);
@@ -9633,6 +9894,45 @@
     }
 
     function onPenPointerDown(evt) {
+      const t = effectiveEditorTool();
+      // Direct Selection (and the Cmd/Ctrl temporary toggle): the
+      // overlay base has pointer-events:none, so events only reach
+      // this handler when an anchor or handle is clicked. Segment
+      // clicks fall through to the layer; pen tool's segment-click
+      // insert lives below.
+      if (t === 'direct-select') {
+        const editLayer = getEditablePenLayer();
+        if (!editLayer) return;
+        const hit = hitTestPenEdit(editLayer, evt);
+        if (!hit) {
+          // Empty miss: clear anchor selection + start a marquee
+          // box-select over anchors of the editable layer.
+          if (!evt.shiftKey) setPenAnchorSelection(-1, false);
+          startPenAnchorMarquee(editLayer, evt);
+          refreshPenOverlayContent();
+          return;
+        }
+        evt.preventDefault();
+        evt.stopPropagation();
+        if (hit.part === 'segment') {
+          if (evt.altKey) {
+            // Alt-click a segment inserts a new anchor at the hit
+            // point and starts dragging it — same as the Pen tool's
+            // segment-click behavior.
+            insertPenAnchorAt(editLayer, hit.segIndex, hit.t);
+            startPenEditDrag(editLayer, { nodeIndex: hit.segIndex + 1, part: 'anchor' }, evt);
+            return;
+          }
+          startPenSegmentBowDrag(editLayer, hit, evt);
+          return;
+        }
+        if (hit.part === 'anchor' && evt.altKey) {
+          togglePenAnchorKind(editLayer, hit.nodeIndex);
+          return;
+        }
+        startPenEditDrag(editLayer, hit, evt);
+        return;
+      }
       evt.preventDefault();
       if (_editorTool === 'pencil') { startPencilStroke(evt); return; }
       if (_editorTool === 'hand') { startHandPan(evt); return; }
@@ -9642,11 +9942,41 @@
       // If a draft is in progress, continue the create flow.
       if (_penDraft && _penDraft.tool === 'pen') { penPointerDown(evt); return; }
       // No draft: if an editable pen layer is selected and the click hits one
-      // of its anchors/handles, start an edit drag; otherwise begin a new path.
+      // of its anchors/handles/segments, route to the appropriate edit op.
+      // Otherwise begin a new path.
       const editLayer = getEditablePenLayer();
       if (editLayer) {
         const hit = hitTestPenEdit(editLayer, evt);
-        if (hit) { startPenEditDrag(editLayer, hit, evt); return; }
+        if (hit) {
+          if (hit.part === 'segment') {
+            // Pen over a segment: auto-insert anchor at click + drag
+            // (Illustrator's default — no modifier needed).
+            insertPenAnchorAt(editLayer, hit.segIndex, hit.t);
+            startPenEditDrag(editLayer, { nodeIndex: hit.segIndex + 1, part: 'anchor' }, evt);
+            return;
+          }
+          if (hit.part === 'anchor') {
+            // Endpoint of an open path → resume drawing from there.
+            // Takes priority over auto-delete (Illustrator shows the
+            // continue cursor on endpoint hover, not the − cursor).
+            if (!evt.shiftKey && !evt.altKey
+                && editLayer.shape?.pen?.closed === false) {
+              const last = editLayer.shape.pen.nodes.length - 1;
+              if (hit.nodeIndex === 0 || hit.nodeIndex === last) {
+                startPenContinuation(editLayer, hit.nodeIndex);
+                return;
+              }
+            }
+            // Interior anchor: click → auto-delete; drag → convert
+            // (pull symmetric handles, Alt-drag for asymmetric).
+            startPenAnchorClickOrConvert(editLayer, hit.nodeIndex, evt);
+            return;
+          }
+          // Handle hit (hIn / hOut): drag to edit the tangent; Alt
+          // breaks symmetry. Handled inside startPenEditDrag.
+          startPenEditDrag(editLayer, hit, evt);
+          return;
+        }
       }
       penPointerDown(evt);
     }
@@ -9786,7 +10116,13 @@
     // ---- Phase D: editing an existing pen path's anchors / handles ----
 
     function getEditablePenLayer() {
-      if (_editorTool !== 'pen') return null;
+      // Anchor editing happens in Pen mode and Direct Selection mode
+      // (and during a Cmd/Ctrl temporary toggle from any tool — see
+      // _penTempDirectSelect). The plain Select tool stays
+      // layer-only to match Illustrator's V/A split, so users get a
+      // predictable mental model: V = whole layer, A = anchors.
+      const t = effectiveEditorTool();
+      if (t !== 'pen' && t !== 'direct-select') return null;
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return null;
       const sh = layer.shape;
@@ -9796,12 +10132,25 @@
       return layer;
     }
 
-    // Pen nodes live in the path's 0–100 viewBox; map to/from canvas inches.
+    // The "effective" tool may differ from _editorTool when the user
+    // is holding Cmd/Ctrl — Illustrator's convention temporarily
+    // promotes any tool into Direct Selection so you can tweak an
+    // anchor without dropping the current tool.
+    let _penTempDirectSelect = false;
+    function effectiveEditorTool() {
+      return _penTempDirectSelect ? 'direct-select' : _editorTool;
+    }
+
+    // Pen nodes live in a pixel-space viewBox (1 unit = 1px @ 96dpi).
+    // Layer dimensions are inches; map nodes ↔ canvas inches via /96.
+    // The viewBox dims (layer.w * 96, layer.h * 96) match the layer's
+    // aspect so stroke-width is consistent on-screen regardless of
+    // layer size.
     function penNodeToInch(layer, p) {
-      return { x: layer.x + (p.x / 100) * layer.w, y: layer.y + (p.y / 100) * layer.h };
+      return { x: layer.x + p.x / 96, y: layer.y + p.y / 96 };
     }
     function inchToPenNode(layer, pt) {
-      return { x: (pt.x - layer.x) / layer.w * 100, y: (pt.y - layer.y) / layer.h * 100 };
+      return { x: (pt.x - layer.x) * 96, y: (pt.y - layer.y) * 96 };
     }
 
     function hitTestPenEdit(layer, evt) {
@@ -9811,6 +10160,7 @@
       const hitR = Math.max(dims.w, dims.h) * 0.018;
       const hitR2 = hitR * hitR;
       const nodes = layer.shape.pen.nodes;
+      // Pass 1: anchors + handles. These take priority over segments.
       for (let i = 0; i < nodes.length; i++) {
         const n = nodes[i];
         for (const part of ['hOut', 'hIn']) {
@@ -9823,12 +10173,86 @@
         const dx = ap.x - pt.x, dy = ap.y - pt.y;
         if (dx * dx + dy * dy < hitR2) return { nodeIndex: i, part: 'anchor' };
       }
+      // Pass 2: segment hit (for insert-anchor). Sample each segment
+      // and report the closest hit if within tolerance.
+      const segTol = Math.max(dims.w, dims.h) * PEN_SEGMENT_HIT_TOL;
+      const segTol2 = segTol * segTol;
+      const closed = !!layer.shape.pen.closed;
+      const segCount = closed ? nodes.length : Math.max(0, nodes.length - 1);
+      let best = null;
+      for (let s = 0; s < segCount; s++) {
+        const a = nodes[s];
+        const b = nodes[(s + 1) % nodes.length];
+        const sample = sampleSegment(a, b, 24);
+        for (const { t, x, y } of sample) {
+          const p2 = penNodeToInch(layer, { x, y });
+          const dx = p2.x - pt.x, dy = p2.y - pt.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 < segTol2 && (!best || d2 < best.d2)) {
+            best = { d2, segIndex: s, t };
+          }
+        }
+      }
+      if (best) return { part: 'segment', segIndex: best.segIndex, t: best.t };
       return null;
     }
 
+    // Sample N points along a Bezier (or line) segment between two
+    // pen nodes. Returns { t, x, y } per sample. Used by the
+    // segment hit-test and by the insert-anchor split.
+    function sampleSegment(a, b, count = 24) {
+      const out = [];
+      const c1 = a.hOut || { x: a.x, y: a.y };
+      const c2 = b.hIn || { x: b.x, y: b.y };
+      const isLine = !a.hOut && !b.hIn;
+      for (let i = 1; i < count; i++) {
+        const t = i / count;
+        if (isLine) {
+          out.push({ t, x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+        } else {
+          const u = 1 - t;
+          const x = u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x;
+          const y = u * u * u * a.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * b.y;
+          out.push({ t, x, y });
+        }
+      }
+      return out;
+    }
+
+    // de Casteljau split of a cubic at parameter t. Returns the new
+    // mid-anchor + the updated control points for the left and
+    // right sub-curves. Used when inserting an anchor on a segment.
+    function splitCubic(a, b, t) {
+      const c1 = a.hOut || { x: a.x, y: a.y };
+      const c2 = b.hIn || { x: b.x, y: b.y };
+      const lerp = (p, q, k) => ({ x: p.x + (q.x - p.x) * k, y: p.y + (q.y - p.y) * k });
+      const p01 = lerp(a, c1, t);
+      const p12 = lerp(c1, c2, t);
+      const p23 = lerp(c2, b, t);
+      const p012 = lerp(p01, p12, t);
+      const p123 = lerp(p12, p23, t);
+      const mid = lerp(p012, p123, t);
+      return {
+        aHOut: p01,    // a's new hOut
+        midHIn: p012,  // mid's hIn
+        midPos: mid,
+        midHOut: p123, // mid's hOut
+        bHIn: p23,     // b's new hIn
+      };
+    }
+
     function regenPenLayerD(layer) {
+      // Pen nodes live in pixel-space (layer.w * 96 × layer.h * 96).
+      // We re-write the stored viewBox to match the layer's current
+      // inch dimensions so the renderer's path branch (sx=100/vb.w,
+      // sy=vbH/vb.h, vbH = 100*lh/lw) ends up uniform: sx == sy. Strokes
+      // stay constant width around curves and consistent across shapes
+      // regardless of size — same as the pencil tool's behavior.
+      const vbW = (layer.w || 0) * 96;
+      const vbH = (layer.h || 0) * 96;
       layer.shape = {
         ...layer.shape,
+        viewBox: { x: 0, y: 0, w: vbW, h: vbH },
         d: penNodesToPathD(layer.shape.pen.nodes, layer.shape.pen.closed)
       };
     }
@@ -9837,19 +10261,75 @@
       pushHistory('edit pen path');
       try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
       const node = layer.shape.pen.nodes[hit.nodeIndex];
+      // Anchor click: Shift-click toggles into the multi-selection;
+      // plain click resets to just this anchor. Handle clicks don't
+      // change selection (they only edit that handle's tangent).
+      if (hit.part === 'anchor') {
+        const shift = !!evt.shiftKey;
+        if (shift && _penSelectedAnchors.has(hit.nodeIndex)) {
+          // Already in set + Shift held → drag the whole group but
+          // don't drop this anchor out of the selection until pointer
+          // up with no movement.
+        } else {
+          setPenAnchorSelection(hit.nodeIndex, shift);
+        }
+      } else {
+        // For handle drags, ensure the parent anchor is at least the
+        // primary so the highlight is consistent with what's editing.
+        if (!_penSelectedAnchors.has(hit.nodeIndex)) {
+          setPenAnchorSelection(hit.nodeIndex, false);
+        } else {
+          _penSelectedAnchor = hit.nodeIndex;
+        }
+      }
+      // Snapshot pre-drag positions for every selected anchor so the
+      // whole selection moves rigidly together (anchors + handles).
+      const groupIdx = (hit.part === 'anchor') ? Array.from(_penSelectedAnchors) : [hit.nodeIndex];
+      const startPositions = groupIdx.map(i => {
+        const nn = layer.shape.pen.nodes[i];
+        return {
+          i,
+          x: nn.x, y: nn.y,
+          hIn:  nn.hIn  ? { x: nn.hIn.x,  y: nn.hIn.y  } : null,
+          hOut: nn.hOut ? { x: nn.hOut.x, y: nn.hOut.y } : null,
+        };
+      });
       const move = (e) => {
         const pt = overlayPointToInches(e);
         if (!pt) return;
         const local = inchToPenNode(layer, pt);
         if (hit.part === 'anchor') {
-          // Move the anchor; carry its handles along by the same delta.
-          const dx = local.x - node.x, dy = local.y - node.y;
-          node.x = local.x; node.y = local.y;
-          if (node.hIn) { node.hIn.x += dx; node.hIn.y += dy; }
-          if (node.hOut) { node.hOut.x += dx; node.hOut.y += dy; }
+          // Compute delta from the primary anchor's start position,
+          // then apply uniformly to every anchor in the selection.
+          const primary = startPositions.find(p => p.i === hit.nodeIndex) || startPositions[0];
+          const dx = local.x - primary.x;
+          const dy = local.y - primary.y;
+          for (const snap of startPositions) {
+            const nn = layer.shape.pen.nodes[snap.i];
+            nn.x = snap.x + dx; nn.y = snap.y + dy;
+            if (nn.hIn  && snap.hIn)  { nn.hIn.x  = snap.hIn.x  + dx; nn.hIn.y  = snap.hIn.y  + dy; }
+            if (nn.hOut && snap.hOut) { nn.hOut.x = snap.hOut.x + dx; nn.hOut.y = snap.hOut.y + dy; }
+          }
         } else {
           node[hit.part] = { x: local.x, y: local.y };
+          // Alt-drag a handle in Direct Selection breaks symmetry:
+          // node becomes corner so the opposite handle stays put.
+          // Illustrator parity (the Convert Anchor Point tool's
+          // Alt-drag-handle behavior).
+          if (e.altKey) node.kind = 'corner';
+          // Mirror the opposite handle if the anchor is smooth, so
+          // editing one side of a curve keeps the curve smooth on
+          // the other side too.
+          if (node.kind === 'smooth') {
+            const opp = hit.part === 'hOut' ? 'hIn' : 'hOut';
+            node[opp] = { x: 2 * node.x - local.x, y: 2 * node.y - local.y };
+          }
         }
+        // Refit the layer's bounding box if the drag pushed any
+        // node or handle outside the original 0–100 viewBox. The
+        // path stays visually anchored to the canvas — only the
+        // layer's x/y/w/h + the nodes' local coords change.
+        refitPenLayerIfNeeded(layer);
         regenPenLayerD(layer);
         renderLayers();
         renderPenEditHandles(layer);
@@ -9865,15 +10345,668 @@
       _penOverlay.addEventListener('pointercancel', up);
     }
 
+    // Pen tool on an interior anchor: disambiguate click vs drag.
+    // Click without dragging deletes the anchor (auto-delete, the
+    // Pen tool's default Illustrator behavior over an existing
+    // anchor). Drag past a small threshold promotes the anchor to
+    // smooth and pulls symmetric handles, converting a corner into
+    // a smooth point on the fly. Alt-click toggles corner/smooth
+    // without a drag; Alt-drag pulls a single (outgoing) handle and
+    // leaves the incoming side empty, giving an asymmetric corner.
+    function startPenAnchorClickOrConvert(layer, idx, evt) {
+      const node = layer.shape.pen.nodes[idx];
+      if (!node) return;
+      const alt = !!evt.altKey;
+      try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
+      const startX = evt.clientX, startY = evt.clientY;
+      const THRESHOLD = 4;
+      let dragging = false;
+      let historyPushed = false;
+      const promote = () => {
+        if (historyPushed) return;
+        pushHistory('convert pen anchor');
+        historyPushed = true;
+      };
+      const move = (e) => {
+        if (!dragging) {
+          const dx = e.clientX - startX, dy = e.clientY - startY;
+          if (dx * dx + dy * dy < THRESHOLD * THRESHOLD) return;
+          dragging = true;
+          promote();
+        }
+        const pt = overlayPointToInches(e);
+        if (!pt) return;
+        const local = inchToPenNode(layer, pt);
+        node.hOut = { x: local.x, y: local.y };
+        if (alt) {
+          // Asymmetric: only the outgoing handle is pulled.
+          node.hIn = null;
+          node.kind = 'corner';
+        } else {
+          node.hIn = { x: 2 * node.x - local.x, y: 2 * node.y - local.y };
+          node.kind = 'smooth';
+        }
+        refitPenLayerIfNeeded(layer);
+        regenPenLayerD(layer);
+        renderLayers();
+        renderPenEditHandles(layer);
+      };
+      const up = () => {
+        _penOverlay.removeEventListener('pointermove', move);
+        _penOverlay.removeEventListener('pointerup', up);
+        _penOverlay.removeEventListener('pointercancel', up);
+        if (!dragging) {
+          if (alt) togglePenAnchorKind(layer, idx);
+          else deletePenAnchor(layer, idx);
+        } else {
+          render();
+        }
+      };
+      _penOverlay.addEventListener('pointermove', move);
+      _penOverlay.addEventListener('pointerup', up);
+      _penOverlay.addEventListener('pointercancel', up);
+    }
+
+    // Drag a curve segment body to bow it. Distributes the drag
+    // delta equally across the two inner control points (a.hOut /
+    // b.hIn) so the curve at parameter t tracks the cursor. Lines
+    // (no handles) are promoted to a cubic on the fly so dragging
+    // works the same way. Adjacent anchors stay put — only their
+    // handles move. Anchors of kind 'smooth' on either end get their
+    // opposite handles re-mirrored so smoothness is preserved.
+    function startPenSegmentBowDrag(layer, hit, evt) {
+      pushHistory('bow pen segment');
+      try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
+      const nodes = layer.shape.pen.nodes;
+      const aIdx = hit.segIndex;
+      const bIdx = (hit.segIndex + 1) % nodes.length;
+      const a = nodes[aIdx], b = nodes[bIdx];
+      // Promote straight line to cubic: seed handles 1/3 and 2/3 along the line.
+      if (!a.hOut) a.hOut = { x: a.x + (b.x - a.x) / 3, y: a.y + (b.y - a.y) / 3 };
+      if (!b.hIn)  b.hIn  = { x: b.x - (b.x - a.x) / 3, y: b.y - (b.y - a.y) / 3 };
+      const t = Math.min(0.9, Math.max(0.1, hit.t));
+      const u = 1 - t;
+      // Equal-shift split: ΔC1 = ΔC2 = D / (3 u t). With both control
+      // points moved by Δ, the cubic at parameter t moves by 3 u t Δ,
+      // so the cursor tracks the curve at the grabbed point.
+      const k = 1 / (3 * u * t);
+      const startA = { hOut: { ...a.hOut } };
+      const startB = { hIn:  { ...b.hIn  } };
+      const startPt = overlayPointToInches(evt);
+      if (!startPt) return;
+      const startLocal = inchToPenNode(layer, startPt);
+      const move = (e) => {
+        const pt = overlayPointToInches(e);
+        if (!pt) return;
+        const local = inchToPenNode(layer, pt);
+        const dx = (local.x - startLocal.x) * k;
+        const dy = (local.y - startLocal.y) * k;
+        a.hOut = { x: startA.hOut.x + dx, y: startA.hOut.y + dy };
+        b.hIn  = { x: startB.hIn.x  + dx, y: startB.hIn.y  + dy };
+        // Mirror opposite handles for smooth anchors so curves stay continuous.
+        if (a.kind === 'smooth' && a.hIn)  a.hIn  = { x: 2 * a.x - a.hOut.x, y: 2 * a.y - a.hOut.y };
+        if (b.kind === 'smooth' && b.hOut) b.hOut = { x: 2 * b.x - b.hIn.x,  y: 2 * b.y - b.hIn.y  };
+        refitPenLayerIfNeeded(layer);
+        regenPenLayerD(layer);
+        renderLayers();
+        renderPenEditHandles(layer);
+      };
+      const up = () => {
+        _penOverlay.removeEventListener('pointermove', move);
+        _penOverlay.removeEventListener('pointerup', up);
+        _penOverlay.removeEventListener('pointercancel', up);
+        render();
+      };
+      _penOverlay.addEventListener('pointermove', move);
+      _penOverlay.addEventListener('pointerup', up);
+      _penOverlay.addEventListener('pointercancel', up);
+    }
+
+    // Marquee box-select over anchors. Drag from empty space inside
+    // the overlay to draw a dashed rectangle; on pointer-up any anchor
+    // whose center falls inside the box is added to (or replaces, if
+    // Shift wasn't held at start) the selection.
+    function startPenAnchorMarquee(layer, evt) {
+      const startPt = overlayPointToInches(evt);
+      if (!startPt) return;
+      try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
+      const additive = !!evt.shiftKey;
+      const ns = 'http://www.w3.org/2000/svg';
+      const dims = currentCanvasDims();
+      const lw = Math.max(dims.w, dims.h) * 0.0018;
+      const rect = document.createElementNS(ns, 'rect');
+      rect.setAttribute('fill', 'rgba(59,130,246,0.10)');
+      rect.setAttribute('stroke', '#3b82f6');
+      rect.setAttribute('stroke-width', String(lw));
+      rect.setAttribute('stroke-dasharray', `${lw * 3} ${lw * 2}`);
+      rect.setAttribute('pointer-events', 'none');
+      _penOverlay.appendChild(rect);
+      let cur = startPt;
+      const draw = () => {
+        const x = Math.min(startPt.x, cur.x);
+        const y = Math.min(startPt.y, cur.y);
+        rect.setAttribute('x', x);
+        rect.setAttribute('y', y);
+        rect.setAttribute('width',  Math.abs(cur.x - startPt.x));
+        rect.setAttribute('height', Math.abs(cur.y - startPt.y));
+      };
+      draw();
+      const move = (e) => { cur = overlayPointToInches(e) || cur; draw(); };
+      const up = () => {
+        _penOverlay.removeEventListener('pointermove', move);
+        _penOverlay.removeEventListener('pointerup', up);
+        _penOverlay.removeEventListener('pointercancel', up);
+        const dx = Math.abs(cur.x - startPt.x);
+        const dy = Math.abs(cur.y - startPt.y);
+        // A plain click in DSel mode (no real drag) deselects the
+        // layer entirely. The overlay vanishes on the next render
+        // because no editable pen layer is selected anymore.
+        const noDrag = dx < 0.005 && dy < 0.005;
+        if (noDrag && !additive) {
+          clearLayerSelection?.();
+          render?.();
+          return;
+        }
+        const x0 = Math.min(startPt.x, cur.x), x1 = Math.max(startPt.x, cur.x);
+        const y0 = Math.min(startPt.y, cur.y), y1 = Math.max(startPt.y, cur.y);
+        const nodes = layer.shape.pen.nodes;
+        if (!additive) _penSelectedAnchors.clear();
+        for (let i = 0; i < nodes.length; i++) {
+          const ap = penNodeToInch(layer, nodes[i]);
+          if (ap.x >= x0 && ap.x <= x1 && ap.y >= y0 && ap.y <= y1) _penSelectedAnchors.add(i);
+        }
+        _penSelectedAnchor = _penSelectedAnchors.size ? Math.max(..._penSelectedAnchors) : -1;
+        refreshPenOverlayContent();
+      };
+      _penOverlay.addEventListener('pointermove', move);
+      _penOverlay.addEventListener('pointerup', up);
+      _penOverlay.addEventListener('pointercancel', up);
+    }
+
+    // When an edit drag pushes any node or handle outside the
+    // 0–100 viewBox the path renders clipped at the layer's
+    // bounding rect. Detect that and re-normalize: compute the
+    // bbox over all nodes + handles, translate layer.x/y by the
+    // bbox offset (in inches), scale layer.w/h to fit, and remap
+    // every node's coords into the new 0–100 space. The path's
+    // on-canvas position is preserved.
+    function refitPenLayerIfNeeded(layer) {
+      const nodes = layer.shape.pen.nodes;
+      const pts = [];
+      for (const n of nodes) {
+        pts.push({ x: n.x, y: n.y });
+        if (n.hIn)  pts.push(n.hIn);
+        if (n.hOut) pts.push(n.hOut);
+      }
+      if (!pts.length) return;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of pts) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      }
+      // Nodes live in pixel-space: x:[0, layer.w*96], y:[0, layer.h*96].
+      // Refit unless every point is inside (with a small tolerance to
+      // avoid micro-jiggle).
+      const vbWNow = (layer.w || 0) * 96;
+      const vbHNow = (layer.h || 0) * 96;
+      const EPS = 0.5;
+      if (minX > -EPS && minY > -EPS && maxX < vbWNow + EPS && maxY < vbHNow + EPS) return;
+      const newW = Math.max(EPS, maxX - minX);
+      const newH = Math.max(EPS, maxY - minY);
+      // Layer position shifts in inches by the bbox offset (in
+      // pixel-space) divided by 96 to convert back to inches.
+      layer.x = layer.x + minX / 96;
+      layer.y = layer.y + minY / 96;
+      // New layer dimensions in inches: pixel-space bbox / 96.
+      layer.w = Math.max(0.01, newW / 96);
+      layer.h = Math.max(0.01, newH / 96);
+      // Re-anchor nodes so the new bbox origin sits at (0, 0).
+      const remap = (p) => ({ x: p.x - minX, y: p.y - minY });
+      for (const n of nodes) {
+        const r = remap(n);
+        n.x = r.x; n.y = r.y;
+        if (n.hIn)  { const ri = remap(n.hIn);  n.hIn  = ri; }
+        if (n.hOut) { const ro = remap(n.hOut); n.hOut = ro; }
+      }
+    }
+
+    // Insert a new anchor on a segment between nodes[segIndex] and
+    // nodes[segIndex+1] (or wraps around when closed). Uses de
+    // Casteljau split at t so the curve shape is preserved exactly.
+    function insertPenAnchorAt(layer, segIndex, t) {
+      const nodes = layer.shape.pen.nodes;
+      const a = nodes[segIndex];
+      const bIdx = (segIndex + 1) % nodes.length;
+      const b = nodes[bIdx];
+      pushHistory('insert pen anchor');
+      // Lines (no handles) get a plain mid-anchor with no handles
+      // — preserves the straight segment.
+      if (!a.hOut && !b.hIn) {
+        const midPos = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+        nodes.splice(segIndex + 1, 0, { x: midPos.x, y: midPos.y, hIn: null, hOut: null, kind: 'corner' });
+      } else {
+        const split = splitCubic(a, b, t);
+        a.hOut = split.aHOut;
+        b.hIn  = split.bHIn;
+        nodes.splice(segIndex + 1, 0, {
+          x: split.midPos.x, y: split.midPos.y,
+          hIn: split.midHIn, hOut: split.midHOut,
+          kind: 'smooth',
+        });
+      }
+      setPenAnchorSelection(segIndex + 1, false);
+      regenPenLayerD(layer);
+      render();
+    }
+
+    // Delete the currently-selected anchor (or a specific one by
+    // index). Closed paths just lose the node. Open paths lose the
+    // node; if it was an endpoint, the path stays open with the
+    // new endpoint being the prior next-inward node.
+    function deletePenAnchor(layer, idx) {
+      deletePenAnchors(layer, [idx]);
+    }
+
+    // Close an open path when both its endpoints are part of the
+    // current selection. Illustrator's Cmd+J. Operates on the
+    // editable pen layer. No-op if the path is already closed or
+    // if the selection doesn't pick out both endpoints.
+    function joinSelectedPenAnchors(layer) {
+      const nodes = layer.shape?.pen?.nodes;
+      if (!nodes || layer.shape.pen.closed) return false;
+      if (_penSelectedAnchors.size !== 2) return false;
+      const last = nodes.length - 1;
+      if (!_penSelectedAnchors.has(0) || !_penSelectedAnchors.has(last)) return false;
+      pushHistory('join pen path');
+      layer.shape.pen.closed = true;
+      regenPenLayerD(layer);
+      render();
+      return true;
+    }
+
+    // Average the selected anchors. With no axis restriction every
+    // anchor (and its handles) slides to the centroid of the
+    // selection; the handles are translated by the same delta so
+    // the local curvature is preserved.
+    function averageSelectedPenAnchors(layer, axis) {
+      const nodes = layer.shape?.pen?.nodes;
+      if (!nodes || _penSelectedAnchors.size < 2) return false;
+      let sx = 0, sy = 0;
+      for (const i of _penSelectedAnchors) { sx += nodes[i].x; sy += nodes[i].y; }
+      const cx = sx / _penSelectedAnchors.size;
+      const cy = sy / _penSelectedAnchors.size;
+      pushHistory('average pen anchors');
+      for (const i of _penSelectedAnchors) {
+        const n = nodes[i];
+        const tx = (axis === 'vertical')   ? n.x : cx;
+        const ty = (axis === 'horizontal') ? n.y : cy;
+        const dx = tx - n.x, dy = ty - n.y;
+        n.x = tx; n.y = ty;
+        if (n.hIn)  { n.hIn.x  += dx; n.hIn.y  += dy; }
+        if (n.hOut) { n.hOut.x += dx; n.hOut.y += dy; }
+      }
+      refitPenLayerIfNeeded(layer);
+      regenPenLayerD(layer);
+      render();
+      return true;
+    }
+
+    // ---- Pathfinder: boolean ops on selected shape layers --------
+    //
+    // Backed by the vendored polygon-clipping library (window.polygonClipping).
+    // The library operates on MultiPolygon geometries: [polygon, ...] where
+    // polygon = [outerRing, innerRing, ...] and ring = [[x,y], ...]. Curves
+    // can't be represented exactly so we sample each Bézier segment into a
+    // polyline; the result of every op is therefore a polygon approximation
+    // (matches what Illustrator's Pathfinder also produces internally).
+    function _samplePenLayerToWorldRing(layer, samplesPerSeg) {
+      const pen = layer.shape?.pen;
+      if (!pen?.nodes || pen.nodes.length < 2) return null;
+      const nodes = pen.nodes;
+      const vb = layer.shape.viewBox || { x: 0, y: 0, w: (Number(layer.w)||0)*96, h: (Number(layer.h)||0)*96 };
+      const lw = Number(layer.w) || 0, lh = Number(layer.h) || 0;
+      const vbw = Math.max(0.0001, Number(vb.w) || 0.0001);
+      const vbh = Math.max(0.0001, Number(vb.h) || 0.0001);
+      const toWorld = (p) => [
+        (Number(layer.x) || 0) + (p.x - (Number(vb.x) || 0)) / vbw * lw,
+        (Number(layer.y) || 0) + (p.y - (Number(vb.y) || 0)) / vbh * lh,
+      ];
+      const ring = [];
+      const closed = !!pen.closed;
+      const segCount = closed ? nodes.length : nodes.length - 1;
+      ring.push(toWorld(nodes[0]));
+      for (let i = 0; i < segCount; i++) {
+        const a = nodes[i], b = nodes[(i + 1) % nodes.length];
+        const inner = sampleSegment(a, b, samplesPerSeg);
+        for (const s of inner) ring.push(toWorld(s));
+        ring.push(toWorld(b));
+      }
+      // polygon-clipping wants closed rings to end at the start point.
+      // For an open path, force-close: the user picked Pathfinder which only
+      // makes sense for filled regions, so treat open paths as polylines
+      // that get closed by a straight segment.
+      if (ring.length > 0) {
+        const first = ring[0], last = ring[ring.length - 1];
+        if (first[0] !== last[0] || first[1] !== last[1]) ring.push([first[0], first[1]]);
+      }
+      return ring;
+    }
+
+    function layerToWorldMultiPolygon(layer, samplesPerSeg = 16) {
+      const ring = _samplePenLayerToWorldRing(layer, samplesPerSeg);
+      if (!ring || ring.length < 4) return null;
+      return [[ring]];
+    }
+
+    function worldMultiPolygonToShapeLayer(mp, attrs) {
+      if (!mp || !mp.length) return null;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const poly of mp) {
+        for (const ring of poly) {
+          for (const [x, y] of ring) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (!Number.isFinite(minX)) return null;
+      const w = Math.max(0.05, maxX - minX);
+      const h = Math.max(0.05, maxY - minY);
+      const sx = 96, sy = 96;
+      // d-string: each ring becomes its own M..L..Z subpath. Outer +
+      // hole rings of a single polygon share fill via even-odd winding.
+      let d = '';
+      for (const poly of mp) {
+        for (const ring of poly) {
+          ring.forEach((pt, i) => {
+            const px = ((pt[0] - minX) * sx).toFixed(2);
+            const py = ((pt[1] - minY) * sy).toFixed(2);
+            d += (i === 0 ? `M ${px} ${py}` : ` L ${px} ${py}`);
+          });
+          d += ' Z';
+        }
+      }
+      // Pen.nodes for the first polygon's outer ring so the result is
+      // still editable with the Direct Select / Pen tools.
+      const firstRing = mp[0][0];
+      const ringForNodes = firstRing[0][0] === firstRing[firstRing.length - 1][0]
+                        && firstRing[0][1] === firstRing[firstRing.length - 1][1]
+        ? firstRing.slice(0, -1) : firstRing;
+      const nodes = ringForNodes.map(([x, y]) => ({
+        x: (x - minX) * sx,
+        y: (y - minY) * sy,
+        hIn: null, hOut: null, kind: 'corner',
+      }));
+      return {
+        type: 'shape',
+        target: attrs?.target || (typeof currentDrawTarget === 'function' ? currentDrawTarget() : 'page'),
+        x: minX, y: minY, w, h,
+        rotate: 0, opacity: 1, z: attrs?.z ?? nextLayerZ(),
+        name: attrs?.name || 'Pathfinder result',
+        shape: {
+          kind: 'path',
+          d,
+          viewBox: { x: 0, y: 0, w: w * sx, h: h * sy },
+          pen: { closed: true, tool: 'pen', nodes },
+          fillRule: 'evenodd',
+        },
+        fill: attrs?.fill || { type: 'solid', color: '#3b82f6' },
+        stroke: attrs?.stroke || { type: 'none', color: '#000000', width: 0, dash: 'solid' },
+      };
+    }
+
+    // op: 'union' | 'intersection' | 'difference' | 'xor'
+    function runPathfinder(op) {
+      if (typeof window.polygonClipping !== 'object' || !window.polygonClipping?.union) {
+        toastError?.('Pathfinder library failed to load.');
+        return;
+      }
+      const layers = selectedLayers().filter(l => l && l.type === 'shape' && !l.locked && !l._generatedDiscLayer);
+      if (layers.length < 2) { toastError?.('Select at least two shape layers.'); return; }
+      const rotated = layers.find(l => (Number(l.rotate) || 0) !== 0);
+      if (rotated) { toastError?.('Pathfinder doesn’t support rotated shapes yet. Set rotation to 0 first.'); return; }
+      // Auto-convert any non-pen shape (rect, circle, etc.) to a pen
+      // path so we have nodes to sample. Bails out for SVG / multi-element layers.
+      for (const l of layers) {
+        if (!l.shape?.pen) {
+          const r = convertShapeToEditablePath(l);
+          if (!r.ok) { toastError?.(`Can't run Pathfinder on "${l.name || 'layer'}": ${r.reason}`); return; }
+        }
+      }
+      const polys = layers.map(l => layerToWorldMultiPolygon(l)).filter(Boolean);
+      if (polys.length < 2) { toastError?.('Could not sample selected paths.'); return; }
+      let result;
+      try {
+        if (op === 'union')        result = window.polygonClipping.union(...polys);
+        else if (op === 'intersection') result = window.polygonClipping.intersection(...polys);
+        else if (op === 'difference')   result = window.polygonClipping.difference(polys[0], ...polys.slice(1));
+        else if (op === 'xor')     result = window.polygonClipping.xor(...polys);
+      } catch (err) {
+        console.warn('Pathfinder', op, 'failed:', err);
+        toastError?.('Pathfinder failed on these shapes — try simpler paths.');
+        return;
+      }
+      if (!result || !result.length) {
+        toastError?.('Pathfinder produced no result (shapes may not overlap).');
+        return;
+      }
+      pushHistory(`pathfinder ${op}`);
+      // Inherit style + z + target from the BOTTOM-most layer of the
+      // selection (matches Illustrator's Pathfinder convention).
+      const sortedByZ = [...layers].sort((a, b) => (Number(a.z) || 0) - (Number(b.z) || 0));
+      const bottom = sortedByZ[0];
+      const opName = { union: 'Unite', intersection: 'Intersect', difference: 'Subtract', xor: 'Exclude' }[op] || 'Pathfinder';
+      const newLayer = worldMultiPolygonToShapeLayer(result, {
+        z: bottom.z,
+        target: bottom.target,
+        fill: bottom.fill ? { ...bottom.fill } : undefined,
+        stroke: bottom.stroke ? { ...bottom.stroke } : undefined,
+        name: `${opName} result`,
+      });
+      if (!newLayer) { toastError?.('Could not build result layer.'); return; }
+      newLayer.id = makeLayerId();
+      const removeIds = new Set(layers.map(l => l.id));
+      state.layers = state.layers.filter(l => !removeIds.has(l.id));
+      state.layers.push(newLayer);
+      setLayerSelection([newLayer.id], newLayer.id);
+      render();
+    }
+
+    function deletePenAnchors(layer, idxList) {
+      const nodes = layer.shape.pen.nodes;
+      const sorted = Array.from(new Set(idxList))
+        .filter(i => i >= 0 && i < nodes.length)
+        .sort((a, b) => b - a);
+      if (!sorted.length) return;
+      // A path needs at least 2 nodes to survive.
+      if (nodes.length - sorted.length < 2) {
+        toastError?.('Path needs at least two anchors. Delete the layer instead.');
+        return;
+      }
+      pushHistory(sorted.length > 1 ? 'delete pen anchors' : 'delete pen anchor');
+      for (const i of sorted) nodes.splice(i, 1);
+      setPenAnchorSelection(-1, false);
+      regenPenLayerD(layer);
+      render();
+    }
+
+    // Flip an anchor between "pointed" and "curved" — Illustrator's
+    // Convert Anchor Point behavior. The presence of handles is the
+    // source of truth (kind is just metadata for how a smooth anchor
+    // mirrors its handles):
+    //   has any handle → drop both handles → real pointed corner
+    //                    (path renders straight segments through it)
+    //   no handles     → grow symmetric handles aimed along the
+    //                    chord through this anchor → real curved
+    //                    smooth point. Handle length = 1/3 of the
+    //                    chord length to the nearest neighbour.
+    function togglePenAnchorKind(layer, idx) {
+      const nodes = layer.shape.pen.nodes;
+      const n = nodes[idx];
+      if (!n) return;
+      pushHistory('toggle pen anchor kind');
+      const hasHandles = !!(n.hIn || n.hOut);
+      if (hasHandles) {
+        n.kind = 'corner';
+        n.hIn = null;
+        n.hOut = null;
+      } else {
+        n.kind = 'smooth';
+        const grown = _defaultSmoothHandles(layer, idx);
+        n.hIn = grown.hIn;
+        n.hOut = grown.hOut;
+      }
+      regenPenLayerD(layer);
+      render();
+    }
+
+    // Batch variants for the side-panel buttons. Operate on every
+    // currently-selected anchor; if no anchors are selected, treat
+    // every anchor in the path as selected (so the buttons still do
+    // something useful right after switching tools).
+    function _eachTargetAnchor(layer, fn) {
+      const nodes = layer.shape?.pen?.nodes;
+      if (!nodes) return 0;
+      const idxs = _penSelectedAnchors.size
+        ? Array.from(_penSelectedAnchors)
+        : nodes.map((_, i) => i);
+      for (const i of idxs) fn(nodes[i], i);
+      return idxs.length;
+    }
+    function convertSelectedAnchorsToPointed(layer) {
+      pushHistory('convert anchors to pointed');
+      const n = _eachTargetAnchor(layer, (node) => {
+        if (!node.hIn && !node.hOut) return;
+        node.kind = 'corner';
+        node.hIn = null;
+        node.hOut = null;
+      });
+      regenPenLayerD(layer);
+      render();
+      return n;
+    }
+    function convertSelectedAnchorsToCurved(layer) {
+      pushHistory('convert anchors to curved');
+      const n = _eachTargetAnchor(layer, (node, i) => {
+        if (node.hIn || node.hOut) return;
+        const grown = _defaultSmoothHandles(layer, i);
+        node.kind = 'smooth';
+        node.hIn = grown.hIn;
+        node.hOut = grown.hOut;
+      });
+      regenPenLayerD(layer);
+      render();
+      return n;
+    }
+    function reversePenPath(layer) {
+      const pen = layer.shape?.pen;
+      if (!pen?.nodes?.length) return;
+      pushHistory('reverse pen path');
+      pen.nodes.reverse();
+      // After reversal, what was hIn for each node becomes its hOut
+      // (the segment-direction relationship swaps).
+      for (const n of pen.nodes) { const tmp = n.hIn; n.hIn = n.hOut; n.hOut = tmp; }
+      regenPenLayerD(layer);
+      render();
+    }
+    function togglePenPathClosed(layer) {
+      const pen = layer.shape?.pen;
+      if (!pen) return;
+      if (!pen.closed && pen.nodes.length < 3) {
+        toastError?.('Path needs at least 3 anchors to close.');
+        return;
+      }
+      pushHistory(pen.closed ? 'open pen path' : 'close pen path');
+      pen.closed = !pen.closed;
+      regenPenLayerD(layer);
+      render();
+    }
+
+    // Show / hide the shared "Path actions" side-panel block. Visible
+    // whenever Pen or Direct Selection is the effective tool AND a
+    // pen path is selected; buttons stay enabled so the user can act
+    // on either all anchors (no selection) or a subset.
+    function syncPathActionsBlock() {
+      const block = document.getElementById('pathActionsBlock');
+      if (!block) return;
+      const t = (typeof effectiveEditorTool === 'function') ? effectiveEditorTool() : _editorTool;
+      const editable = (t === 'pen' || t === 'direct-select') ? getEditablePenLayer() : null;
+      block.style.display = editable ? '' : 'none';
+      if (!editable) return;
+      const closed = !!editable.shape.pen.closed;
+      const nodes = editable.shape.pen.nodes || [];
+      const selSize = _penSelectedAnchors.size;
+      const hint = document.getElementById('pathActionsHint');
+      if (hint) {
+        hint.textContent = selSize
+          ? `${selSize} anchor${selSize === 1 ? '' : 's'} selected. Buttons act on the selection.`
+          : `${nodes.length} anchor${nodes.length === 1 ? '' : 's'} on this path. Click anchors to select; buttons with no selection act on all.`;
+      }
+      // Join only makes sense for an open path with both endpoints in the selection.
+      const join = document.getElementById('pathActionJoin');
+      if (join) {
+        const last = nodes.length - 1;
+        const canJoin = !closed && selSize === 2 && _penSelectedAnchors.has(0) && _penSelectedAnchors.has(last);
+        join.disabled = !canJoin;
+      }
+      const avg = document.getElementById('pathActionAverage');
+      if (avg) avg.disabled = selSize < 2;
+      const tc = document.getElementById('pathActionToggleClose');
+      if (tc) tc.textContent = closed ? 'Open path' : 'Close path';
+    }
+
+    // Compute default symmetric handles for a node that has none.
+    // Tangent direction = chord (prev → next) so the resulting curve
+    // bends naturally through this anchor. Endpoints of an open path
+    // use the single available neighbour. Isolated nodes get nothing.
+    function _defaultSmoothHandles(layer, idx) {
+      const nodes = layer.shape.pen.nodes;
+      const closed = !!layer.shape.pen.closed;
+      const n = nodes[idx];
+      const len = nodes.length;
+      let prev = null, next = null;
+      if (idx > 0) prev = nodes[idx - 1];
+      else if (closed && len > 1) prev = nodes[len - 1];
+      if (idx < len - 1) next = nodes[idx + 1];
+      else if (closed && len > 1) next = nodes[0];
+      let dx = 0, dy = 0;
+      if (prev && next)      { dx = next.x - prev.x;  dy = next.y - prev.y;  }
+      else if (prev)         { dx = n.x - prev.x;     dy = n.y - prev.y;     }
+      else if (next)         { dx = next.x - n.x;     dy = next.y - n.y;     }
+      else                   return { hIn: null, hOut: null };
+      const chord = Math.hypot(dx, dy);
+      if (!chord) return { hIn: null, hOut: null };
+      const handleLen = chord / 3;
+      const ux = dx / chord, uy = dy / chord;
+      return {
+        hIn:  { x: n.x - ux * handleLen, y: n.y - uy * handleLen },
+        hOut: { x: n.x + ux * handleLen, y: n.y + uy * handleLen },
+      };
+    }
+
     function renderPenEditHandles(layer) {
       if (!_penOverlay) return;
       const ns = 'http://www.w3.org/2000/svg';
       clearPenDraftRender();
       const dims = currentCanvasDims();
       const unit = Math.max(dims.w, dims.h);
-      const lineW = unit * 0.003;
-      const dotR = unit * 0.013;
+      // Tiny anchor / handle glyphs — closer to Illustrator's default
+      // editing dots than a giant on-canvas widget. On a 1920px-wide
+      // preview these read as ~7px squares / circles, which is small
+      // enough that they don't obscure short paths but still big
+      // enough to click reliably.
+      const lineW = unit * 0.0008;
+      const dotR = unit * 0.0028;
       const nodes = layer.shape.pen.nodes;
+      // In select mode the overlay base passes pointer events through
+      // to the layer underneath (so clicks on empty canvas still
+      // select layers). Anchors / handles get explicit pointer-events
+      // to ensure they capture their own clicks regardless of the
+      // overlay-level setting.
       nodes.forEach((n, i) => {
         const a = penNodeToInch(layer, n);
         for (const part of ['hIn', 'hOut']) {
@@ -9884,26 +11017,55 @@
           hl.setAttribute('x2', h.x); hl.setAttribute('y2', h.y);
           hl.setAttribute('stroke', '#3b82f6');
           hl.setAttribute('stroke-width', String(lineW));
+          hl.setAttribute('pointer-events', 'none');
           _penOverlay.appendChild(hl);
           const hd = document.createElementNS(ns, 'circle');
           hd.setAttribute('cx', h.x); hd.setAttribute('cy', h.y);
           hd.setAttribute('r', String(dotR * 0.62));
           hd.setAttribute('fill', '#3b82f6');
+          hd.setAttribute('pointer-events', 'all');
+          hd.style.cursor = 'pointer';
           _penOverlay.appendChild(hd);
         }
-        const dot = document.createElementNS(ns, 'circle');
-        dot.setAttribute('cx', a.x); dot.setAttribute('cy', a.y);
-        dot.setAttribute('r', String(dotR));
-        dot.setAttribute('fill', '#ffffff');
-        dot.setAttribute('stroke', '#3b82f6');
-        dot.setAttribute('stroke-width', String(lineW * 1.6));
-        _penOverlay.appendChild(dot);
+        // Anchor glyph: smooth = circle, corner = square. Selected
+        // gets a thicker stroke + accent color so the active anchor
+        // is obvious for Backspace-to-delete.
+        const isSelected = _penSelectedAnchors.has(i);
+        const stroke = isSelected ? '#f97316' : '#3b82f6';
+        if (n.kind === 'smooth') {
+          const dot = document.createElementNS(ns, 'circle');
+          dot.setAttribute('cx', a.x); dot.setAttribute('cy', a.y);
+          dot.setAttribute('r', String(dotR));
+          dot.setAttribute('fill', '#ffffff');
+          dot.setAttribute('stroke', stroke);
+          dot.setAttribute('stroke-width', String(lineW * (isSelected ? 2.4 : 1.6)));
+          dot.setAttribute('pointer-events', 'all');
+          dot.style.cursor = 'pointer';
+          _penOverlay.appendChild(dot);
+        } else {
+          const sq = document.createElementNS(ns, 'rect');
+          const s = dotR * 1.6;
+          sq.setAttribute('x', String(a.x - s / 2));
+          sq.setAttribute('y', String(a.y - s / 2));
+          sq.setAttribute('width', String(s));
+          sq.setAttribute('height', String(s));
+          sq.setAttribute('fill', '#ffffff');
+          sq.setAttribute('stroke', stroke);
+          sq.setAttribute('stroke-width', String(lineW * (isSelected ? 2.4 : 1.6)));
+          sq.setAttribute('pointer-events', 'all');
+          sq.style.cursor = 'pointer';
+          _penOverlay.appendChild(sq);
+        }
       });
     }
 
     // Decide what the overlay shows: an in-progress draft, edit handles for a
     // selected pen path, or nothing.
     function refreshPenOverlayContent() {
+      // Side-panel button enabled-state tracks anchor selection;
+      // refresh it whenever the overlay re-renders so the hint and
+      // disabled flags match what's actually selected.
+      try { syncPathActionsBlock(); } catch {}
       if (!_penOverlay) return;
       if (_penDraft) { renderPenDraft(); return; }
       const editLayer = getEditablePenLayer();
@@ -10158,22 +11320,110 @@
           width: Math.max(0.5, Number(sh.strokeWidth) || 6), dash: 'solid' };
         layer.fill = { type: 'none' };
       }
+      // primitiveToPenNodes / parsePathDToNodes give nodes in 0-100×0-100.
+      // Pen paths now use a pixel-space viewBox (1 unit = 1px @ 96dpi)
+      // so stroke-width renders at a consistent device-pixel size across
+      // shapes (same pattern as the pencil tool). Map 0-100 → 0-(lw*96)
+      // along x and 0-100 → 0-(lh*96) along y; the resulting viewBox
+      // aspect matches the layer aspect, giving uniform scaling.
+      const lw = Number(layer.w) > 0 ? Number(layer.w) : 1;
+      const lh = Number(layer.h) > 0 ? Number(layer.h) : 1;
+      const vbW = lw * 96;
+      const vbH = lh * 96;
+      const xScale = vbW / 100;
+      const yScale = vbH / 100;
+      const scaledNodes = result.nodes.map(n => ({
+        x: n.x * xScale,
+        y: n.y * yScale,
+        hIn: n.hIn ? { x: n.hIn.x * xScale, y: n.hIn.y * yScale } : null,
+        hOut: n.hOut ? { x: n.hOut.x * xScale, y: n.hOut.y * yScale } : null,
+        kind: n.kind || 'corner',
+      }));
       layer.shape = {
         kind: 'path',
-        viewBox: { x: 0, y: 0, w: 100, h: 100 },
-        pen: { closed: result.closed, tool: 'pen', nodes: result.nodes },
-        d: penNodesToPathD(result.nodes, result.closed)
+        viewBox: { x: 0, y: 0, w: vbW, h: vbH },
+        pen: { closed: result.closed, tool: 'pen', nodes: scaledNodes },
+        d: penNodesToPathD(scaledNodes, result.closed)
       };
       render();
       return { ok: true };
     }
 
     function onPenPointerHover(evt) {
-      if (_editorTool !== 'pen' || !_penDraft || _penDraft.tool !== 'pen') return;
-      const p = overlayPointToInches(evt);
-      if (!p) return;
-      _penDraft.cursor = p;
-      renderPenDraft();
+      const t = effectiveEditorTool();
+      // Cursor feedback: hovering over an editable pen layer's
+      // anchors / segments / endpoints changes the pen cursor to
+      // hint what a click will do (Illustrator parity — −, +,
+      // continue-from-endpoint hints).
+      if (t === 'pen' || t === 'direct-select') {
+        _updatePenHoverCursor(evt);
+      }
+      // Live cursor preview during in-progress draft (with optional
+      // Shift-constrain snap to the last anchor).
+      if (_editorTool === 'pen' && _penDraft && _penDraft.tool === 'pen') {
+        const p = overlayPointToInches(evt);
+        if (!p) return;
+        _penDraft.cursor = _maybeConstrainAngle(p, _penDraft.nodes, evt.shiftKey);
+        renderPenDraft();
+      }
+    }
+
+    // Snap an in-progress cursor position to a 45°-multiple angle
+    // from the previous anchor when Shift is held. No previous
+    // anchor → return the point unchanged. Matches Illustrator's
+    // Shift-constrain behavior while drawing.
+    function _maybeConstrainAngle(pt, nodes, shiftHeld) {
+      if (!shiftHeld || !nodes?.length) return pt;
+      const a = nodes[nodes.length - 1];
+      const dx = pt.x - a.x, dy = pt.y - a.y;
+      const ang = Math.atan2(dy, dx);
+      const step = Math.PI / 4; // 45°
+      const snapped = Math.round(ang / step) * step;
+      const len = Math.hypot(dx, dy);
+      return { x: a.x + Math.cos(snapped) * len, y: a.y + Math.sin(snapped) * len };
+    }
+
+    // Pen / Direct Selection hover cursor. Inspects the hit-test
+    // and picks a cursor that matches Illustrator's pen sub-modes:
+    //   anchor   → "delete" (−)
+    //   handle   → "move"
+    //   segment  → "add anchor" (+)  — pen tool only; DSel ignores
+    //   open-end → "continue path"   — pen tool only
+    //   else     → default (crosshair / move)
+    function _updatePenHoverCursor(evt) {
+      if (!_penOverlay) return;
+      const editLayer = getEditablePenLayer();
+      const t = effectiveEditorTool();
+      let cursor = (t === 'pen') ? 'crosshair' : 'default';
+      if (editLayer) {
+        const hit = hitTestPenEdit(editLayer, evt);
+        if (hit) {
+          if (hit.part === 'anchor') {
+            if (t === 'pen') {
+              // Pen over anchor = auto-delete (− cursor). The
+              // 'not-allowed' built-in cursor is the closest
+              // platform-agnostic "−" hint; the alternative would be a
+              // custom SVG cursor.
+              cursor = 'not-allowed';
+              // Endpoint of an open path → "continue from here". Wins
+              // over auto-delete since clicking there resumes drawing.
+              if (!editLayer.shape.pen.closed) {
+                const lastIdx = editLayer.shape.pen.nodes.length - 1;
+                if (hit.nodeIndex === 0 || hit.nodeIndex === lastIdx) cursor = 'pointer';
+              }
+            } else {
+              cursor = 'pointer';
+            }
+          } else if (hit.part === 'hIn' || hit.part === 'hOut') {
+            cursor = 'move';
+          } else if (hit.part === 'segment') {
+            // Pen over segment: + cursor (auto-add). Direct Select:
+            // grab to bow the curve.
+            cursor = (t === 'pen') ? 'copy' : 'grab';
+          }
+        }
+      }
+      _penOverlay.style.cursor = cursor;
     }
 
     // Build an SVG path d-string from pen nodes. `coords` are taken as-is;
@@ -10198,9 +11448,19 @@
     function finishPenPath(closed) {
       if (!_penDraft || _penDraft.tool !== 'pen') { cancelPenDraft(); return; }
       const nodes = _penDraft.nodes;
+      const continuationOf = _penDraft._continuationOf;
+      const inheritStyle = _penDraft._inheritStyle;
       _penDraft = null;
       clearPenDraftRender();
-      if (nodes.length < 2) return;
+      if (nodes.length < 2) {
+        // Restore the source path if continuation aborted without committing.
+        if (continuationOf) {
+          const src = state.layers.find(l => l.id === continuationOf);
+          if (src) src._hiddenForContinuation = false;
+          render();
+        }
+        return;
+      }
       // bbox includes anchor + handle points so curves that bow outward fit.
       const allPts = [];
       for (const n of nodes) {
@@ -10209,34 +11469,108 @@
         if (n.hOut) allPts.push(n.hOut);
       }
       const bbox = pointsBbox(allPts);
-      const remap = (pt) => ({ x: (pt.x - bbox.x) / bbox.w * 100, y: (pt.y - bbox.y) / bbox.h * 100 });
+      // Store the path in a pixel-space viewBox (1 unit = 1px @ 96dpi).
+      // The pencil tool does the same thing (see commitPencilStroke) for
+      // exactly this reason: stroke-width becomes a true on-screen
+      // thickness regardless of how big the shape is — two pen paths
+      // with stroke "2" render at the same device-pixel width. The
+      // earlier 0-100 normalization made strokes scale with layer size,
+      // so identical stroke numbers visually differed across shapes.
+      const remap = (pt) => ({ x: (pt.x - bbox.x) * 96, y: (pt.y - bbox.y) * 96 });
       const normNodes = nodes.map(n => ({
         x: remap(n).x, y: remap(n).y,
         hIn: n.hIn ? remap(n.hIn) : null,
-        hOut: n.hOut ? remap(n.hOut) : null
+        hOut: n.hOut ? remap(n.hOut) : null,
+        kind: n.kind || 'corner',
       }));
+      const vbW = bbox.w * 96;
+      const vbH = bbox.h * 96;
       const d = penNodesToPathD(normNodes, closed);
-      pushHistory('draw pen path');
-      const fill = (closed && _penToolOpts.penFill)
+      pushHistory(continuationOf ? 'extend pen path' : 'draw pen path');
+      // Continuation: drop the source layer, carry its z + target +
+      // style so the replacement reads as "the same path, longer."
+      let layerZ = nextLayerZ();
+      let layerTarget = currentDrawTarget();
+      let layerFill = (closed && _penToolOpts.penFill)
         ? { type: 'solid', color: _penToolOpts.penFillColor }
         : { type: 'none' };
+      let layerStroke = { type: 'solid', color: _penToolOpts.penStrokeColor, width: _penToolOpts.penStrokeWidth, dash: 'solid' };
+      if (continuationOf) {
+        const idx = state.layers.findIndex(l => l.id === continuationOf);
+        if (idx >= 0) {
+          const src = state.layers[idx];
+          if (inheritStyle?.stroke) layerStroke = inheritStyle.stroke;
+          if (inheritStyle?.fill && (closed || inheritStyle.fill.type === 'none')) layerFill = inheritStyle.fill;
+          layerZ = src.z;
+          layerTarget = src.target;
+          state.layers.splice(idx, 1);
+        }
+      }
       addLayer({
         id: makeLayerId(),
         type: 'shape',
         name: closed ? 'Pen shape' : 'Pen path',
-        target: currentDrawTarget(),
+        target: layerTarget,
         x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h,
-        rotate: 0, opacity: 1, z: nextLayerZ(),
+        rotate: 0, opacity: 1, z: layerZ,
         shape: {
-          kind: 'path', d, viewBox: { x: 0, y: 0, w: 100, h: 100 },
+          kind: 'path', d, viewBox: { x: 0, y: 0, w: vbW, h: vbH },
           pen: { closed: !!closed, tool: 'pen', nodes: normNodes }
         },
-        fill,
-        stroke: { type: 'solid', color: _penToolOpts.penStrokeColor, width: _penToolOpts.penStrokeWidth, dash: 'solid' }
+        fill: layerFill,
+        stroke: layerStroke
       });
     }
 
+    // Pen tool: resume drawing from an endpoint of an open path.
+    // Seeds _penDraft with the existing layer's nodes (converted
+    // back to inch-space), reversing the order if the user clicked
+    // the start so the clicked endpoint becomes the trailing anchor
+    // ready to extend on the next click. The source layer is hidden
+    // for the duration of the draft; on commit it's removed and the
+    // new (continued) path takes its place, preserving z + target.
+    function startPenContinuation(layer, endpointIdx) {
+      const srcNodes = layer.shape.pen.nodes;
+      if (!srcNodes || srcNodes.length === 0) return;
+      const reverse = endpointIdx === 0;
+      const draftNodes = srcNodes.map(n => ({
+        x: layer.x + n.x / 96,
+        y: layer.y + n.y / 96,
+        hIn:  n.hIn  ? { x: layer.x + n.hIn.x  / 96, y: layer.y + n.hIn.y  / 96 } : null,
+        hOut: n.hOut ? { x: layer.x + n.hOut.x / 96, y: layer.y + n.hOut.y / 96 } : null,
+        kind: n.kind || 'corner',
+      }));
+      if (reverse) {
+        draftNodes.reverse();
+        // After reversal, what was hIn becomes hOut and vice versa.
+        for (const n of draftNodes) { const tmp = n.hIn; n.hIn = n.hOut; n.hOut = tmp; }
+      }
+      const last = draftNodes[draftNodes.length - 1];
+      layer._hiddenForContinuation = true;
+      _penDraft = {
+        tool: 'pen',
+        nodes: draftNodes,
+        cursor: { x: last.x, y: last.y },
+        _continuationOf: layer.id,
+      };
+      // Carry over the source layer's stroke + fill so the committed
+      // replacement matches the original's appearance.
+      const srcStroke = layer.stroke;
+      const srcFill = layer.fill;
+      if (srcStroke || srcFill) {
+        _penDraft._inheritStyle = { stroke: srcStroke, fill: srcFill, z: layer.z, target: layer.target };
+      }
+      render();
+      renderPenDraft();
+    }
+
     function cancelPenDraft() {
+      // Restore the hidden continuation source if the user backed out.
+      if (_penDraft && _penDraft._continuationOf) {
+        const src = state.layers.find(l => l.id === _penDraft._continuationOf);
+        if (src) src._hiddenForContinuation = false;
+        render();
+      }
       _penDraft = null;
       clearPenDraftRender();
     }
@@ -10255,8 +11589,10 @@
       clearPenDraftRender();
       const dims = currentCanvasDims();
       const unit = Math.max(dims.w, dims.h);
-      const lineW = unit * 0.004;
-      const dotR = unit * 0.012;
+      // Sized to match renderPenEditHandles so the in-progress
+      // draw and the post-commit edit handles look consistent.
+      const lineW = unit * 0.0012;
+      const dotR = unit * 0.0028;
 
       if (_penDraft.tool === 'pencil') {
         const pts = _penDraft.points;
@@ -10285,7 +11621,13 @@
           path.setAttribute('d', d);
           path.setAttribute('fill', 'none');
           path.setAttribute('stroke', _penToolOpts.penStrokeColor);
-          path.setAttribute('stroke-width', String(lineW * 2));
+          // The overlay is in canvas-inch space but the committed path
+          // is in pixel-space (1 unit = 1 px @ 96 dpi). Divide by 96 so
+          // the live preview reads at the same on-screen thickness the
+          // path will have once it commits — matches the panel value.
+          path.setAttribute('stroke-width', String(_penToolOpts.penStrokeWidth / 96));
+          path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('stroke-linejoin', 'round');
           _penOverlay.appendChild(path);
         }
         // Rubber-band from last node to cursor.
@@ -10360,6 +11702,15 @@
       // After updateBodyClasses so the designer view is displayed/laid out —
       // the disc image's cover-pan math needs the wrapper's real size.
       renderDesignerDisc();
+      // Direct Selection (A) shows the overlay only when an editable
+      // pen layer is selected; the V tool never shows the overlay
+      // (it stays layer-level per Illustrator's V/A split); the
+      // drawing tools always have it. Re-sync each render so the
+      // overlay appears / disappears as selection changes without
+      // requiring a tool change.
+      const tEff = effectiveEditorTool();
+      const wantsOverlayNow = tEff !== 'select' && (tEff !== 'direct-select' || !!getEditablePenLayer());
+      if (wantsOverlayNow !== !!_penOverlay) syncPenOverlay();
       refreshPenOverlayGeometry();
       refreshPenOverlayContent();
       if (_editorTool !== 'select') syncToolOptionInputs();
@@ -14863,7 +16214,8 @@
           const sy = vb.h > 0 ? H / vb.h : 1;
           // SVG transform applies right-to-left: translate the path's bbox to
           // the origin, then scale so it fills the 100×vbH shape space.
-          body = `<g transform="scale(${sx.toFixed(6)} ${sy.toFixed(6)}) translate(${(-vb.x).toFixed(3)} ${(-vb.y).toFixed(3)})"><path d="${escapeHtml(d)}" fill="${fillAttr}"${strokeAttr}/></g>`;
+          const fr = shape.fillRule === 'evenodd' ? ' fill-rule="evenodd"' : '';
+          body = `<g transform="scale(${sx.toFixed(6)} ${sy.toFixed(6)}) translate(${(-vb.x).toFixed(3)} ${(-vb.y).toFixed(3)})"><path d="${escapeHtml(d)}" fill="${fillAttr}"${fr}${strokeAttr}/></g>`;
         }
       } else if (kind === 'svg') {
         // Pre-sanitized multi-element SVG content. Fills / strokes are baked
@@ -15460,7 +16812,7 @@
         // Only render layers whose target belongs to the current template mode
         // (prevents leftover cover/disc/jewel layers from leaking into custom-art
         // canvases and vice versa). Page-level layers render everywhere.
-        if (layer.hidden) continue;
+        if (layer.hidden || layer._hiddenForContinuation) continue;
         if (state.appMode !== 'designer' && !isLayerForCurrentMode(layer)) continue;
 
         const layerSelected = isLayerSelected(layer.id);
@@ -15550,6 +16902,24 @@
             event.stopPropagation();
             beginDesignObjectEdit(layer.id);
           });
+        } else if (layer.type === 'shape') {
+          // Illustrator-style "dive into edit": double-click a vector
+          // shape with Select active and we flip to Direct Selection,
+          // auto-converting non-pen primitives so anchors show up
+          // right away. Only fires while the Select tool is active —
+          // double-clicking from any other tool stays out of the way.
+          el.addEventListener('dblclick', (event) => {
+            if (event.target.closest('.layerHandle')) return;
+            if (_editorTool !== 'select') return;
+            event.preventDefault();
+            event.stopPropagation();
+            setLayerSelection([layer.id], layer.id);
+            if (layer.shape && !layer.shape.pen) {
+              const r = convertShapeToEditablePath?.(layer);
+              if (r && !r.ok) { toastError?.(r.reason || 'Can’t edit this shape directly.'); return; }
+            }
+            setEditorTool('direct-select');
+          });
         }
         el.addEventListener('click', (event) => {
           event.stopPropagation();
@@ -15569,11 +16939,11 @@
 
         // Drag-resize handles — only on the selected, unlocked layer.
         if (layer.id === state.selectedLayerId && selectedLayerIds().length <= 1 && !layer.locked) {
-          for (const dir of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+          for (const dir of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'rot']) {
             const handle = document.createElement('div');
             handle.className = `layerHandle lh-${dir}`;
             handle.dataset.handle = dir;
-            handle.addEventListener('pointerdown', startLayerResize);
+            handle.addEventListener('pointerdown', dir === 'rot' ? startLayerRotate : startLayerResize);
             handle.addEventListener('click', (e) => e.stopPropagation());
             el.appendChild(handle);
           }
@@ -15608,11 +16978,11 @@
         box.style.height = inches(bounds.h);
       }
       box.addEventListener('pointerdown', startLayerSelectionDrag);
-      for (const dir of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+      for (const dir of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'rot']) {
         const handle = document.createElement('div');
         handle.className = `layerHandle lh-${dir}`;
         handle.dataset.handle = dir;
-        handle.addEventListener('pointerdown', startLayerSelectionResize);
+        handle.addEventListener('pointerdown', dir === 'rot' ? startLayerSelectionRotate : startLayerSelectionResize);
         handle.addEventListener('click', (e) => e.stopPropagation());
         box.appendChild(handle);
       }
@@ -17261,6 +18631,60 @@
       );
     }
 
+    // Align every editable layer in the selection to a reference
+    // bbox. Multi-selection uses the selection's own bbox so the
+    // outer layers stay put; a single layer aligns to its target
+    // (page / panel / disc) bounds so the user can centre or pin a
+    // single asset without setting up a second one.
+    function alignSelection(axis) {
+      const layers = selectedLayers().filter(l => !l?.locked && !l?._generatedDiscLayer);
+      if (!layers.length) { toastError?.('Select a layer first.'); return; }
+      let ref;
+      if (layers.length >= 2) {
+        ref = layersBounds(layers);
+      } else {
+        const single = layers[0];
+        const tb = targetBounds(single.target || (typeof currentDrawTarget === 'function' ? currentDrawTarget() : 'page'));
+        ref = { x: tb.x, y: tb.y, w: tb.w, h: tb.h };
+      }
+      if (!ref) return;
+      pushHistory(`align ${axis}`);
+      for (const l of layers) {
+        const w = Number(l.w) || 0;
+        const h = Number(l.h) || 0;
+        if (axis === 'left')   l.x = ref.x;
+        else if (axis === 'right')  l.x = ref.x + ref.w - w;
+        else if (axis === 'cx')     l.x = ref.x + (ref.w - w) / 2;
+        else if (axis === 'top')    l.y = ref.y;
+        else if (axis === 'bottom') l.y = ref.y + ref.h - h;
+        else if (axis === 'cy')     l.y = ref.y + (ref.h - h) / 2;
+      }
+      render();
+    }
+
+    // Distribute selected layers so the spacing between consecutive
+    // centres is uniform along the chosen axis. Outer two layers stay
+    // pinned; inner ones slide. Requires at least three layers.
+    function distributeSelection(axis) {
+      const layers = selectedLayers().filter(l => !l?.locked && !l?._generatedDiscLayer);
+      if (layers.length < 3) { toastError?.('Select three or more layers to distribute.'); return; }
+      const dim = axis === 'x' ? 'w' : 'h';
+      const sorted = layers.slice().sort((a, b) => {
+        const ka = (Number(a[axis]) || 0) + (Number(a[dim]) || 0) / 2;
+        const kb = (Number(b[axis]) || 0) + (Number(b[dim]) || 0) / 2;
+        return ka - kb;
+      });
+      const firstCenter = (Number(sorted[0][axis]) || 0) + (Number(sorted[0][dim]) || 0) / 2;
+      const lastCenter  = (Number(sorted.at(-1)[axis]) || 0) + (Number(sorted.at(-1)[dim]) || 0) / 2;
+      const step = (lastCenter - firstCenter) / (sorted.length - 1);
+      pushHistory(`distribute ${axis}`);
+      for (let i = 1; i < sorted.length - 1; i++) {
+        const l = sorted[i];
+        l[axis] = (firstCenter + step * i) - (Number(l[dim]) || 0) / 2;
+      }
+      render();
+    }
+
     function layersBounds(layers) {
       if (!layers.length) return null;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -17361,6 +18785,110 @@
 
     function clearLayerSelection() {
       setLayerSelection([]);
+    }
+
+    // Marquee drag-select on an empty canvas region. Used by the
+    // Select (V) tool only — other tools own their canvas drags
+    // (pen creates anchors, hand pans, shape drags out a box,
+    // direct-select marquees over anchors). A short click without
+    // movement keeps the legacy "click empty area to deselect"
+    // behavior; a real drag draws a marching-ants rectangle and on
+    // release selects every layer whose bbox intersects it.
+    // Shift / Ctrl / Cmd held adds to the existing selection
+    // instead of replacing it.
+    function attachCanvasMarquee(host, isDesignerLayer) {
+      if (!host) return;
+      const MARQUEE_THRESHOLD = 4; // px before a click becomes a drag
+      host.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) return; // left button only
+        // Bail if the user is on a tool that owns canvas drags.
+        const tool = (typeof effectiveEditorTool === 'function') ? effectiveEditorTool() : 'select';
+        if (tool !== 'select') return;
+        // freeLayer pointerdowns stopPropagation, so reaching here
+        // means the click missed every layer. But also bail if the
+        // event originated inside a layer overlay (e.g. selection box).
+        if (event.target.closest('.freeLayer')) return;
+        if (event.target.closest('.layerSelectionBox')) return;
+
+        const hostRect = host.getBoundingClientRect();
+        const unitW = isDesignerLayer ? discTemplate.discD : sheetW();
+        const unitH = isDesignerLayer ? discTemplate.discD : sheetH();
+        const additive = !!(event.shiftKey || event.ctrlKey || event.metaKey);
+        const startScreenX = event.clientX, startScreenY = event.clientY;
+        const startBaseIds = additive ? new Set(selectedLayerIds()) : new Set();
+
+        let box = null;
+        let dragging = false;
+        try { host.setPointerCapture(event.pointerId); } catch {}
+
+        const screenToInch = (sx, sy) => ({
+          x: (sx - hostRect.left) / hostRect.width  * unitW,
+          y: (sy - hostRect.top)  / hostRect.height * unitH,
+        });
+        const screenToHostPct = (sx, sy) => ({
+          x: (sx - hostRect.left) / hostRect.width  * 100,
+          y: (sy - hostRect.top)  / hostRect.height * 100,
+        });
+
+        const move = (e) => {
+          if (!dragging) {
+            const dx = e.clientX - startScreenX;
+            const dy = e.clientY - startScreenY;
+            if (dx * dx + dy * dy < MARQUEE_THRESHOLD * MARQUEE_THRESHOLD) return;
+            dragging = true;
+            box = document.createElement('div');
+            box.className = 'marqueeSelectBox';
+            host.appendChild(box);
+          }
+          const a = screenToHostPct(startScreenX, startScreenY);
+          const b = screenToHostPct(e.clientX, e.clientY);
+          const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+          const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+          box.style.left   = `${x0}%`;
+          box.style.top    = `${y0}%`;
+          box.style.width  = `${x1 - x0}%`;
+          box.style.height = `${y1 - y0}%`;
+        };
+
+        const up = (e) => {
+          host.removeEventListener('pointermove', move);
+          host.removeEventListener('pointerup', up);
+          host.removeEventListener('pointercancel', up);
+          if (box && box.parentNode) box.parentNode.removeChild(box);
+          if (!dragging) {
+            // Plain click on empty canvas → legacy behaviour: deselect.
+            if (!additive) { clearLayerSelection(); render(); }
+            return;
+          }
+          // Compute marquee rect in inch space + find intersecting layers.
+          const a = screenToInch(startScreenX, startScreenY);
+          const b = screenToInch(e.clientX, e.clientY);
+          const r = {
+            x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+            w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y),
+          };
+          const hits = state.layers.filter(l => {
+            if (!l || l.locked || l.hidden || l._generatedDiscLayer) return false;
+            const onDesigner = l.target === 'designer-disc';
+            if (onDesigner !== isDesignerLayer) return false;
+            if (!isDesignerLayer && typeof isLayerForCurrentMode === 'function'
+                && !isLayerForCurrentMode(l)) return false;
+            const lx = Number(l.x) || 0, ly = Number(l.y) || 0;
+            const lw = Number(l.w) || 0, lh = Number(l.h) || 0;
+            // AABB intersection — fast and matches Illustrator's
+            // "loose" marquee behaviour (any touch selects).
+            return lx < r.x + r.w && lx + lw > r.x && ly < r.y + r.h && ly + lh > r.y;
+          });
+          const idsAfter = additive
+            ? Array.from(new Set([...startBaseIds, ...hits.map(l => l.id)]))
+            : hits.map(l => l.id);
+          setLayerSelection(idsAfter, idsAfter[idsAfter.length - 1] || '');
+          render();
+        };
+        host.addEventListener('pointermove', move);
+        host.addEventListener('pointerup', up);
+        host.addEventListener('pointercancel', up);
+      });
     }
 
     let _layerPanelSelectionAnchor = null;
@@ -18692,6 +20220,123 @@
     // Drag-resize a layer from one of its 8 handles. Resizes in the layer's
     // own (rotated) frame and keeps the opposite edge/corner anchored.
     // Text layers reflow inside the new box — fontSize is never touched.
+    // Free Transform rotation — drag the round pill above the bbox to
+    // spin the layer about its own centre. Shift snaps to 15°. The
+    // existing resize path already accounts for layer.rotate in its
+    // local-frame math, so other handles keep working at any angle.
+    function startLayerRotate(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      blurEditableFocus();
+      const handle = event.currentTarget;
+      const el = handle.parentElement;
+      const layer = getLayer(el?.dataset.layerId);
+      if (!layer || layer.locked) return;
+      setLayerSelection([layer.id], layer.id);
+
+      const isDesignerLayer = layer.target === 'designer-disc';
+      const dragHost = isDesignerLayer ? $('designerDiscWrap') : $('sheet');
+      const hostRect = dragHost.getBoundingClientRect();
+      const unitW = isDesignerLayer ? discTemplate.discD : sheetW();
+      const unitH = isDesignerLayer ? discTemplate.discD : sheetH();
+      const cxIn = (Number(layer.x) || 0) + (Number(layer.w) || 0) / 2;
+      const cyIn = (Number(layer.y) || 0) + (Number(layer.h) || 0) / 2;
+      const cxPx = hostRect.left + (cxIn / unitW) * hostRect.width;
+      const cyPx = hostRect.top  + (cyIn / unitH) * hostRect.height;
+
+      const rot0 = Number(layer.rotate) || 0;
+      const ang0 = Math.atan2(event.clientY - cyPx, event.clientX - cxPx) * 180 / Math.PI;
+
+      let snapshotted = false;
+      document.body.classList.add('dragging-layer');
+      try { handle.setPointerCapture(event.pointerId); } catch {}
+      const move = (e) => {
+        if (!snapshotted) { pushHistory('rotate layer'); snapshotted = true; }
+        const ang = Math.atan2(e.clientY - cyPx, e.clientX - cxPx) * 180 / Math.PI;
+        let next = rot0 + (ang - ang0);
+        if (e.shiftKey) next = Math.round(next / 15) * 15;
+        // Normalize to (-180, 180] for cleaner numeric display.
+        next = ((next + 540) % 360) - 180;
+        layer.rotate = next;
+        render();
+      };
+      const up = () => {
+        document.body.classList.remove('dragging-layer');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    }
+
+    // Multi-layer rotation: each selected layer orbits the selection's
+    // bbox centre, and its own rotation increments by the same delta,
+    // so the group spins as a rigid body.
+    function startLayerSelectionRotate(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      blurEditableFocus();
+      const handle = event.currentTarget;
+      const box = handle.parentElement;
+      const isDesignerLayer = !!box.closest('#designerLayerOverlay');
+      const layers = selectionTransformLayers(isDesignerLayer);
+      if (layers.length < 1) return;
+      const bounds = layersBounds(layers);
+      if (!bounds) return;
+
+      const dragHost = isDesignerLayer ? $('designerDiscWrap') : $('sheet');
+      const hostRect = dragHost.getBoundingClientRect();
+      const unitW = isDesignerLayer ? discTemplate.discD : sheetW();
+      const unitH = isDesignerLayer ? discTemplate.discD : sheetH();
+      const cxIn = bounds.x + bounds.w / 2;
+      const cyIn = bounds.y + bounds.h / 2;
+      const cxPx = hostRect.left + (cxIn / unitW) * hostRect.width;
+      const cyPx = hostRect.top  + (cyIn / unitH) * hostRect.height;
+
+      const ang0 = Math.atan2(event.clientY - cyPx, event.clientX - cxPx) * 180 / Math.PI;
+      // Snapshot each layer's centre + rotation so the delta is
+      // applied from a stable starting state rather than accumulating.
+      const snaps = layers.map(l => ({
+        layer: l,
+        cx: (Number(l.x) || 0) + (Number(l.w) || 0) / 2,
+        cy: (Number(l.y) || 0) + (Number(l.h) || 0) / 2,
+        rot: Number(l.rotate) || 0,
+      }));
+
+      let snapshotted = false;
+      document.body.classList.add('dragging-layer');
+      try { handle.setPointerCapture(event.pointerId); } catch {}
+      const move = (e) => {
+        if (!snapshotted) { pushHistory('rotate selection'); snapshotted = true; }
+        const ang = Math.atan2(e.clientY - cyPx, e.clientX - cxPx) * 180 / Math.PI;
+        let delta = ang - ang0;
+        if (e.shiftKey) delta = Math.round(delta / 15) * 15;
+        const rad = delta * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        for (const s of snaps) {
+          const dx = s.cx - cxIn, dy = s.cy - cyIn;
+          const nx = dx * cos - dy * sin + cxIn;
+          const ny = dx * sin + dy * cos + cyIn;
+          const w = Number(s.layer.w) || 0, h = Number(s.layer.h) || 0;
+          s.layer.x = nx - w / 2;
+          s.layer.y = ny - h / 2;
+          s.layer.rotate = ((s.rot + delta + 540) % 360) - 180;
+        }
+        render();
+      };
+      const up = () => {
+        document.body.classList.remove('dragging-layer');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    }
+
     function startLayerResize(event) {
       event.preventDefault();
       event.stopPropagation();
@@ -28477,10 +30122,12 @@
       const addTextLayerBtn = $('addTextLayerBtn');
       if (addTextLayerBtn) addTextLayerBtn.addEventListener('click', () => addTextLayer());
 
-      $('sheet').addEventListener('click', () => {
-        clearLayerSelection();
-        render();
-      });
+      // Empty-canvas pointerdown: marquee drag-select with the
+      // Select tool, plain click clears the selection. Layers
+      // stopPropagation on their own pointerdowns so this only fires
+      // when the click misses every layer.
+      attachCanvasMarquee($('sheet'), false);
+      attachCanvasMarquee($('designerDiscWrap'), true);
       // Clicks in the gutter between the sheet edge and the previewShell
       // edge also deselect — the existing #sheet handler misses those.
       // Layer .freeLayer clicks stopPropagation so they don't bubble up
@@ -28696,6 +30343,21 @@
 
       $('layerForward').addEventListener('click', () => moveLayerStep('forward'));
       $('layerBackward').addEventListener('click', () => moveLayerStep('backward'));
+      // Align / distribute side-panel wiring. Each button targets the
+      // current layer selection; the helpers themselves toast a hint
+      // when the action would be a no-op (e.g. < 3 layers + distribute).
+      on('alignLeft',    'click', () => alignSelection('left'));
+      on('alignCX',      'click', () => alignSelection('cx'));
+      on('alignRight',   'click', () => alignSelection('right'));
+      on('alignTop',     'click', () => alignSelection('top'));
+      on('alignCY',      'click', () => alignSelection('cy'));
+      on('alignBottom',  'click', () => alignSelection('bottom'));
+      on('distributeX',  'click', () => distributeSelection('x'));
+      on('distributeY',  'click', () => distributeSelection('y'));
+      on('pathfinderUnite',     'click', () => runPathfinder('union'));
+      on('pathfinderSubtract',  'click', () => runPathfinder('difference'));
+      on('pathfinderIntersect', 'click', () => runPathfinder('intersection'));
+      on('pathfinderExclude',   'click', () => runPathfinder('xor'));
 
       $('deleteLayer').addEventListener('click', deleteSelectedLayer);
 
@@ -29002,8 +30664,37 @@
       for (const t of EDITOR_TOOLS) {
         on(`tool-${t}`, 'click', () => setEditorTool(t));
       }
+      // Eyedropper is a transient action, not a persistent tool — its
+      // button immediately opens the native picker and the previous
+      // tool stays active. Shift-click samples into the stroke color
+      // instead of the fill.
+      on('tool-eyedropper', 'click', (e) => invokeEyedropper(!!e.shiftKey));
       on('penFinishBtn', 'click', () => { finishPenPath(false); setEditorTool('select'); });
       on('penCancelBtn', 'click', () => setEditorTool('select'));
+      // Path actions side-panel buttons. Each grabs the currently
+      // editable pen layer and runs the corresponding batch op;
+      // the panel state refreshes after the action so the hint and
+      // enabled-flags reflect the new selection.
+      const _withPathLayer = (fn) => () => {
+        const layer = getEditablePenLayer();
+        if (!layer) { toastError?.('Select a pen path first.'); return; }
+        fn(layer);
+        syncPathActionsBlock();
+      };
+      on('pathActionPointed',      'click', _withPathLayer((layer) => convertSelectedAnchorsToPointed(layer)));
+      on('pathActionCurved',       'click', _withPathLayer((layer) => convertSelectedAnchorsToCurved(layer)));
+      on('pathActionDelete',       'click', _withPathLayer((layer) => {
+        if (_penSelectedAnchors.size === 0) { toastError?.('Select at least one anchor to delete.'); return; }
+        deletePenAnchors(layer, Array.from(_penSelectedAnchors));
+      }));
+      on('pathActionAverage',      'click', _withPathLayer((layer) => {
+        if (!averageSelectedPenAnchors(layer)) toastError?.('Select at least two anchors to average.');
+      }));
+      on('pathActionJoin',         'click', _withPathLayer((layer) => {
+        if (!joinSelectedPenAnchors(layer)) toastError?.('Select both endpoints of an open path to join.');
+      }));
+      on('pathActionToggleClose',  'click', _withPathLayer((layer) => togglePenPathClosed(layer)));
+      on('pathActionReverse',      'click', _withPathLayer((layer) => reversePenPath(layer)));
       on('penMakeEditableBtn', 'click', () => {
         const layer = selectedShapeLayer();
         if (!layer) return;
@@ -29045,6 +30736,27 @@
       });
       syncToolUI();
 
+      // Cmd/Ctrl temporary toggle to Direct Selection (Illustrator
+      // parity). While held, the effective tool flips to A so users
+      // can tweak an anchor without dropping the current tool;
+      // release returns to whatever was active. We flip a sentinel
+      // and re-sync the overlay so anchor handles appear / vanish.
+      const onModifierToggle = (held) => {
+        if (held === _penTempDirectSelect) return;
+        _penTempDirectSelect = held;
+        syncPenOverlay();
+        if (_penOverlay) refreshPenOverlayContent();
+      };
+      document.addEventListener('keydown', (e) => {
+        if ((e.key === 'Meta' || e.key === 'Control') && !isEditableFocus() && _editorTool !== 'pen') {
+          onModifierToggle(true);
+        }
+      });
+      document.addEventListener('keyup', (e) => {
+        if (e.key === 'Meta' || e.key === 'Control') onModifierToggle(false);
+      });
+      window.addEventListener('blur', () => onModifierToggle(false));
+
       // Global undo/redo keyboard shortcuts. Bypass when an editable
       // element is focused so the browser's native text-input undo runs.
       document.addEventListener('keydown', (e) => {
@@ -29066,22 +30778,77 @@
           if (k === 'c' && selectedLayer()) { e.preventDefault(); copySelectedLayerToClipboard(); return; }
           if (k === 'x' && selectedLayer()) { e.preventDefault(); cutSelectedLayerToClipboard(); return; }
           if (k === 'v') { e.preventDefault(); pasteLayersFromClipboard(); return; }
+          // Pen path ops on the editable pen layer (Illustrator parity).
+          if (k === 'j') {
+            const penEdit = getEditablePenLayer?.();
+            if (penEdit) {
+              e.preventDefault();
+              if (e.altKey) {
+                // Cmd+Alt+J → average selected anchors to their centroid.
+                if (!averageSelectedPenAnchors(penEdit)) {
+                  toastError?.('Select at least two anchors to average.');
+                }
+              } else {
+                // Cmd+J → close the path if both endpoints are selected.
+                if (!joinSelectedPenAnchors(penEdit)) {
+                  toastError?.('Select both endpoints of an open path to join.');
+                }
+              }
+              return;
+            }
+          }
         }
         // Tool shortcuts + layer keys — only when not typing and no modifier held.
         if (!mod && !isEditableFocus()) {
           if (k === 'v') { setEditorTool('select'); return; }
+          if (k === 'a') { setEditorTool('direct-select'); return; }
           if (k === 'h') { setEditorTool('hand'); return; }
           if (k === 'p') { setEditorTool('pen'); return; }
           if (k === 'b') { setEditorTool('pencil'); return; }
           if (k === 's') { setEditorTool('shape'); return; }
           if (k === 't') { setEditorTool('text'); return; }
+          if (k === 'i') { invokeEyedropper(e.shiftKey); return; }
           if (k === 'enter' && _penDraft && _penDraft.tool === 'pen') { e.preventDefault(); finishPenPath(false); return; }
           if (!_penDraft) {
             if (k === 'delete' || k === 'backspace') {
+              // Pen tool + an anchor is selected → delete the anchor,
+              // not the whole layer. Keeps Backspace the standard
+              // "delete the selected thing" key in both modes.
+              const penEdit = getEditablePenLayer?.();
+              if (penEdit && _penSelectedAnchors.size > 0) {
+                e.preventDefault();
+                deletePenAnchors(penEdit, Array.from(_penSelectedAnchors));
+                return;
+              }
               if (selectedLayerIds().length) { e.preventDefault(); deleteSelectedLayer(); }
               return;
             }
             const layer = selectedLayer();
+            // Direct Selection / Pen with a multi-anchor selection: arrows
+            // nudge the anchors (and their handles) rather than the
+            // whole layer. Illustrator parity.
+            const penEdit = getEditablePenLayer?.();
+            if (penEdit && _penSelectedAnchors.size > 0 && k.startsWith('arrow')) {
+              e.preventDefault();
+              pushHistoryDebounced('nudgePenAnchor', 'nudge anchors');
+              const stepPx = e.shiftKey ? 10 : 1; // pixel-space (1 unit = 1px @ 96dpi)
+              let dx = 0, dy = 0;
+              if (k === 'arrowup') dy = -stepPx;
+              else if (k === 'arrowdown') dy = stepPx;
+              else if (k === 'arrowleft') dx = -stepPx;
+              else if (k === 'arrowright') dx = stepPx;
+              const nodes = penEdit.shape.pen.nodes;
+              for (const i of _penSelectedAnchors) {
+                const n = nodes[i]; if (!n) continue;
+                n.x += dx; n.y += dy;
+                if (n.hIn)  { n.hIn.x  += dx; n.hIn.y  += dy; }
+                if (n.hOut) { n.hOut.x += dx; n.hOut.y += dy; }
+              }
+              refitPenLayerIfNeeded(penEdit);
+              regenPenLayerD(penEdit);
+              render();
+              return;
+            }
             if (layer && k.startsWith('arrow')) {
               e.preventDefault();
               if (!layer.locked) {
