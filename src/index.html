@@ -10514,38 +10514,63 @@
       render();
     }
 
-    // Toggle a node between 'corner' (handles move independently)
-    // and 'smooth' (handles mirror across the anchor). When
-    // promoting to smooth, mirror hOut from hIn (or vice versa) so
-    // the curve actually becomes continuous through this node.
+    // Flip an anchor between "pointed" and "curved" — Illustrator's
+    // Convert Anchor Point behavior. The presence of handles is the
+    // source of truth (kind is just metadata for how a smooth anchor
+    // mirrors its handles):
+    //   has any handle → drop both handles → real pointed corner
+    //                    (path renders straight segments through it)
+    //   no handles     → grow symmetric handles aimed along the
+    //                    chord through this anchor → real curved
+    //                    smooth point. Handle length = 1/3 of the
+    //                    chord length to the nearest neighbour.
     function togglePenAnchorKind(layer, idx) {
       const nodes = layer.shape.pen.nodes;
       const n = nodes[idx];
       if (!n) return;
       pushHistory('toggle pen anchor kind');
-      if (n.kind === 'smooth') {
+      const hasHandles = !!(n.hIn || n.hOut);
+      if (hasHandles) {
         n.kind = 'corner';
+        n.hIn = null;
+        n.hOut = null;
       } else {
         n.kind = 'smooth';
-        if (n.hIn && !n.hOut) {
-          n.hOut = { x: 2 * n.x - n.hIn.x, y: 2 * n.y - n.hIn.y };
-        } else if (n.hOut && !n.hIn) {
-          n.hIn = { x: 2 * n.x - n.hOut.x, y: 2 * n.y - n.hOut.y };
-        } else if (n.hIn && n.hOut) {
-          // Average direction and re-mirror so the smoothing is
-          // visible (handles likely were independent before).
-          const inLen = Math.hypot(n.hIn.x - n.x, n.hIn.y - n.y);
-          const outLen = Math.hypot(n.hOut.x - n.x, n.hOut.y - n.y);
-          const ax = (n.hOut.x - n.x) - (n.hIn.x - n.x);
-          const ay = (n.hOut.y - n.y) - (n.hIn.y - n.y);
-          const al = Math.hypot(ax, ay) || 1;
-          const dirX = ax / al, dirY = ay / al;
-          n.hOut = { x: n.x + dirX * outLen, y: n.y + dirY * outLen };
-          n.hIn  = { x: n.x - dirX * inLen,  y: n.y - dirY * inLen };
-        }
+        const grown = _defaultSmoothHandles(layer, idx);
+        n.hIn = grown.hIn;
+        n.hOut = grown.hOut;
       }
       regenPenLayerD(layer);
       render();
+    }
+
+    // Compute default symmetric handles for a node that has none.
+    // Tangent direction = chord (prev → next) so the resulting curve
+    // bends naturally through this anchor. Endpoints of an open path
+    // use the single available neighbour. Isolated nodes get nothing.
+    function _defaultSmoothHandles(layer, idx) {
+      const nodes = layer.shape.pen.nodes;
+      const closed = !!layer.shape.pen.closed;
+      const n = nodes[idx];
+      const len = nodes.length;
+      let prev = null, next = null;
+      if (idx > 0) prev = nodes[idx - 1];
+      else if (closed && len > 1) prev = nodes[len - 1];
+      if (idx < len - 1) next = nodes[idx + 1];
+      else if (closed && len > 1) next = nodes[0];
+      let dx = 0, dy = 0;
+      if (prev && next)      { dx = next.x - prev.x;  dy = next.y - prev.y;  }
+      else if (prev)         { dx = n.x - prev.x;     dy = n.y - prev.y;     }
+      else if (next)         { dx = next.x - n.x;     dy = next.y - n.y;     }
+      else                   return { hIn: null, hOut: null };
+      const chord = Math.hypot(dx, dy);
+      if (!chord) return { hIn: null, hOut: null };
+      const handleLen = chord / 3;
+      const ux = dx / chord, uy = dy / chord;
+      return {
+        hIn:  { x: n.x - ux * handleLen, y: n.y - uy * handleLen },
+        hOut: { x: n.x + ux * handleLen, y: n.y + uy * handleLen },
+      };
     }
 
     function renderPenEditHandles(layer) {
