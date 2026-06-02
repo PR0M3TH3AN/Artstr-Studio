@@ -11610,7 +11610,13 @@
           path.setAttribute('d', d);
           path.setAttribute('fill', 'none');
           path.setAttribute('stroke', _penToolOpts.penStrokeColor);
-          path.setAttribute('stroke-width', String(lineW * 2));
+          // The overlay is in canvas-inch space but the committed path
+          // is in pixel-space (1 unit = 1 px @ 96 dpi). Divide by 96 so
+          // the live preview reads at the same on-screen thickness the
+          // path will have once it commits — matches the panel value.
+          path.setAttribute('stroke-width', String(_penToolOpts.penStrokeWidth / 96));
+          path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('stroke-linejoin', 'round');
           _penOverlay.appendChild(path);
         }
         // Rubber-band from last node to cursor.
