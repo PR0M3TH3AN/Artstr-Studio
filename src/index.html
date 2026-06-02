@@ -768,14 +768,22 @@
       cursor: pointer; font-size: .8rem; padding: 2px 6px; line-height: 1.1;
     }
     .deckSlideActions button:hover { background: #f1f5f9; }
+    /* Overlay wrapper occupies the canvas grid column. The deck
+       edit bar inside is absolutely positioned to its top-center,
+       so it hovers over the canvas-host (#previewShell) without
+       being a child of it — panning / zooming the canvas doesn't
+       drag it along, and it stays centred on the canvas column
+       rather than the viewport. */
+    .canvasOverlayBars {
+      grid-area: canvas;
+      position: relative;
+      pointer-events: none;
+      z-index: 60;
+    }
+    .canvasOverlayBars > * { pointer-events: auto; }
     #deckEditBar {
-      /* Pinned to the viewport so panning / zooming the canvas
-         doesn't drag the bar along. The bar still visually sits over
-         the canvas area because the sidebar is on the left — top:10px
-         + left:50% lands roughly centred over the canvas at common
-         widths. */
-      position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
-      z-index: 60; align-items: center; gap: 10px;
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      align-items: center; gap: 10px;
       background: var(--panel, #fff); border: 1px solid var(--line);
       border-radius: 999px; padding: 5px 14px 5px 8px;
       box-shadow: 0 6px 20px rgba(15,23,42,.18); font-size: .82rem;
@@ -3989,11 +3997,6 @@
           <div class="deckSlideGrid" id="deckSlideGrid"></div>
         </div>
 
-        <div id="deckEditBar">
-          <button type="button" id="deckBackBtn">← Back to deck</button>
-          <span id="deckEditLabel"></span>
-        </div>
-
         <div id="pixelEditorView">
           <div class="pixelEditorBar">
             <div class="pixelToolGroup">
@@ -4109,6 +4112,13 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="canvasOverlayBars" aria-hidden="true">
+        <div id="deckEditBar">
+          <button type="button" id="deckBackBtn">← Back to deck</button>
+          <span id="deckEditLabel"></span>
         </div>
       </div>
 
