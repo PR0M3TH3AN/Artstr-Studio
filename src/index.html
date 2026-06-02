@@ -4074,6 +4074,29 @@
               <button type="button" id="penCancelBtn">Cancel</button>
             </div>
           </div>
+          <div id="directSelectToolOptions" style="display:none">
+            <h4>Direct Selection</h4>
+            <p class="toolOptHint">Click a path to reveal its anchors, then drag anchors / handles to reshape. Shift-click or drag a marquee to multi-select; arrow keys nudge selected anchors.</p>
+          </div>
+          <div id="pathActionsBlock" style="display:none">
+            <h4>Path actions</h4>
+            <p class="toolOptHint" id="pathActionsHint">Operations apply to the selected anchors on the editable path.</p>
+            <div class="buttonRow">
+              <button type="button" id="pathActionPointed" title="Drop handles on the selected anchor(s) — sharp corner">Pointed corner</button>
+              <button type="button" id="pathActionCurved" title="Grow symmetric handles on the selected anchor(s) — smooth curve">Curved smooth</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="pathActionDelete" title="Delete the selected anchor(s) (Backspace)">Delete anchor</button>
+              <button type="button" id="pathActionAverage" title="Move selected anchors to their centroid (Cmd+Alt+J)">Average</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="pathActionJoin" title="Close the path by joining its two endpoints (Cmd+J)">Join endpoints</button>
+              <button type="button" id="pathActionToggleClose" title="Toggle the path between open and closed">Close path</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="pathActionReverse" title="Reverse the direction the path is drawn in">Reverse direction</button>
+            </div>
+          </div>
           <div id="pencilToolOptions" style="display:none">
             <h4>Pencil tool</h4>
             <label for="pencilStrokeColor">Stroke color</label>
@@ -9338,7 +9361,7 @@
     const PEN_CLOSE_HIT = 0.09;        // inch radius to "click the first anchor"
     const EDITOR_TOOLS = ['select', 'direct-select', 'hand', 'pen', 'pencil', 'shape', 'text'];
     // Tools with a contextual right-side options panel.
-    const EDITOR_TOOLS_WITH_PANEL = ['pen', 'pencil', 'shape', 'text'];
+    const EDITOR_TOOLS_WITH_PANEL = ['pen', 'direct-select', 'pencil', 'shape', 'text'];
     // Shape kinds the Shape tool can draw (excludes uploaded 'path'/'svg').
     const SHAPE_TOOL_KINDS = ['rect', 'rounded-rect', 'circle', 'ellipse', 'triangle', 'polygon', 'star', 'line'];
 
@@ -9401,10 +9424,13 @@
       const hasPanel = EDITOR_TOOLS_WITH_PANEL.includes(_editorTool);
       const opts = $('toolOptions');
       if (opts) opts.style.display = hasPanel ? '' : 'none';
-      for (const [id, tool] of [['penToolOptions','pen'],['pencilToolOptions','pencil'],['shapeToolOptions','shape'],['textToolOptions','text']]) {
+      for (const [id, tool] of [['penToolOptions','pen'],['directSelectToolOptions','direct-select'],['pencilToolOptions','pencil'],['shapeToolOptions','shape'],['textToolOptions','text']]) {
         const el = $(id);
         if (el) el.style.display = _editorTool === tool ? '' : 'none';
       }
+      // The shared path-actions block appears whenever an editable
+      // pen layer is selected and we're in a tool that can edit it.
+      syncPathActionsBlock();
       if (hasPanel) syncToolOptionInputs();
     }
 
@@ -10544,6 +10570,101 @@
       render();
     }
 
+    // Batch variants for the side-panel buttons. Operate on every
+    // currently-selected anchor; if no anchors are selected, treat
+    // every anchor in the path as selected (so the buttons still do
+    // something useful right after switching tools).
+    function _eachTargetAnchor(layer, fn) {
+      const nodes = layer.shape?.pen?.nodes;
+      if (!nodes) return 0;
+      const idxs = _penSelectedAnchors.size
+        ? Array.from(_penSelectedAnchors)
+        : nodes.map((_, i) => i);
+      for (const i of idxs) fn(nodes[i], i);
+      return idxs.length;
+    }
+    function convertSelectedAnchorsToPointed(layer) {
+      pushHistory('convert anchors to pointed');
+      const n = _eachTargetAnchor(layer, (node) => {
+        if (!node.hIn && !node.hOut) return;
+        node.kind = 'corner';
+        node.hIn = null;
+        node.hOut = null;
+      });
+      regenPenLayerD(layer);
+      render();
+      return n;
+    }
+    function convertSelectedAnchorsToCurved(layer) {
+      pushHistory('convert anchors to curved');
+      const n = _eachTargetAnchor(layer, (node, i) => {
+        if (node.hIn || node.hOut) return;
+        const grown = _defaultSmoothHandles(layer, i);
+        node.kind = 'smooth';
+        node.hIn = grown.hIn;
+        node.hOut = grown.hOut;
+      });
+      regenPenLayerD(layer);
+      render();
+      return n;
+    }
+    function reversePenPath(layer) {
+      const pen = layer.shape?.pen;
+      if (!pen?.nodes?.length) return;
+      pushHistory('reverse pen path');
+      pen.nodes.reverse();
+      // After reversal, what was hIn for each node becomes its hOut
+      // (the segment-direction relationship swaps).
+      for (const n of pen.nodes) { const tmp = n.hIn; n.hIn = n.hOut; n.hOut = tmp; }
+      regenPenLayerD(layer);
+      render();
+    }
+    function togglePenPathClosed(layer) {
+      const pen = layer.shape?.pen;
+      if (!pen) return;
+      if (!pen.closed && pen.nodes.length < 3) {
+        toastError?.('Path needs at least 3 anchors to close.');
+        return;
+      }
+      pushHistory(pen.closed ? 'open pen path' : 'close pen path');
+      pen.closed = !pen.closed;
+      regenPenLayerD(layer);
+      render();
+    }
+
+    // Show / hide the shared "Path actions" side-panel block. Visible
+    // whenever Pen or Direct Selection is the effective tool AND a
+    // pen path is selected; buttons stay enabled so the user can act
+    // on either all anchors (no selection) or a subset.
+    function syncPathActionsBlock() {
+      const block = document.getElementById('pathActionsBlock');
+      if (!block) return;
+      const t = (typeof effectiveEditorTool === 'function') ? effectiveEditorTool() : _editorTool;
+      const editable = (t === 'pen' || t === 'direct-select') ? getEditablePenLayer() : null;
+      block.style.display = editable ? '' : 'none';
+      if (!editable) return;
+      const closed = !!editable.shape.pen.closed;
+      const nodes = editable.shape.pen.nodes || [];
+      const selSize = _penSelectedAnchors.size;
+      const hint = document.getElementById('pathActionsHint');
+      if (hint) {
+        hint.textContent = selSize
+          ? `${selSize} anchor${selSize === 1 ? '' : 's'} selected. Buttons act on the selection.`
+          : `${nodes.length} anchor${nodes.length === 1 ? '' : 's'} on this path. Click anchors to select; buttons with no selection act on all.`;
+      }
+      // Join only makes sense for an open path with both endpoints in the selection.
+      const join = document.getElementById('pathActionJoin');
+      if (join) {
+        const last = nodes.length - 1;
+        const canJoin = !closed && selSize === 2 && _penSelectedAnchors.has(0) && _penSelectedAnchors.has(last);
+        join.disabled = !canJoin;
+      }
+      const avg = document.getElementById('pathActionAverage');
+      if (avg) avg.disabled = selSize < 2;
+      const tc = document.getElementById('pathActionToggleClose');
+      if (tc) tc.textContent = closed ? 'Open path' : 'Close path';
+    }
+
     // Compute default symmetric handles for a node that has none.
     // Tangent direction = chord (prev → next) so the resulting curve
     // bends naturally through this anchor. Endpoints of an open path
@@ -10647,6 +10768,10 @@
     // Decide what the overlay shows: an in-progress draft, edit handles for a
     // selected pen path, or nothing.
     function refreshPenOverlayContent() {
+      // Side-panel button enabled-state tracks anchor selection;
+      // refresh it whenever the overlay re-renders so the hint and
+      // disabled flags match what's actually selected.
+      try { syncPathActionsBlock(); } catch {}
       if (!_penOverlay) return;
       if (_penDraft) { renderPenDraft(); return; }
       const editLayer = getEditablePenLayer();
@@ -29930,6 +30055,30 @@
       }
       on('penFinishBtn', 'click', () => { finishPenPath(false); setEditorTool('select'); });
       on('penCancelBtn', 'click', () => setEditorTool('select'));
+      // Path actions side-panel buttons. Each grabs the currently
+      // editable pen layer and runs the corresponding batch op;
+      // the panel state refreshes after the action so the hint and
+      // enabled-flags reflect the new selection.
+      const _withPathLayer = (fn) => () => {
+        const layer = getEditablePenLayer();
+        if (!layer) { toastError?.('Select a pen path first.'); return; }
+        fn(layer);
+        syncPathActionsBlock();
+      };
+      on('pathActionPointed',      'click', _withPathLayer((layer) => convertSelectedAnchorsToPointed(layer)));
+      on('pathActionCurved',       'click', _withPathLayer((layer) => convertSelectedAnchorsToCurved(layer)));
+      on('pathActionDelete',       'click', _withPathLayer((layer) => {
+        if (_penSelectedAnchors.size === 0) { toastError?.('Select at least one anchor to delete.'); return; }
+        deletePenAnchors(layer, Array.from(_penSelectedAnchors));
+      }));
+      on('pathActionAverage',      'click', _withPathLayer((layer) => {
+        if (!averageSelectedPenAnchors(layer)) toastError?.('Select at least two anchors to average.');
+      }));
+      on('pathActionJoin',         'click', _withPathLayer((layer) => {
+        if (!joinSelectedPenAnchors(layer)) toastError?.('Select both endpoints of an open path to join.');
+      }));
+      on('pathActionToggleClose',  'click', _withPathLayer((layer) => togglePenPathClosed(layer)));
+      on('pathActionReverse',      'click', _withPathLayer((layer) => reversePenPath(layer)));
       on('penMakeEditableBtn', 'click', () => {
         const layer = selectedShapeLayer();
         if (!layer) return;
