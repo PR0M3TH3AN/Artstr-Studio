@@ -1720,6 +1720,29 @@
     .lh-s  { left: 50%;  top: 100%; cursor: ns-resize; }
     .lh-sw { left: 0;    top: 100%; cursor: nesw-resize; }
     .lh-w  { left: 0;    top: 50%;  cursor: ew-resize; }
+    /* Free Transform rotation handle: sits above the bbox top edge,
+       connected by a thin line, with a circular pill so it's visually
+       distinct from the square scale handles. */
+    .lh-rot {
+      left: 50%; top: 0;
+      margin-top: -36px;
+      margin-left: -8px;
+      width: 15px; height: 15px;
+      border-radius: 50%;
+      background: var(--accent);
+      border-color: #fff;
+      cursor: grab;
+    }
+    .lh-rot:active { cursor: grabbing; }
+    .lh-rot::after {
+      content: '';
+      position: absolute;
+      left: 50%; top: 100%;
+      width: 1px; height: 23px;
+      background: var(--accent);
+      transform: translateX(-50%);
+      pointer-events: none;
+    }
 
     .freeLayer img {
       width: 100%;
@@ -16684,11 +16707,11 @@
 
         // Drag-resize handles — only on the selected, unlocked layer.
         if (layer.id === state.selectedLayerId && selectedLayerIds().length <= 1 && !layer.locked) {
-          for (const dir of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+          for (const dir of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'rot']) {
             const handle = document.createElement('div');
             handle.className = `layerHandle lh-${dir}`;
             handle.dataset.handle = dir;
-            handle.addEventListener('pointerdown', startLayerResize);
+            handle.addEventListener('pointerdown', dir === 'rot' ? startLayerRotate : startLayerResize);
             handle.addEventListener('click', (e) => e.stopPropagation());
             el.appendChild(handle);
           }
@@ -16723,11 +16746,11 @@
         box.style.height = inches(bounds.h);
       }
       box.addEventListener('pointerdown', startLayerSelectionDrag);
-      for (const dir of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+      for (const dir of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'rot']) {
         const handle = document.createElement('div');
         handle.className = `layerHandle lh-${dir}`;
         handle.dataset.handle = dir;
-        handle.addEventListener('pointerdown', startLayerSelectionResize);
+        handle.addEventListener('pointerdown', dir === 'rot' ? startLayerSelectionRotate : startLayerSelectionResize);
         handle.addEventListener('click', (e) => e.stopPropagation());
         box.appendChild(handle);
       }
@@ -19861,6 +19884,123 @@
     // Drag-resize a layer from one of its 8 handles. Resizes in the layer's
     // own (rotated) frame and keeps the opposite edge/corner anchored.
     // Text layers reflow inside the new box — fontSize is never touched.
+    // Free Transform rotation — drag the round pill above the bbox to
+    // spin the layer about its own centre. Shift snaps to 15°. The
+    // existing resize path already accounts for layer.rotate in its
+    // local-frame math, so other handles keep working at any angle.
+    function startLayerRotate(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      blurEditableFocus();
+      const handle = event.currentTarget;
+      const el = handle.parentElement;
+      const layer = getLayer(el?.dataset.layerId);
+      if (!layer || layer.locked) return;
+      setLayerSelection([layer.id], layer.id);
+
+      const isDesignerLayer = layer.target === 'designer-disc';
+      const dragHost = isDesignerLayer ? $('designerDiscWrap') : $('sheet');
+      const hostRect = dragHost.getBoundingClientRect();
+      const unitW = isDesignerLayer ? discTemplate.discD : sheetW();
+      const unitH = isDesignerLayer ? discTemplate.discD : sheetH();
+      const cxIn = (Number(layer.x) || 0) + (Number(layer.w) || 0) / 2;
+      const cyIn = (Number(layer.y) || 0) + (Number(layer.h) || 0) / 2;
+      const cxPx = hostRect.left + (cxIn / unitW) * hostRect.width;
+      const cyPx = hostRect.top  + (cyIn / unitH) * hostRect.height;
+
+      const rot0 = Number(layer.rotate) || 0;
+      const ang0 = Math.atan2(event.clientY - cyPx, event.clientX - cxPx) * 180 / Math.PI;
+
+      let snapshotted = false;
+      document.body.classList.add('dragging-layer');
+      try { handle.setPointerCapture(event.pointerId); } catch {}
+      const move = (e) => {
+        if (!snapshotted) { pushHistory('rotate layer'); snapshotted = true; }
+        const ang = Math.atan2(e.clientY - cyPx, e.clientX - cxPx) * 180 / Math.PI;
+        let next = rot0 + (ang - ang0);
+        if (e.shiftKey) next = Math.round(next / 15) * 15;
+        // Normalize to (-180, 180] for cleaner numeric display.
+        next = ((next + 540) % 360) - 180;
+        layer.rotate = next;
+        render();
+      };
+      const up = () => {
+        document.body.classList.remove('dragging-layer');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    }
+
+    // Multi-layer rotation: each selected layer orbits the selection's
+    // bbox centre, and its own rotation increments by the same delta,
+    // so the group spins as a rigid body.
+    function startLayerSelectionRotate(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      blurEditableFocus();
+      const handle = event.currentTarget;
+      const box = handle.parentElement;
+      const isDesignerLayer = !!box.closest('#designerLayerOverlay');
+      const layers = selectionTransformLayers(isDesignerLayer);
+      if (layers.length < 1) return;
+      const bounds = layersBounds(layers);
+      if (!bounds) return;
+
+      const dragHost = isDesignerLayer ? $('designerDiscWrap') : $('sheet');
+      const hostRect = dragHost.getBoundingClientRect();
+      const unitW = isDesignerLayer ? discTemplate.discD : sheetW();
+      const unitH = isDesignerLayer ? discTemplate.discD : sheetH();
+      const cxIn = bounds.x + bounds.w / 2;
+      const cyIn = bounds.y + bounds.h / 2;
+      const cxPx = hostRect.left + (cxIn / unitW) * hostRect.width;
+      const cyPx = hostRect.top  + (cyIn / unitH) * hostRect.height;
+
+      const ang0 = Math.atan2(event.clientY - cyPx, event.clientX - cxPx) * 180 / Math.PI;
+      // Snapshot each layer's centre + rotation so the delta is
+      // applied from a stable starting state rather than accumulating.
+      const snaps = layers.map(l => ({
+        layer: l,
+        cx: (Number(l.x) || 0) + (Number(l.w) || 0) / 2,
+        cy: (Number(l.y) || 0) + (Number(l.h) || 0) / 2,
+        rot: Number(l.rotate) || 0,
+      }));
+
+      let snapshotted = false;
+      document.body.classList.add('dragging-layer');
+      try { handle.setPointerCapture(event.pointerId); } catch {}
+      const move = (e) => {
+        if (!snapshotted) { pushHistory('rotate selection'); snapshotted = true; }
+        const ang = Math.atan2(e.clientY - cyPx, e.clientX - cxPx) * 180 / Math.PI;
+        let delta = ang - ang0;
+        if (e.shiftKey) delta = Math.round(delta / 15) * 15;
+        const rad = delta * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        for (const s of snaps) {
+          const dx = s.cx - cxIn, dy = s.cy - cyIn;
+          const nx = dx * cos - dy * sin + cxIn;
+          const ny = dx * sin + dy * cos + cyIn;
+          const w = Number(s.layer.w) || 0, h = Number(s.layer.h) || 0;
+          s.layer.x = nx - w / 2;
+          s.layer.y = ny - h / 2;
+          s.layer.rotate = ((s.rot + delta + 540) % 360) - 180;
+        }
+        render();
+      };
+      const up = () => {
+        document.body.classList.remove('dragging-layer');
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    }
+
     function startLayerResize(event) {
       event.preventDefault();
       event.stopPropagation();
