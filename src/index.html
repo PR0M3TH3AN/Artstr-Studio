@@ -8450,9 +8450,9 @@
         actions.className = 'bookMasterRowActions';
         const editBtn = document.createElement('button');
         editBtn.type = 'button';
-        editBtn.title = 'Edit master layers (Phase C2)';
+        editBtn.title = 'Edit master layers on the canvas';
         editBtn.textContent = 'Edit';
-        editBtn.disabled = true;  // C2 wires this
+        editBtn.addEventListener('click', () => openBookMaster(m.id));
         actions.appendChild(editBtn);
         if (m.id !== defaultId) {
           const defBtn = document.createElement('button');
@@ -8753,10 +8753,9 @@
         return;
       }
       book.editingEntryId = entryId;
+      book.editingMasterId = null;          // only one editor open at a time
       document.body.classList.add('editing-book-page');
       clearLayerSelection?.();
-      // Default the editor tool to Select so users land on a familiar
-      // pointer; the V/A split + tool palette still works as ever.
       try { setEditorTool('select'); } catch {}
       syncBookPageEditBar();
       syncInputs();
@@ -8770,6 +8769,35 @@
       syncBookPageEditBar();
       syncInputs();
       render();
+    }
+    // Master-edit mode: opens a master on the same canvas as the
+    // per-page editor. Same body class so the CSS that hides
+    // Pages overview / shows the sheet + tool palette applies; the
+    // edit-bar label and Back button swap to master-flavored
+    // copy. Closing returns to the Masters modal.
+    function openBookMaster(masterId) {
+      const book = ensureBookState();
+      const m = book.masters.find(x => x.id === masterId);
+      if (!m) return;
+      book.editingMasterId = masterId;
+      book.editingEntryId = null;
+      closeBookMastersModal();
+      document.body.classList.add('editing-book-page');
+      clearLayerSelection?.();
+      try { setEditorTool('select'); } catch {}
+      syncBookPageEditBar();
+      syncInputs();
+      render();
+    }
+    function closeBookMaster() {
+      const book = state.book;
+      if (book) book.editingMasterId = null;
+      document.body.classList.remove('editing-book-page');
+      clearLayerSelection?.();
+      syncBookPageEditBar();
+      syncInputs();
+      render();
+      openBookMastersModal();
     }
     function gotoBookPageRelative(delta) {
       const book = state.book;
@@ -8792,17 +8820,31 @@
       const label = document.getElementById('bookPageEditLabel');
       const prev = document.getElementById('bookPageEditPrev');
       const next = document.getElementById('bookPageEditNext');
+      const back = document.getElementById('bookPageEditBack');
       if (!bar) return;
       const book = state.book;
-      const editingId = book?.editingEntryId;
-      const editing = !!editingId && state.templateMode === 'book';
-      bar.style.display = editing ? '' : 'none';
-      if (!editing) return;
-      const pages = book.pages;
-      const designed = pages.filter(p => p.type === 'design');
-      const idx = designed.findIndex(p => p.id === editingId);
+      const inBook = state.templateMode === 'book';
+      const editingPage = inBook && !!book?.editingEntryId;
+      const editingMaster = inBook && !!book?.editingMasterId;
+      bar.style.display = (editingPage || editingMaster) ? '' : 'none';
+      if (!editingPage && !editingMaster) return;
+      if (editingMaster) {
+        const m = book.masters.find(x => x.id === book.editingMasterId);
+        if (label) label.textContent = `Master: ${m?.label || 'Untitled'}`;
+        if (back)  back.textContent = '← Back to masters';
+        if (prev) prev.style.display = 'none';
+        if (next) next.style.display = 'none';
+        return;
+      }
+      // editingPage path
+      if (prev) prev.style.display = '';
+      if (next) next.style.display = '';
+      if (back) back.textContent = '← Back to Pages';
+      const designed = book.pages.filter(p => p.type === 'design');
+      const idx = designed.findIndex(p => p.id === book.editingEntryId);
       const total = designed.length;
-      if (label) label.textContent = `Page ${idx + 1} / ${total}${(pages[idx]?.label || '') ? ' · ' + pages[idx].label : ''}`;
+      const entry = designed[idx];
+      if (label) label.textContent = `Page ${idx + 1} / ${total}${(entry?.label || '') ? ' · ' + entry.label : ''}`;
       if (prev) prev.disabled = idx <= 0;
       if (next) next.disabled = idx >= total - 1;
     }
@@ -8930,17 +8972,18 @@
       if (mode === 'jewel') return t.startsWith('jewel-');
       if (mode === 'cover') return t === 'cover-trim' || t === 'back' || t === 'spine' || t === 'front';
       // Book mode targets are scoped to whichever surface the editor
-      // is bound to. Targets are entry-id qualified
-      // (`book-page:<entryId>`, `book-master:<entryId>`) so multiple
-      // pages can coexist in `state.layers` without leaking onto each
-      // other. The active editing entry's id is what we filter on.
+      // is bound to. Targets are id-qualified (`book-page:<entryId>`
+      // for pages, `book-master:<masterId>` for masters) so multiple
+      // surfaces can coexist in `state.layers` without leaking onto
+      // each other.
       if (mode === 'book') {
-        const editId = state.book?.editingEntryId;
-        if (editId) {
-          return t === `book-page:${editId}` || t === `book-master:${editId}`;
+        if (state.book?.editingMasterId) {
+          return t === `book-master:${state.book.editingMasterId}`;
         }
-        // No page being edited yet — Pages overview is showing, so no
-        // canvas layers should render.
+        if (state.book?.editingEntryId) {
+          return t === `book-page:${state.book.editingEntryId}`;
+        }
+        // Pages overview (no surface open) → no canvas layers render.
         return false;
       }
       return true;
@@ -8972,9 +9015,14 @@
         { key: 'canvas', label: 'Canvas' }
       ];
       if (state.templateMode === 'book') {
-        // Book mode: the layers panel scopes to whichever page is
-        // open in the per-page editor. No page open → no panels
-        // (Pages overview shows tiles, not layer rows).
+        // Book mode: the layers panel scopes to whichever surface is
+        // open in the editor. Pages overview / masters modal show no
+        // canvas layers, so an empty list is correct there.
+        const masterId = state.book?.editingMasterId;
+        if (masterId) {
+          const m = (state.book?.masters || []).find(x => x.id === masterId);
+          return [{ key: `book-master:${masterId}`, label: `Master: ${m?.label || 'Untitled'}` }];
+        }
         const editId = state.book?.editingEntryId;
         if (editId) {
           const idx = (state.book?.pages || []).findIndex(p => p.id === editId);
@@ -10223,7 +10271,7 @@
       document.body.classList.toggle('template-deck', state.templateMode === 'deck');
       document.body.classList.toggle('template-book', state.templateMode === 'book');
       document.body.classList.toggle('editing-book-page',
-        state.templateMode === 'book' && !!state.book?.editingEntryId);
+        state.templateMode === 'book' && (!!state.book?.editingEntryId || !!state.book?.editingMasterId));
       document.body.classList.toggle('editing-deck-slide', !!state.deck && state.deck.editingIndex !== null);
       document.body.classList.toggle('hide-guides', !state.showGuides);
       document.body.classList.toggle('hide-bleed', !state.showBleed);
@@ -10696,11 +10744,12 @@
     }
     function currentDrawTarget() {
       if (state.appMode === 'designer') return 'designer-disc';
-      // Book mode: when a specific page is open in the editor, new
-      // layers land on that page's entry-qualified target so they
-      // stay scoped to one page across the manifest.
-      if (state.templateMode === 'book' && state.book?.editingEntryId) {
-        return `book-page:${state.book.editingEntryId}`;
+      // Book mode: new layers land on the active editing surface
+      // (per-page or per-master) so they stay scoped correctly
+      // across the manifest.
+      if (state.templateMode === 'book') {
+        if (state.book?.editingMasterId) return `book-master:${state.book.editingMasterId}`;
+        if (state.book?.editingEntryId)  return `book-page:${state.book.editingEntryId}`;
       }
       return primaryTargetForMode(state.templateMode || 'cover');
     }
@@ -29240,15 +29289,18 @@
         select.innerHTML = `<option value="canvas">Canvas</option>`;
       } else if (state.templateMode === 'book') {
         // Book mode: the only target a new layer should land on is
-        // the currently-open page (Phase B). Other surfaces (cover,
-        // masters) get their own routes in A5/C/D1. If no page is
-        // open, fall back to a stub so the layers panel doesn't
-        // appear broken.
+        // whichever surface is currently open in the editor — a
+        // specific page or a master. Pages overview / Masters modal
+        // show no canvas layers, so a stub keeps the select sane.
+        const masterId = state.book?.editingMasterId;
         const editId = state.book?.editingEntryId;
-        if (editId) {
+        if (masterId) {
+          const m = (state.book?.masters || []).find(x => x.id === masterId);
+          select.innerHTML = `<option value="book-master:${masterId}">Current master${m?.label ? ' (' + m.label + ')' : ''}</option>`;
+        } else if (editId) {
           select.innerHTML = `<option value="book-page:${editId}">Current book page</option>`;
         } else {
-          select.innerHTML = `<option value="page">No page open</option>`;
+          select.innerHTML = `<option value="page">No surface open</option>`;
         }
       } else {
         select.innerHTML = `
@@ -31891,7 +31943,11 @@
       on('bookAddTenBtn',  'click', addBookTenPages);
       on('bookViewTogglePages', 'click', () => setBookSubView('pages'));
       on('bookViewToggleCover', 'click', () => setBookSubView('cover'));
-      on('bookPageEditBack', 'click', closeBookPage);
+      on('bookPageEditBack', 'click', () => {
+        // Same back-button serves both per-page and per-master modes.
+        if (state.book?.editingMasterId) closeBookMaster();
+        else closeBookPage();
+      });
       on('bookPageEditPrev', 'click', () => gotoBookPageRelative(-1));
       on('bookPageEditNext', 'click', () => gotoBookPageRelative(1));
 
@@ -32222,7 +32278,12 @@
         if (bookDocM && bookDocM.getAttribute('aria-hidden') === 'false') { closeBookDocumentSettings(); return; }
         const bookMastersM = $('bookMastersModal');
         if (bookMastersM && bookMastersM.getAttribute('aria-hidden') === 'false') { closeBookMastersModal(); return; }
-        // Esc while editing a book page returns to the Pages overview.
+        // Esc while editing a book surface returns to the right home:
+        // master-edit → masters modal, page-edit → Pages overview.
+        if (state.templateMode === 'book' && state.book?.editingMasterId) {
+          closeBookMaster();
+          return;
+        }
         if (state.templateMode === 'book' && state.book?.editingEntryId) {
           closeBookPage();
           return;
