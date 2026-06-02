@@ -9747,28 +9747,32 @@
       if (editLayer) {
         const hit = hitTestPenEdit(editLayer, evt);
         if (hit) {
-          if (hit.part === 'anchor' && evt.altKey) {
-            // Alt-click an anchor → toggle corner / smooth.
-            togglePenAnchorKind(editLayer, hit.nodeIndex);
-            return;
-          }
           if (hit.part === 'segment') {
-            // Click on a segment (between anchors) → insert anchor + grab it.
+            // Pen over a segment: auto-insert anchor at click + drag
+            // (Illustrator's default — no modifier needed).
             insertPenAnchorAt(editLayer, hit.segIndex, hit.t);
-            // Start dragging the new anchor immediately for ergonomics.
             startPenEditDrag(editLayer, { nodeIndex: hit.segIndex + 1, part: 'anchor' }, evt);
             return;
           }
-          // Pen tool + plain click on an endpoint of an open path →
-          // resume drawing from that endpoint. Illustrator parity.
-          if (hit.part === 'anchor' && !evt.shiftKey && !evt.altKey
-              && editLayer.shape?.pen?.closed === false) {
-            const last = editLayer.shape.pen.nodes.length - 1;
-            if (hit.nodeIndex === 0 || hit.nodeIndex === last) {
-              startPenContinuation(editLayer, hit.nodeIndex);
-              return;
+          if (hit.part === 'anchor') {
+            // Endpoint of an open path → resume drawing from there.
+            // Takes priority over auto-delete (Illustrator shows the
+            // continue cursor on endpoint hover, not the − cursor).
+            if (!evt.shiftKey && !evt.altKey
+                && editLayer.shape?.pen?.closed === false) {
+              const last = editLayer.shape.pen.nodes.length - 1;
+              if (hit.nodeIndex === 0 || hit.nodeIndex === last) {
+                startPenContinuation(editLayer, hit.nodeIndex);
+                return;
+              }
             }
+            // Interior anchor: click → auto-delete; drag → convert
+            // (pull symmetric handles, Alt-drag for asymmetric).
+            startPenAnchorClickOrConvert(editLayer, hit.nodeIndex, evt);
+            return;
           }
+          // Handle hit (hIn / hOut): drag to edit the tangent; Alt
+          // breaks symmetry. Handled inside startPenEditDrag.
           startPenEditDrag(editLayer, hit, evt);
           return;
         }
@@ -10107,6 +10111,11 @@
           }
         } else {
           node[hit.part] = { x: local.x, y: local.y };
+          // Alt-drag a handle in Direct Selection breaks symmetry:
+          // node becomes corner so the opposite handle stays put.
+          // Illustrator parity (the Convert Anchor Point tool's
+          // Alt-drag-handle behavior).
+          if (e.altKey) node.kind = 'corner';
           // Mirror the opposite handle if the anchor is smooth, so
           // editing one side of a curve keeps the curve smooth on
           // the other side too.
@@ -10129,6 +10138,68 @@
         _penOverlay.removeEventListener('pointerup', up);
         _penOverlay.removeEventListener('pointercancel', up);
         render();
+      };
+      _penOverlay.addEventListener('pointermove', move);
+      _penOverlay.addEventListener('pointerup', up);
+      _penOverlay.addEventListener('pointercancel', up);
+    }
+
+    // Pen tool on an interior anchor: disambiguate click vs drag.
+    // Click without dragging deletes the anchor (auto-delete, the
+    // Pen tool's default Illustrator behavior over an existing
+    // anchor). Drag past a small threshold promotes the anchor to
+    // smooth and pulls symmetric handles, converting a corner into
+    // a smooth point on the fly. Alt-click toggles corner/smooth
+    // without a drag; Alt-drag pulls a single (outgoing) handle and
+    // leaves the incoming side empty, giving an asymmetric corner.
+    function startPenAnchorClickOrConvert(layer, idx, evt) {
+      const node = layer.shape.pen.nodes[idx];
+      if (!node) return;
+      const alt = !!evt.altKey;
+      try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
+      const startX = evt.clientX, startY = evt.clientY;
+      const THRESHOLD = 4;
+      let dragging = false;
+      let historyPushed = false;
+      const promote = () => {
+        if (historyPushed) return;
+        pushHistory('convert pen anchor');
+        historyPushed = true;
+      };
+      const move = (e) => {
+        if (!dragging) {
+          const dx = e.clientX - startX, dy = e.clientY - startY;
+          if (dx * dx + dy * dy < THRESHOLD * THRESHOLD) return;
+          dragging = true;
+          promote();
+        }
+        const pt = overlayPointToInches(e);
+        if (!pt) return;
+        const local = inchToPenNode(layer, pt);
+        node.hOut = { x: local.x, y: local.y };
+        if (alt) {
+          // Asymmetric: only the outgoing handle is pulled.
+          node.hIn = null;
+          node.kind = 'corner';
+        } else {
+          node.hIn = { x: 2 * node.x - local.x, y: 2 * node.y - local.y };
+          node.kind = 'smooth';
+        }
+        refitPenLayerIfNeeded(layer);
+        regenPenLayerD(layer);
+        renderLayers();
+        renderPenEditHandles(layer);
+      };
+      const up = () => {
+        _penOverlay.removeEventListener('pointermove', move);
+        _penOverlay.removeEventListener('pointerup', up);
+        _penOverlay.removeEventListener('pointercancel', up);
+        if (!dragging) {
+          if (alt) togglePenAnchorKind(layer, idx);
+          else deletePenAnchor(layer, idx);
+        } else {
+          render();
+        }
       };
       _penOverlay.addEventListener('pointermove', move);
       _penOverlay.addEventListener('pointerup', up);
@@ -10785,19 +10856,27 @@
         const hit = hitTestPenEdit(editLayer, evt);
         if (hit) {
           if (hit.part === 'anchor') {
-            // Pen tool's "click anchor" deletes; DSel's "click anchor" selects/drags.
-            cursor = (t === 'pen') ? 'crosshair' : 'pointer';
-            // Endpoint of an open path in pen mode → "continue from
-            // here" affordance. Clicking seeds a draft from the
-            // existing nodes so the next click extends the path.
-            if (t === 'pen' && !editLayer.shape.pen.closed) {
-              const lastIdx = editLayer.shape.pen.nodes.length - 1;
-              if (hit.nodeIndex === 0 || hit.nodeIndex === lastIdx) cursor = 'pointer';
+            if (t === 'pen') {
+              // Pen over anchor = auto-delete (− cursor). The
+              // 'not-allowed' built-in cursor is the closest
+              // platform-agnostic "−" hint; the alternative would be a
+              // custom SVG cursor.
+              cursor = 'not-allowed';
+              // Endpoint of an open path → "continue from here". Wins
+              // over auto-delete since clicking there resumes drawing.
+              if (!editLayer.shape.pen.closed) {
+                const lastIdx = editLayer.shape.pen.nodes.length - 1;
+                if (hit.nodeIndex === 0 || hit.nodeIndex === lastIdx) cursor = 'pointer';
+              }
+            } else {
+              cursor = 'pointer';
             }
           } else if (hit.part === 'hIn' || hit.part === 'hOut') {
             cursor = 'move';
           } else if (hit.part === 'segment') {
-            cursor = (t === 'pen') ? 'copy' : 'default'; // 'copy' is browsers' "+"-style cursor
+            // Pen over segment: + cursor (auto-add). Direct Select:
+            // grab to bow the curve.
+            cursor = (t === 'pen') ? 'copy' : 'grab';
           }
         }
       }
