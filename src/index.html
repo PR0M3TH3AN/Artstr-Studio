@@ -1534,14 +1534,26 @@
       position: absolute; top: 6px; left: 8px;
       font-size: .72rem; color: var(--muted); font-weight: 600;
     }
-    .bookPageTileDelete {
+    .bookPageTileActions {
       position: absolute; top: 4px; right: 4px;
-      width: 22px; height: 22px; border-radius: 0;
-      border: 1px solid var(--line); background: #fff;
-      cursor: pointer; font-size: .9rem; line-height: 1;
+      display: flex; gap: 4px;
       opacity: 0; transition: opacity .12s;
     }
-    .bookPageTile:hover .bookPageTileDelete { opacity: 1; }
+    .bookPageTile:hover .bookPageTileActions { opacity: 1; }
+    .bookPageTileAction {
+      width: 22px; height: 22px; padding: 0; border-radius: 0;
+      border: 1px solid var(--line); background: #fff;
+      cursor: pointer; font-size: .85rem; line-height: 1;
+    }
+    .bookPageTileAction.danger:hover {
+      background: var(--warn, #fee2e2);
+      border-color: var(--warn, #fca5a5);
+    }
+    .bookPageTile.dragging { opacity: .5; }
+    .bookPageTile.dragover {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
     .bookPageTileLabel {
       font-size: .8rem; color: var(--muted); text-align: center;
       padding: 0 8px;
@@ -8273,6 +8285,41 @@
       syncInputs();
       render();
     }
+    // Duplicate a designed-page entry. The duplicate gets its own
+    // fresh manifest id; the underlying ref (if any) stays the same
+    // so two tiles point at one page event. Authors can break the
+    // share later by "Make local copy" in Phase D2.
+    function duplicateBookPage(entryId) {
+      const book = state.book;
+      if (!book) return;
+      const idx = book.pages.findIndex(p => p.id === entryId);
+      if (idx < 0) return;
+      pushHistory('book: duplicate page');
+      const copy = JSON.parse(JSON.stringify(book.pages[idx]));
+      copy.id = makeBookEntryId();
+      copy.label = copy.label ? copy.label + ' copy' : '';
+      // Anchors on the original copy don't translate cleanly — clear
+      // them so the duplicate just sits at its inserted position.
+      copy.anchor = null;
+      book.pages.splice(idx + 1, 0, copy);
+      renderBookPagesGrid();
+      syncInputs();
+      render();
+    }
+    // Reorder pages within the manifest. Drag-and-drop in the grid
+    // calls this. `to` is the destination index AFTER the source has
+    // been removed, matching the deck-sorter's contract.
+    function moveBookPage(from, to) {
+      const book = state.book;
+      if (!book) return;
+      if (from === to || from < 0 || from >= book.pages.length) return;
+      pushHistory('book: reorder pages');
+      const [moved] = book.pages.splice(from, 1);
+      book.pages.splice(to, 0, moved);
+      renderBookPagesGrid();
+      syncInputs();
+      render();
+    }
 
     // Render the Pages overview grid. Each tile is a placeholder
     // (the actual rendered-page thumbnail lands in Phase B once the
@@ -8307,6 +8354,8 @@
         const tile = document.createElement('div');
         tile.className = `bookPageTile ${p.type === 'reflow' ? 'reflowSegment' : 'designedPage'}`;
         tile.dataset.entryId = p.id;
+        tile.dataset.index = String(idx);
+        tile.draggable = true;
         const numEl = document.createElement('div');
         numEl.className = 'bookPageTileNum';
         if ((numbering?.enabled !== false) && !p.skipNumber && idx >= firstNumberedIdx) {
@@ -8316,16 +8365,32 @@
           numEl.textContent = '—';
         }
         tile.appendChild(numEl);
+        // Per-tile action group (top-right). Visible on hover only —
+        // matches the deck sorter's intent of "tiles read as artwork,
+        // chrome stays out of the way until you point at them".
+        const actions = document.createElement('div');
+        actions.className = 'bookPageTileActions';
+        const dup = document.createElement('button');
+        dup.type = 'button';
+        dup.className = 'bookPageTileAction';
+        dup.title = 'Duplicate';
+        dup.textContent = '⎘';
+        dup.addEventListener('click', (e) => {
+          e.stopPropagation();
+          duplicateBookPage(p.id);
+        });
+        actions.appendChild(dup);
         const del = document.createElement('button');
         del.type = 'button';
-        del.className = 'bookPageTileDelete';
+        del.className = 'bookPageTileAction danger';
         del.title = 'Remove from book';
         del.textContent = '×';
         del.addEventListener('click', (e) => {
           e.stopPropagation();
           deleteBookPage(p.id);
         });
-        tile.appendChild(del);
+        actions.appendChild(del);
+        tile.appendChild(actions);
         const label = document.createElement('div');
         label.className = 'bookPageTileLabel';
         if (p.type === 'reflow') {
@@ -8335,6 +8400,46 @@
         }
         tile.appendChild(label);
         grid.appendChild(tile);
+      });
+      attachBookPagesDnd();
+    }
+
+    // Drag-and-drop reorder on the Pages grid. Mirrors the deck
+    // sorter's pattern. `_bookPageDragFrom` carries the source index
+    // across the dragstart → dragover → drop chain.
+    let _bookPageDragFrom = null;
+    function attachBookPagesDnd() {
+      const grid = document.getElementById('bookPagesGrid');
+      if (!grid || grid.dataset.dndAttached === '1') return;
+      grid.dataset.dndAttached = '1';
+      grid.addEventListener('dragstart', (e) => {
+        const tile = e.target.closest('.bookPageTile');
+        if (!tile) return;
+        _bookPageDragFrom = Number(tile.dataset.index);
+        tile.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+      grid.addEventListener('dragend', (e) => {
+        const tile = e.target.closest('.bookPageTile');
+        if (tile) tile.classList.remove('dragging');
+        grid.querySelectorAll('.dragover').forEach(el => el.classList.remove('dragover'));
+        _bookPageDragFrom = null;
+      });
+      grid.addEventListener('dragover', (e) => {
+        const tile = e.target.closest('.bookPageTile');
+        if (!tile || _bookPageDragFrom === null) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        grid.querySelectorAll('.dragover').forEach(el => el.classList.remove('dragover'));
+        tile.classList.add('dragover');
+      });
+      grid.addEventListener('drop', (e) => {
+        const tile = e.target.closest('.bookPageTile');
+        if (!tile || _bookPageDragFrom === null) return;
+        e.preventDefault();
+        const to = Number(tile.dataset.index);
+        moveBookPage(_bookPageDragFrom, to);
+        _bookPageDragFrom = null;
       });
     }
 
