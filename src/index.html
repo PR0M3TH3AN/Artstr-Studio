@@ -1467,18 +1467,19 @@
     body.template-pixelart #layersFieldset,
     body.template-pixelart #printExportRow { display: none !important; }
 
-    /* Book mode (Phase A): the canvas-host is replaced by the
-       Pages overview / Cover view (see #bookView below). Hide the
-       sheet, tool palette, canvas toolbar, layers panel, export
-       fieldset — none of them apply until pages or a cover exist
-       under the book's own surfaces. */
-    body.template-book #sheetWrap,
-    body.template-book #toolOptions,
-    body.template-book #canvasToolbar,
-    body.template-book #exportFieldset,
-    body.template-book #layersFieldset,
-    body.template-book #printExportRow,
-    body.template-book .toolPalette,
+    /* Book mode: the canvas-host is replaced by the Pages overview
+       / Cover view (see #bookView below). Hide the sheet, tool
+       palette, canvas toolbar, layers panel, export fieldset —
+       UNLESS a specific page is being edited (`editing-book-page`
+       class), in which case those panels return and #bookView
+       hides. Same pattern the deck sorter uses for the slide editor. */
+    body.template-book:not(.editing-book-page) #sheetWrap,
+    body.template-book:not(.editing-book-page) #toolOptions,
+    body.template-book:not(.editing-book-page) #canvasToolbar,
+    body.template-book:not(.editing-book-page) #exportFieldset,
+    body.template-book:not(.editing-book-page) #layersFieldset,
+    body.template-book:not(.editing-book-page) #printExportRow,
+    body.template-book:not(.editing-book-page) .toolPalette,
     body.template-book .coverOnly,
     body.template-book .diskLayer,
     body.template-book .jewelLayer,
@@ -1491,7 +1492,7 @@
 
     /* Book view shell — mirrors the deck-sorter layout pattern. */
     #bookView { display: none; }
-    body.template-book #bookView {
+    body.template-book:not(.editing-book-page) #bookView {
       display: flex;
       flex-direction: column;
       width: 100%;
@@ -1500,6 +1501,20 @@
       box-sizing: border-box;
       min-height: calc(100vh - 160px);
     }
+    /* Page-context bar above the canvas while editing a book page. */
+    #bookPageEditBar {
+      display: none;
+      align-items: center; gap: 10px;
+      padding: 6px 12px;
+      background: var(--panel, #fff);
+      border-bottom: 1px solid var(--line);
+      font-size: .88rem;
+    }
+    body.template-book.editing-book-page #bookPageEditBar { display: flex; }
+    #bookPageEditBar button {
+      padding: 4px 10px; font-size: .85rem;
+    }
+    #bookPageEditLabel { font-weight: 600; }
     .bookViewToggleBar {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
       padding-bottom: 8px; border-bottom: 1px solid var(--line);
@@ -4201,6 +4216,13 @@
         <div id="deckEditBar">
           <button type="button" id="deckBackBtn">← Back to deck</button>
           <span id="deckEditLabel"></span>
+        </div>
+
+        <div id="bookPageEditBar" style="display:none">
+          <button type="button" id="bookPageEditBack">← Back to Pages</button>
+          <button type="button" id="bookPageEditPrev" title="Previous page">←</button>
+          <button type="button" id="bookPageEditNext" title="Next page">→</button>
+          <span id="bookPageEditLabel"></span>
         </div>
 
         <div id="pixelEditorView">
@@ -8399,6 +8421,9 @@
           label.textContent = p.label || 'Designed page';
         }
         tile.appendChild(label);
+        // Click the tile body to enter the per-page editor. Action
+        // buttons (delete/dup) stop propagation so they don't open.
+        tile.addEventListener('click', () => openBookPage(p.id));
         grid.appendChild(tile);
       });
       attachBookPagesDnd();
@@ -8441,6 +8466,80 @@
         moveBookPage(_bookPageDragFrom, to);
         _bookPageDragFrom = null;
       });
+    }
+
+    // ---- Per-page editor (Phase B2) -----------------------------
+    //
+    // Click a tile in the Pages overview → open that page in the
+    // Custom Art canvas, bound to `book-page:<entryId>`. The canvas
+    // is the existing #sheetWrap; in book mode we normally hide it
+    // but flip the `editing-book-page` body class to re-show it when
+    // a page is open. A small page-context bar above the canvas
+    // shows "Page N / M" + prev / next / Back to Pages.
+    function openBookPage(entryId) {
+      const book = ensureBookState();
+      const idx = book.pages.findIndex(p => p.id === entryId);
+      if (idx < 0) return;
+      const entry = book.pages[idx];
+      // Phase B2 supports designed pages only; reflow segments open
+      // in the chapter / markdown editor in C.5.
+      if (entry.type !== 'design') {
+        toastError?.('Reflow chapter editor lands in Phase C.5.');
+        return;
+      }
+      book.editingEntryId = entryId;
+      document.body.classList.add('editing-book-page');
+      clearLayerSelection?.();
+      // Default the editor tool to Select so users land on a familiar
+      // pointer; the V/A split + tool palette still works as ever.
+      try { setEditorTool('select'); } catch {}
+      syncBookPageEditBar();
+      syncInputs();
+      render();
+    }
+    function closeBookPage() {
+      const book = state.book;
+      if (book) book.editingEntryId = null;
+      document.body.classList.remove('editing-book-page');
+      clearLayerSelection?.();
+      syncBookPageEditBar();
+      syncInputs();
+      render();
+    }
+    function gotoBookPageRelative(delta) {
+      const book = state.book;
+      if (!book || !book.editingEntryId) return;
+      // Walk only designed-page entries — reflow segments aren't
+      // editable on the per-page canvas yet.
+      const designedIdxs = book.pages
+        .map((p, i) => p.type === 'design' ? i : -1)
+        .filter(i => i >= 0);
+      const here = book.pages.findIndex(p => p.id === book.editingEntryId);
+      const inDesigned = designedIdxs.indexOf(here);
+      if (inDesigned < 0) return;
+      const nextDesignedIdx = designedIdxs[inDesigned + delta];
+      if (nextDesignedIdx == null) return;
+      const nextEntry = book.pages[nextDesignedIdx];
+      openBookPage(nextEntry.id);
+    }
+    function syncBookPageEditBar() {
+      const bar = document.getElementById('bookPageEditBar');
+      const label = document.getElementById('bookPageEditLabel');
+      const prev = document.getElementById('bookPageEditPrev');
+      const next = document.getElementById('bookPageEditNext');
+      if (!bar) return;
+      const book = state.book;
+      const editingId = book?.editingEntryId;
+      const editing = !!editingId && state.templateMode === 'book';
+      bar.style.display = editing ? '' : 'none';
+      if (!editing) return;
+      const pages = book.pages;
+      const designed = pages.filter(p => p.type === 'design');
+      const idx = designed.findIndex(p => p.id === editingId);
+      const total = designed.length;
+      if (label) label.textContent = `Page ${idx + 1} / ${total}${(pages[idx]?.label || '') ? ' · ' + pages[idx].label : ''}`;
+      if (prev) prev.disabled = idx <= 0;
+      if (next) next.disabled = idx >= total - 1;
     }
 
     function setBookSubView(view) {
@@ -8566,11 +8665,19 @@
       if (mode === 'jewel') return t.startsWith('jewel-');
       if (mode === 'cover') return t === 'cover-trim' || t === 'back' || t === 'spine' || t === 'front';
       // Book mode targets are scoped to whichever surface the editor
-      // is bound to (a specific book-page, master, or cover panel).
-      // The active-target plumbing for Phase B will narrow this further
-      // by entry id; for now all book-* targets belong to book mode.
-      if (mode === 'book') return t === 'book-page' || t === 'book-master'
-        || t === 'book-cover-front' || t === 'book-cover-back' || t === 'book-spine';
+      // is bound to. Targets are entry-id qualified
+      // (`book-page:<entryId>`, `book-master:<entryId>`) so multiple
+      // pages can coexist in `state.layers` without leaking onto each
+      // other. The active editing entry's id is what we filter on.
+      if (mode === 'book') {
+        const editId = state.book?.editingEntryId;
+        if (editId) {
+          return t === `book-page:${editId}` || t === `book-master:${editId}`;
+        }
+        // No page being edited yet — Pages overview is showing, so no
+        // canvas layers should render.
+        return false;
+      }
       return true;
     }
 
@@ -9838,6 +9945,8 @@
       document.body.classList.toggle('template-slide', state.templateMode === 'slide');
       document.body.classList.toggle('template-deck', state.templateMode === 'deck');
       document.body.classList.toggle('template-book', state.templateMode === 'book');
+      document.body.classList.toggle('editing-book-page',
+        state.templateMode === 'book' && !!state.book?.editingEntryId);
       document.body.classList.toggle('editing-deck-slide', !!state.deck && state.deck.editingIndex !== null);
       document.body.classList.toggle('hide-guides', !state.showGuides);
       document.body.classList.toggle('hide-bleed', !state.showBleed);
@@ -10310,6 +10419,12 @@
     }
     function currentDrawTarget() {
       if (state.appMode === 'designer') return 'designer-disc';
+      // Book mode: when a specific page is open in the editor, new
+      // layers land on that page's entry-qualified target so they
+      // stay scoped to one page across the manifest.
+      if (state.templateMode === 'book' && state.book?.editingEntryId) {
+        return `book-page:${state.book.editingEntryId}`;
+      }
       return primaryTargetForMode(state.templateMode || 'cover');
     }
 
@@ -12540,6 +12655,7 @@
       updateBodyClasses();
       renderDeckSorter();
       renderBookPagesGrid();
+      syncBookPageEditBar();
       // Only repaint the cover preview when its view is the active
       // sub-view — saves work on every render() in book mode.
       if (document.getElementById('bookCoverView')?.style.display !== 'none'
@@ -31465,6 +31581,9 @@
       on('bookAddTenBtn',  'click', addBookTenPages);
       on('bookViewTogglePages', 'click', () => setBookSubView('pages'));
       on('bookViewToggleCover', 'click', () => setBookSubView('cover'));
+      on('bookPageEditBack', 'click', closeBookPage);
+      on('bookPageEditPrev', 'click', () => gotoBookPageRelative(-1));
+      on('bookPageEditNext', 'click', () => gotoBookPageRelative(1));
 
       // Book Designer — Document settings modal.
       on('bookDocumentSettingsBtn', 'click', openBookDocumentSettings);
