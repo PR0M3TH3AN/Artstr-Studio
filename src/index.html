@@ -500,6 +500,20 @@
     body.template-deck #deckThemeFieldset { display: block; }
     #deckSlideThemeWrap { display: none; margin-top: 10px; }
     body.editing-deck-slide #deckSlideThemeWrap { display: block; }
+    /* Book Designer sidebar fieldset shows only in book mode. */
+    #bookFieldset { display: none; }
+    body.template-book #bookFieldset { display: block; }
+    /* Hide cover / disc / artwork panels that aren't relevant in book
+       mode (Phase A2 — book mode shows only its own fieldset + layers
+       + metadata + save). The Pages overview canvas-host comes in
+       Phase A4; until then the canvas-host remains blank. */
+    body.template-book #coverSizeFieldset,
+    body.template-book #coverArtworkFieldset,
+    body.template-book #discArtworkFieldset,
+    body.template-book #jewelArtworkFieldset,
+    body.template-book #customArtFieldset,
+    body.template-book #deckFieldset,
+    body.template-book #deckThemeFieldset { display: none !important; }
     #layersFieldset { order: 40; }
     #designerMetadataFieldset { order: 45; }
     #exportFieldset { order: 50; }
@@ -3013,6 +3027,7 @@
           <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover</button>
           <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels</button>
           <button type="button" class="layoutTab" id="mode-deck" data-template-mode="deck" role="tab">Slide deck</button>
+          <button type="button" class="layoutTab" id="mode-book" data-template-mode="book" role="tab">Book</button>
         </div>
       </fieldset>
 
@@ -3194,6 +3209,17 @@
         <input id="pptxFileInput" type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" hidden />
         <p class="hint" id="deckCountHint">No slides yet — add one to start your deck.</p>
         <p class="hint">Click a slide thumbnail to edit it. Drag thumbnails to reorder.</p>
+      </fieldset>
+
+      <fieldset class="workflowStep template-only" id="bookFieldset">
+        <legend data-step="2">Book</legend>
+        <p class="hint">A book combines a cover spread (front + spine + back), an ordered list of designed pages, optional reflowable chapters written as NIP-23 markdown, and master pages for shared running heads and page numbers. See <code>docs/BOOK_DESIGNER_FEATURE.md</code> for the full spec.</p>
+        <div id="bookSpecSummary" class="hint" style="margin-top:8px"></div>
+        <div class="buttonRow" style="margin-top:8px">
+          <button type="button" id="bookDocumentSettingsBtn" disabled>Document settings…</button>
+          <button type="button" id="bookManageMastersBtn" disabled>Manage masters…</button>
+        </div>
+        <p class="hint" style="margin-top:8px">Document settings, Pages overview, Cover view, and PDF export ship in subsequent phases. This entry is the Phase A2 skeleton.</p>
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="deckThemeFieldset">
@@ -7810,6 +7836,38 @@
       if (!state.book) state.book = defaultBookState();
       return state.book;
     }
+    // Page count + derived spine width readouts for the sidebar.
+    // Page count is the manifest entry count for Phase A — once reflow
+    // segments land in C.5 this counts physical pages after pagination.
+    function bookPageCount() {
+      return (state.book?.pages || []).length;
+    }
+    function bookSpineWidthInches() {
+      const spec = state.book?.spec;
+      if (!spec) return 0;
+      if (!spec.spineFromPages) return Number(spec.spineWManual) || 0;
+      return bookPageCount() * (Number(spec.paperThickness) || 0);
+    }
+    function syncBookSidebarSummary() {
+      const el = $('bookSpecSummary');
+      if (!el) return;
+      if (state.templateMode !== 'book' || !state.book) {
+        el.textContent = '';
+        return;
+      }
+      const s = state.book.spec;
+      const pageCount = bookPageCount();
+      const spineW = bookSpineWidthInches();
+      const spineNote = s.spineFromPages
+        ? `derived from ${pageCount} page${pageCount === 1 ? '' : 's'}`
+        : 'manual';
+      const fmt = (n) => Number(n).toFixed(n % 1 === 0 ? 0 : 3);
+      el.innerHTML = ''
+        + `<b>${s.bookSize || 'Custom'}</b> · ${fmt(s.trimW)} × ${fmt(s.trimH)} in`
+        + `<br>Bleed ${fmt(s.bleed)} in · Paper ${fmt(s.paperThickness)} in/page`
+        + `<br>Spine ${fmt(spineW)} in <span class="hint">(${spineNote})</span>`
+        + `<br>${pageCount} page${pageCount === 1 ? '' : 's'} · ${(state.book.masters || []).length} master${(state.book.masters || []).length === 1 ? '' : 's'}`;
+    }
 
     function isLayerForCurrentMode(layer) {
       const t = String(layer?.target || '');
@@ -8857,6 +8915,10 @@
       if (state.templateMode === 'disc') return discTemplate.sheetW;
       if (state.templateMode === 'jewel') return jewelTemplate.sheetW;
       if (isCanvasMode(state.templateMode)) return customArtCanvasInches().wIn;
+      if (state.templateMode === 'book') {
+        const s = state.book?.spec;
+        return (s ? (Number(s.trimW) || 0) + (Number(s.bleed) || 0) * 2 : 6);
+      }
       return totalTrimW() + state.bleed * 2;
     }
 
@@ -8864,6 +8926,13 @@
       if (state.templateMode === 'disc') return discTemplate.sheetH;
       if (state.templateMode === 'jewel') return jewelTemplate.sheetH;
       if (isCanvasMode(state.templateMode)) return customArtCanvasInches().hIn;
+      if (state.templateMode === 'book') {
+        // Phase A2: the canvas-host renders blank in book mode (no
+        // active page surface yet). Use trim + bleed so the host has
+        // sensible dimensions for the placeholder.
+        const s = state.book?.spec;
+        return (s ? (Number(s.trimH) || 0) + (Number(s.bleed) || 0) * 2 : 9);
+      }
       return state.trimH + state.bleed * 2;
     }
 
@@ -8925,12 +8994,13 @@
         cover: !isDesignerApp && state.templateMode === 'cover',
         disc: !isDesignerApp && state.templateMode === 'disc',
         deck: !isDesignerApp && state.templateMode === 'deck',
+        book: !isDesignerApp && state.templateMode === 'book',
         customart: !isDesignerApp && state.templateMode === 'customart',
         slide: !isDesignerApp && state.templateMode === 'slide',
         pixelart: !isDesignerApp && state.templateMode === 'pixelart',
         discdesign: isDesignerApp
       };
-      for (const m of ['cover', 'disc', 'deck', 'customart', 'slide', 'pixelart', 'discdesign']) {
+      for (const m of ['cover', 'disc', 'deck', 'book', 'customart', 'slide', 'pixelart', 'discdesign']) {
         const button = $(`mode-${m}`);
         if (!button) continue;
         button.classList.toggle('active', !!layoutActive[m]);
@@ -9050,6 +9120,7 @@
       customart: ['designerLayoutFieldset', 'customArtFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
       slide:     ['designerLayoutFieldset', 'customArtFieldset', 'layersFieldset', 'metadataFieldset', 'exportFieldset', 'printSaveFieldset'],
       deck:      ['layoutFieldset', 'deckFieldset', 'deckThemeFieldset', 'metadataFieldset', 'printSaveFieldset'],
+      book:      ['layoutFieldset', 'bookFieldset', 'metadataFieldset', 'printSaveFieldset'],
       pixelart:  ['designerLayoutFieldset', 'metadataFieldset', 'printSaveFieldset'],
       designer:  ['designerLayoutFieldset', 'designerFieldset', 'layersFieldset', 'designerMetadataFieldset', 'designerPrintSaveFieldset']
     };
@@ -9078,6 +9149,7 @@
       document.body.classList.toggle('template-pixelart', state.templateMode === 'pixelart');
       document.body.classList.toggle('template-slide', state.templateMode === 'slide');
       document.body.classList.toggle('template-deck', state.templateMode === 'deck');
+      document.body.classList.toggle('template-book', state.templateMode === 'book');
       document.body.classList.toggle('editing-deck-slide', !!state.deck && state.deck.editingIndex !== null);
       document.body.classList.toggle('hide-guides', !state.showGuides);
       document.body.classList.toggle('hide-bleed', !state.showBleed);
@@ -9089,6 +9161,7 @@
       document.body.classList.toggle('app-template', state.appMode !== 'designer');
       updateLayerTargetOptions();
       renumberWorkflowSteps();
+      syncBookSidebarSummary();
     }
 
     function renderDimensions() {
@@ -28588,6 +28661,12 @@
         state.deck = state.deck || { theme: { fontFamily: '', background: '' }, slides: [], editingIndex: null };
         state.deck.editingIndex = null;
       }
+      if (layout === 'book') {
+        // Lazy-init the book block when first entering Book mode. The
+        // factory lives next to the other state defaults so the shape
+        // matches docs/BOOK_DESIGNER_FEATURE.md.
+        ensureBookState();
+      }
       if (isCanvasMode(layout) || layout === 'pixelart') state._lastDesignerLayout = layout;
       else state._lastTemplateLayout = layout;
       syncInputs();
@@ -28839,7 +28918,7 @@
     function attachEvents() {
       // Layout tabs: cover/disc live on the Template tab; customart/discdesign
       // on the Designer tab. applyLayout() sorts out the appMode crossing.
-      for (const layout of ['cover', 'disc', 'deck', 'customart', 'slide', 'pixelart', 'discdesign']) {
+      for (const layout of ['cover', 'disc', 'deck', 'book', 'customart', 'slide', 'pixelart', 'discdesign']) {
         const btn = $(`mode-${layout}`);
         if (btn) btn.addEventListener('click', () => applyLayout(layout));
       }
