@@ -1546,6 +1546,73 @@
       font-size: .8rem; color: var(--muted); text-align: center;
       padding: 0 8px;
     }
+    /* Cover view: a live-derived spread preview + readout. */
+    .bookCoverSummary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px 18px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 0;
+      background: var(--bg);
+      font-size: .82rem;
+    }
+    .bookCoverSummary dt {
+      font-size: .72rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .04em;
+      margin: 0 0 2px;
+    }
+    .bookCoverSummary dd {
+      font-weight: 600; margin: 0;
+    }
+    .bookCoverSummary dd.derived { color: var(--accent); }
+    .bookCoverSummary dd .smallNote {
+      font-weight: 400; color: var(--muted); font-size: .72rem;
+      display: block; margin-top: 2px;
+    }
+    .bookCoverPreviewWrap {
+      width: 100%;
+      overflow-x: auto;
+      padding: 20px 0;
+      display: flex; justify-content: center;
+    }
+    .bookCoverPreview {
+      display: flex;
+      align-items: stretch;
+      box-shadow: 0 1px 3px rgba(0,0,0,.08);
+    }
+    .bookCoverPanel {
+      position: relative;
+      box-sizing: border-box;
+      border: 1px solid var(--line);
+      background: #ffffff;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .bookCoverPanel + .bookCoverPanel { border-left: none; }
+    .bookCoverPanel.back  { background: rgba(125,211,252,.10); }
+    .bookCoverPanel.spine { background: rgba(192,132,252,.12); }
+    .bookCoverPanel.front { background: rgba(167,243,208,.12); }
+    .bookCoverPanelLabel {
+      font-size: .72rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .08em;
+      writing-mode: horizontal-tb;
+      text-align: center; padding: 6px;
+    }
+    .bookCoverPanel.spine .bookCoverPanelLabel {
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+    .bookCoverPanelDim {
+      position: absolute; bottom: 4px; left: 50%;
+      transform: translateX(-50%);
+      font-size: .68rem; color: var(--muted);
+      white-space: nowrap;
+    }
+    .bookCoverPanel.spine .bookCoverPanelDim {
+      bottom: auto; top: 50%; left: auto; right: 4px;
+      transform: translateY(-50%) rotate(-90deg);
+      transform-origin: right center;
+    }
 
     .templateLayerPanels {
       display: grid;
@@ -4108,7 +4175,14 @@
             <p class="hint" id="bookPagesHint" style="margin:8px 0 0">Phase A4 skeleton: tiles are placeholders. Click a tile in Phase B to edit the page. Reflow / NIP-23 chapters arrive in Phase C.5; per-page Nostr publish in Phase D1.</p>
           </div>
           <div id="bookCoverView" style="display:none">
-            <p class="hint">Cover view ships in Phase A5. The cover designer (front + spine + back) will mount here, with the spine column derived from page count × paper thickness.</p>
+            <div class="bookCoverSummary" id="bookCoverSummary"></div>
+            <div class="bookCoverPreviewWrap">
+              <div class="bookCoverPreview" id="bookCoverPreview" aria-label="Cover spread preview"></div>
+            </div>
+            <div class="buttonRow" style="margin-top:8px">
+              <button type="button" id="bookCoverReplaceBtn" disabled title="Phase D1 — pick from your published cover-spread events">Replace cover from Nostr…</button>
+            </div>
+            <p class="hint" style="margin-top:8px">The cover spread reflows automatically when page count or paper thickness changes (spine width re-derives) and when trim or bleed changes in Document settings. Editing the cover layers mounts the cover designer in Phase B; publishing the cover as its own <code>casewrap-page</code> event lands in Phase D1.</p>
           </div>
         </div>
 
@@ -8274,6 +8348,87 @@
       if (cover) cover.style.display = showCover ? '' : 'none';
       if (tPages) tPages.classList.toggle('active', !showCover);
       if (tCover) tCover.classList.toggle('active', showCover);
+      if (showCover) renderBookCoverPreview();
+    }
+
+    // Cover spread preview. Lays out back / spine / front panels with
+    // pixel widths proportional to their spec dimensions. The spine
+    // width derives from page count × paper thickness when
+    // spineFromPages is on (the existing `bookSpineWidthInches()`
+    // helper handles either mode). A readout above the spread shows
+    // every spec value so the user sees the math behind the geometry.
+    function renderBookCoverPreview() {
+      const wrap = document.getElementById('bookCoverPreview');
+      const summary = document.getElementById('bookCoverSummary');
+      const book = state.book;
+      if (!wrap || !summary || !book) return;
+      const s = book.spec;
+      const spineW = bookSpineWidthInches();
+      const pageCount = bookPageCount();
+      const trimW = Number(s.trimW) || 0;
+      const trimH = Number(s.trimH) || 0;
+      const bleed = Number(s.bleed) || 0;
+      const hasSpine = !!s.coverHasSpine;
+      const hasBack  = !!s.coverHasBack;
+
+      // Total spread width = (back?) + (spine?) + front, each
+      // including its own outer bleed; the inner edges between
+      // panels touch (no double-bleed).
+      const totalW = (hasBack ? trimW + bleed : 0)
+                   + (hasSpine ? spineW : 0)
+                   + (trimW + bleed)
+                   + (hasBack ? 0 : bleed);
+      const totalH = trimH + bleed * 2;
+
+      // Summary block.
+      const fmt = (n) => Number(n).toFixed(n % 1 === 0 ? 0 : 3);
+      summary.innerHTML = [
+        ['Book size', `${s.bookSize || 'Custom'}`],
+        ['Trim',      `${fmt(trimW)} × ${fmt(trimH)} in`],
+        ['Bleed',     `${fmt(bleed)} in / edge`],
+        ['Spine',     `${fmt(spineW)} in`,
+          s.spineFromPages
+            ? `derived: ${pageCount} pages × ${fmt(s.paperThickness)} in`
+            : 'manual'
+        ],
+        ['Spread',    `${fmt(totalW)} × ${fmt(totalH)} in`,
+          hasSpine ? (hasBack ? 'back + spine + front' : 'spine + front') : (hasBack ? 'back + front' : 'front only')
+        ],
+        ['Pages',     `${pageCount}`],
+      ].map(([dt, dd, note]) => `
+        <div>
+          <dt>${dt}</dt>
+          <dd${note && dt === 'Spine' && s.spineFromPages ? ' class="derived"' : ''}>${dd}${note ? `<span class="smallNote">${note}</span>` : ''}</dd>
+        </div>
+      `).join('');
+
+      // Spread preview. Scale to fit in ~720 px wide; min 200 px.
+      const previewMaxPx = 720;
+      const pxPerIn = totalW > 0 ? Math.min(previewMaxPx / totalW, 60) : 60;
+      const heightPx = Math.max(40, totalH * pxPerIn);
+      wrap.innerHTML = '';
+
+      const addPanel = (cls, label, widthIn, dim) => {
+        const panel = document.createElement('div');
+        panel.className = `bookCoverPanel ${cls}`;
+        panel.style.width = `${widthIn * pxPerIn}px`;
+        panel.style.height = `${heightPx}px`;
+        const lab = document.createElement('div');
+        lab.className = 'bookCoverPanelLabel';
+        lab.textContent = label;
+        panel.appendChild(lab);
+        if (dim) {
+          const dimEl = document.createElement('div');
+          dimEl.className = 'bookCoverPanelDim';
+          dimEl.textContent = dim;
+          panel.appendChild(dimEl);
+        }
+        wrap.appendChild(panel);
+      };
+
+      if (hasBack)  addPanel('back',  'Back',  trimW + bleed, `${fmt(trimW)} in`);
+      if (hasSpine && spineW > 0) addPanel('spine', 'Spine', spineW, `${fmt(spineW)} in`);
+      addPanel('front', 'Front', trimW + bleed, `${fmt(trimW)} in`);
     }
 
     function syncBookSidebarSummary() {
@@ -12280,6 +12435,12 @@
       updateBodyClasses();
       renderDeckSorter();
       renderBookPagesGrid();
+      // Only repaint the cover preview when its view is the active
+      // sub-view — saves work on every render() in book mode.
+      if (document.getElementById('bookCoverView')?.style.display !== 'none'
+          && state.templateMode === 'book') {
+        renderBookCoverPreview();
+      }
       renderCreditsPanel();
       if (state.templateMode === 'pixelart') ensureStandalonePixelEditor();
       // After updateBodyClasses so the designer view is displayed/laid out —
