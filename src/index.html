@@ -7674,7 +7674,10 @@
       }
     }
 
-    const SCHEMA_VERSION = 5;
+    // Schema 6: adds the Book Designer (templateMode 'book') block.
+    // Old clients see an unknown templateMode and either skip or
+    // render a stub. The `book` block is additive on the payload.
+    const SCHEMA_VERSION = 6;
     const MIN_SUPPORTED_SCHEMA_VERSION = 4;
 
     const COLOR_LAYER_DEFAULT_FILL = '#3b82f6';
@@ -7741,7 +7744,71 @@
       if (mode === 'disc') return 'disc-top';
       if (mode === 'jewel') return 'jewel-front';
       if (isCanvasMode(mode)) return 'canvas';
+      if (mode === 'book') return 'book-page';
       return 'cover-trim'; // cover mode
+    }
+
+    // ---- Book Designer state helpers ---------------------------------
+    //
+    // Build a fresh `book` block at the defaults documented in
+    // docs/BOOK_DESIGNER_FEATURE.md (US Trade 6×9, 0.125 bleed,
+    // uncoated 60# paper thickness, page numbering enabled,
+    // empty pages / masters / cover). Anything that creates a new
+    // Book document goes through this helper so the shape stays
+    // consistent across init, mode-switch, and import paths.
+    function defaultBookSpec() {
+      return {
+        trimW: 6.0,
+        trimH: 9.0,
+        bleed: 0.125,
+        paperThickness: 0.0042,
+        spineFromPages: true,
+        spineWManual: 0.5,
+        coverHasSpine: true,
+        coverHasBack: true,
+        pageNumbering: {
+          enabled: true,
+          startAt: 1,
+          firstNumberedPage: 1,
+          format: '{n}',
+        },
+        bookSize: 'US Trade 6×9',
+        defaultMasterRef: null,
+        textStyles: defaultBookTextStyles(),
+      };
+    }
+    function defaultBookTextStyles() {
+      // Sane v1 stylesheet — readable Georgia body, Helvetica headings,
+      // monospace code blocks, accent-coloured links. Authors override
+      // via Document settings; the engine merges with built-in
+      // fallbacks for any key not explicitly set.
+      return {
+        body:       { fontFamily: 'Georgia', fontSize: 11, lineHeight: 1.5, color: '#111111', alignment: 'left',  marginAfter: 0.08 },
+        h1:         { fontFamily: 'Helvetica', fontSize: 24, fontWeight: 700, alignment: 'center', marginBefore: 0.4, marginAfter: 0.20, keepWithNext: true },
+        h2:         { fontFamily: 'Helvetica', fontSize: 18, fontWeight: 700, marginBefore: 0.3, marginAfter: 0.15, keepWithNext: true },
+        h3:         { fontFamily: 'Helvetica', fontSize: 14, fontWeight: 700, marginBefore: 0.2, marginAfter: 0.10, keepWithNext: true },
+        h4:         { fontFamily: 'Helvetica', fontSize: 12, fontWeight: 700, marginBefore: 0.15, marginAfter: 0.08, keepWithNext: true },
+        h5:         { fontFamily: 'Helvetica', fontSize: 11, fontWeight: 700, marginBefore: 0.12, marginAfter: 0.06, keepWithNext: true },
+        h6:         { fontFamily: 'Helvetica', fontSize: 11, fontWeight: 700, fontStyle: 'italic', marginBefore: 0.10, marginAfter: 0.06, keepWithNext: true },
+        blockquote: { fontStyle: 'italic', marginLeft: 0.3, marginRight: 0.3, marginAfter: 0.08 },
+        codeBlock:  { fontFamily: 'monospace', fontSize: 10, background: '#f5f5f5', padding: 0.05, marginAfter: 0.08 },
+        inlineCode: { fontFamily: 'monospace', fontSize: 10, background: '#f5f5f5' },
+        link:       { color: '#0066cc', underline: true },
+        list:       { marginAfter: 0.08, indent: 0.2 },
+        hr:         { color: '#cccccc', thickness: 0.5, marginBefore: 0.15, marginAfter: 0.15 },
+      };
+    }
+    function defaultBookState() {
+      return {
+        spec: defaultBookSpec(),
+        cover: null,                       // { ref } once a cover event has been authored
+        masters: [],                       // [{ ref, label }]
+        pages: [],                         // discriminated union — see spec
+      };
+    }
+    function ensureBookState() {
+      if (!state.book) state.book = defaultBookState();
+      return state.book;
     }
 
     function isLayerForCurrentMode(layer) {
@@ -7752,6 +7819,12 @@
       if (mode === 'disc') return t.startsWith('disc-');
       if (mode === 'jewel') return t.startsWith('jewel-');
       if (mode === 'cover') return t === 'cover-trim' || t === 'back' || t === 'spine' || t === 'front';
+      // Book mode targets are scoped to whichever surface the editor
+      // is bound to (a specific book-page, master, or cover panel).
+      // The active-target plumbing for Phase B will narrow this further
+      // by entry id; for now all book-* targets belong to book mode.
+      if (mode === 'book') return t === 'book-page' || t === 'book-master'
+        || t === 'book-cover-front' || t === 'book-cover-back' || t === 'book-spine';
       return true;
     }
 
@@ -7950,6 +8023,11 @@
       deck: { theme: { fontFamily: '', background: '' }, slides: [], editingIndex: null },
       // Standalone Pixel Art design (templateMode 'pixelart') — one grid.
       pixelArt: null,
+      // Book Designer (templateMode 'book'). The block holds the shared
+      // document spec + sidecar refs; pages / masters / cover are
+      // resolved through the Linked Designs resolver in later phases.
+      // See docs/BOOK_DESIGNER_FEATURE.md for the full schema.
+      book: null,
       discSpineLabels: { top: '', bottom: '' },
       jewelSpineLabels: { left: '', right: '' },
       jewelInserts: {
@@ -8320,7 +8398,9 @@
       if (raw === 'slide') return 'slide';
       if (raw === 'deck') return 'deck';
       if (raw === 'pixelart' || raw === 'pixel-art') return 'pixelart';
+      if (raw === 'book') return 'book';
       if (raw === 'cover' || raw === 'disc' || raw === 'jewel') return raw;
+      if (payload.book) return 'book';
       if (payload.deck) return 'deck';
       if (payload.slide) return 'slide';
       if (payload.pixelArt) return 'pixelart';
@@ -8354,6 +8434,7 @@
       if (mode === 'deck') return 'deck';
       if (mode === 'pixelart') return 'pixelart';
       if (mode === 'customart') return 'customart';
+      if (mode === 'book') return 'book';
       const preset = state.preset === 'jewel8693' ? 'dvd' : (state.preset || 'custom');
       if (preset === 'dvd' || preset === 'bluray') return preset;
       return 'custom-case-cover';
