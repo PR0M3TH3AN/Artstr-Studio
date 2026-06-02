@@ -25,10 +25,11 @@ Designs already uses.
 ### Product goals
 
 1. **A Nostr-native book**, not a monolithic blob. The manifest event
-   carries the spec + an ordered list of `naddr` refs. Each page, each
-   master, and the cover are separate addressable events. Edits to one
-   page replace only that page's event; the manifest changes only on
-   structural edits (order, list, spec).
+   carries the spec + an ordered list of `naddr` refs. Each page,
+   each master, the cover, and each prose chapter (as a NIP-23
+   article) are separate addressable events. Edits to one event
+   replace only that event; the manifest changes only on structural
+   edits (order, list, spec).
 2. **A single Book document UX**. End-users see one cohesive editor —
    the sidecar plumbing is invisible. Opening a book event fans out to
    resolve every referenced page (with progressive fetch and a
@@ -263,41 +264,83 @@ Convertible to / from `naddr` at the UI layer.
       },
     },
     cover: { ref: { kind, pubkey, dTag } },      // a `casewrap-page` with role:'cover-spread'
-    pages: [                                     // discriminated union — see two shapes below
+    pages: [                                     // discriminated union; see GatingBlock + AnchorBlock below
       // 1) Designed page (fixed-layout):
       {
+        id: 'entry:abc123',                      // stable opaque id, generated on insert — used by AnchorBlock and the editor's "which entry am I on"
         type: 'design',
         ref: { kind, pubkey, dTag },             // a `casewrap-page` with role:'interior'
         label: 'Title page',                     // optional sorter label override
-        inheritsMasterRef: { kind, pubkey, dTag } | null,  // overrides defaultMasterRef
+        masterRef: { kind, pubkey, dTag } | null,// overrides spec.defaultMasterRef; null = use default
         skipNumber: false,                       // true = excluded from {page-number} sequence
-        gating: null | {                         // optional, opt-in per page
-          mode: 'free' | 'premium',
-          previewWatermark: true,                // PREMIUM_DESIGNS pipeline
-          // unlock details live on the gated page event itself
-        },
+        anchor: AnchorBlock | null,              // see below; null = "sits after the previous entry"
+        gating: GatingBlock | null,
       },
       // 2) Reflow segment (markdown text poured into N pages):
       {
+        id: 'entry:def456',
         type: 'reflow',
         textRef: { kind: 30023, pubkey, dTag },  // a NIP-23 article event carrying the chapter's markdown
         textPinnedEventId: '<hex>' | null,       // when set, lock to this exact revision (event id ref). null = always use latest addressable.
-        masterRef: { kind, pubkey, dTag },       // master whose text-frame layer the markdown flows into; required
-        chapterTitle: 'Chapter 3: The Threshold',// overrides article's title for the book's own running header
-        chapterNumber: 3,                        // optional explicit number for {chapter-number} tokens; auto if omitted
+        masterRef: { kind, pubkey, dTag },       // master whose text-frame layer the markdown flows into; required, must reference a master with a text-frame layer
+        chapterTitle: 'Chapter 3: The Threshold',// overrides article's title for {chapter-title} tokens
+        chapterNumber: 3 | null,                 // explicit number for {chapter-number}; null = auto-numbered by reflow-segment ordinal
         startsOnPage: 'recto' | 'verso' | 'any', // bookbinding: chapter starts on right-hand page = 'recto'
         skipNumberOnFirstPage: false,            // common print convention: page number suppressed on a chapter's first page
-        styleOverrides: { … } | null,            // per-chapter overrides to spec.textStyles (rare)
-        gating: null | { … },                    // gates the textRef event in PREMIUM_DESIGNS pipeline
+        styleOverrides: TextStylesBlock | null,  // per-chapter overrides to spec.textStyles (rare)
+        gating: GatingBlock | null,              // gates the textRef event in PREMIUM_DESIGNS pipeline
       },
       …                                          // ordered list, variable length
     ],
-    masters: [                                   // refs only; the book can use a master without listing here, but listing surfaces them in the Masters modal
+    masters: [                                   // refs the book wants surfaced in the Masters modal. A master ref used elsewhere (e.g. via masterRef on a page) doesn't have to appear here, but listing it makes it pickable from the UI.
       { ref: { kind, pubkey, dTag }, label: 'Body pages' },
       …
     ],
   },
 }
+```
+
+Where:
+
+```js
+// AnchorBlock: keeps a designed page's semantic position stable as
+// reflow segments expand or contract. Without an anchor, a designed
+// page sits at its array position — which can be ambiguous when a
+// chapter ahead of it changes length.
+AnchorBlock =
+  | { mode: 'before-chapter',  entryId: 'entry:def456' }   // landed just before the named reflow entry
+  | { mode: 'after-chapter',   entryId: 'entry:def456' }   // landed just after the named reflow entry's last paginated page
+  | { mode: 'at-position',     after: 'entry:abc123' };    // sits right after the named designed entry (chains designed pages explicitly)
+
+// GatingBlock: hint that this entry is paid content. Authoritative
+// crypto state lives on the gated event itself; clients verify by
+// reading the event, not by trusting the manifest.
+GatingBlock = {
+  mode: 'free' | 'premium',
+  previewWatermark: true,                        // PREMIUM_DESIGNS pipeline renders watermarked preview when locked
+  priceSats: 1000 | null,                        // hint only; truth is on the event
+};
+
+// TextStylesBlock: a partial map of element-name → typography
+// object. Used in three places: book.spec.textStyles (the
+// stylesheet), reflow entry's styleOverrides, and the master's
+// text-frame.styleOverrides. Merged low-to-high precedence at
+// render time.
+TextStylesBlock = {
+  body: TypographyObject,
+  h1: TypographyObject, h2: …, h3: …, h4: …, h5: …, h6: …,
+  blockquote: TypographyObject,
+  codeBlock: TypographyObject, inlineCode: TypographyObject,
+  link: TypographyObject,
+  list: TypographyObject,
+  hr: TypographyObject,
+};
+
+// TypographyObject keys (all optional):
+// { fontFamily, fontSize, fontWeight, fontStyle, lineHeight, color,
+//   alignment, marginBefore, marginAfter, marginLeft, marginRight,
+//   underline, background, padding, indent, thickness,
+//   keepWithNext, keepTogether }
 ```
 
 ### Page event (kind-30078, tag `casewrap-page`)
@@ -338,17 +381,20 @@ Convertible to / from `naddr` at the UI layer.
   using context from whichever manifest is rendering the page (or
   show a placeholder when previewed standalone).
 - **Independent publish life-cycle.** Page events have their own
-  `d`-tag (e.g. `book-page:<title|id>` or a stable opaque id) so
-  NIP-33 replaceability works per page. Edit one page → that page
-  event replaces; the book manifest is unaffected unless the
-  user changes the page list or order.
+  `d`-tag — a stable opaque id (e.g. `book-page:abc123`) generated
+  at insert time, NOT derived from the page's title (titles change,
+  d-tags shouldn't). NIP-33 replaceability works per page. Edit
+  one page → that page event replaces; the book manifest is
+  unaffected unless the user changes the page list or order.
 
 ### Master event
 
-Same shape as a page event with `role: 'master'`. Masters do not
-typically declare `trimW` / `trimH` themselves (they inherit from the
-book), but they snapshot the spec at publish time so a stand-alone
-preview is sane.
+Same shape as a page event with `role: 'master'`. Masters snapshot
+the spec at publish time so a stand-alone preview is sane. A master
+intended for reflow MUST carry exactly one `text-frame` layer (the
+manifest UI refuses to pair a master without one). A master without
+a text-frame is still valid for designed pages — it just doesn't
+participate in reflow.
 
 ### Cover event
 
@@ -357,6 +403,46 @@ Same shape as a page event with `role: 'cover-spread'`. The
 includes spine / back. Layers carry `book-cover-front` /
 `book-cover-back` / `book-spine` targets so the renderer can lay them
 out side-by-side.
+
+### Chapter event (kind-30023 NIP-23 article)
+
+Vanilla NIP-23. The book references it via the reflow entry's
+`textRef`. The article has no book-specific schema; it's a normal
+long-form article and opens cleanly on Habla, Yakihonne, or any
+other NIP-23 client.
+
+```js
+{
+  kind: 30023,
+  pubkey: '<hex>',
+  created_at: <unix>,
+  tags: [
+    ['d', 'chapter:<slug>'],                     // standard NIP-23 d-tag for replaceable addressing
+    ['title', 'Chapter 3: The Threshold'],
+    ['summary', '<optional short summary>'],
+    ['published_at', '<unix>'],                  // when first published (NIP-23 convention)
+    ['t', 'book-chapter'],                       // optional, for discoverability in book-aware clients
+    // …any other normal NIP-23 tags (language, image, etc.)
+  ],
+  content: '<markdown body>',
+}
+```
+
+A book can reference any author's existing NIP-23 article as a
+chapter — no special encoding required. Conversely, a chapter
+written for a book is a perfectly normal article that any NIP-23
+reader can open.
+
+### Uniqueness rules
+
+- A given chapter event (by `textRef`) may appear in **at most one**
+  reflow entry per book. The Pages overview refuses to add a
+  duplicate; if a user wants two appearances they must duplicate the
+  chapter event under a new `d`-tag first.
+- A given designed-page event (by `ref`) may appear at most once per
+  manifest. Same rule.
+- Every manifest entry has a unique `id`. Generated at insert time;
+  stays stable across reorders so anchors don't break.
 
 ### Why a separate event for each surface
 
@@ -396,12 +482,50 @@ out side-by-side.
   any author's existing NIP-23 article as a chapter, and any NIP-23
   client can open a referenced chapter standalone.
 
+### Schema + compatibility
+
+- The book feature bumps `SCHEMA_VERSION` to **6** (current is 5).
+- The new `book` block on the project payload is additive; older
+  clients that load a v6 project either skip Book mode entirely or
+  fall back to a "Unsupported template — open in latest Artstr"
+  notice (same fallback PIXEL_ART used at its v5 bump).
+- Page, master, and cover events use `templateMode: 'book-page'`
+  inside their payload (one shape, three roles).
+- Chapter events have no `templateMode` — they're raw NIP-23
+  articles, opaque to the book code beyond their `content` and
+  metadata tags.
+- Old clients seeing a `casewrap-book` manifest can render the
+  feed-card thumbnail (the cover ref resolves to a normal
+  `casewrap-page` event they understand visually); only opening the
+  full editor requires v6.
+
+### Privacy
+
+Books can be published privately via the existing
+`PRIVATE_PUBLISHING` flow: every constituent event (manifest, pages,
+masters, cover, chapters) can be encrypted to the author's own
+pubkey or shared with a specific reader set. Per-event privacy is
+already the model, so nothing new is needed beyond making sure the
+publish UI offers the choice at the right granularity (default:
+public; opt-in to private at publish time, applied uniformly across
+all constituent events of that publish action).
+
 ---
 
 ## Token substitution + page-count semantics
 
-A text layer's HTML can contain magic tokens that resolve at render
-time using the manifest's context.
+Magic tokens that resolve at render time using the manifest's
+context. **Tokens are honored in two places only:**
+
+1. The HTML of a regular text layer on a designed page or a master.
+2. Reflow entry fields that drive on-canvas display
+   (`chapterTitle`, sorter labels).
+
+Tokens are **not** substituted inside a chapter event's markdown
+body — chapter events are vanilla NIP-23 articles that must remain
+portable to other long-form clients. If you want a chapter title in
+a running header, put a `{chapter-title}` token on a text layer on
+the chapter's reflow master, not in the markdown.
 
 - `{page-number}` → the current page's number under the manifest's
   `pageNumbering` config. A skipped page renders no number (its
@@ -561,18 +685,22 @@ Edge cases v1 documents (and does not fix):
 
 A reflow segment expands to N pages at render time, so designed pages
 can't be addressed by absolute page index — N changes when prose
-changes. Designed pages carry an `anchor` field on the manifest entry:
+changes. Each designed page on the manifest carries an `anchor` field
+that references **another manifest entry's stable `id`** so the
+relationship survives reorders and reflow:
 
 ```js
-{ type: 'design', ref: …, anchor: { mode: 'before-chapter', chapterIndex: 2 } }
-{ type: 'design', ref: …, anchor: { mode: 'after-chapter',  chapterIndex: 5 } }
-{ type: 'design', ref: …, anchor: { mode: 'at-position',    after: 'design:title-page' } }
+{ type: 'design', id: 'entry:dedication',     ref: …, anchor: { mode: 'before-chapter', entryId: 'entry:chapter-1' } }
+{ type: 'design', id: 'entry:epilogue',       ref: …, anchor: { mode: 'after-chapter',  entryId: 'entry:chapter-12' } }
+{ type: 'design', id: 'entry:half-title',     ref: …, anchor: { mode: 'at-position',    after: 'entry:title-page' } }
+{ type: 'design', id: 'entry:title-page',     ref: …, anchor: null }   // null = "sits at its array position"
 ```
 
 The pagination pipeline interleaves anchored designed pages around
 reflow segments so the *semantic* order is stable even as page counts
-shift. (Default for new designed pages: anchored after the previous
-manifest entry — same as today's "just sits here" intuition.)
+shift. A new designed page is given `anchor: null` by default
+(sits at insertion order); the user can promote it to a chapter
+anchor from the Pages overview's per-tile menu.
 
 ### Pinning chapter revisions
 
@@ -822,8 +950,11 @@ loading it.
 - Page size: `trimW × trimH` plus bleed margin if "include bleed" is
   on. Cover page size: full cover-spread width × trim height plus
   bleed.
-- sRGB. No ICC embedding. Fonts subset-embedded when supported by the
-  PDF library; otherwise rasterised text fallback.
+- sRGB. No ICC embedding. Fonts on the **embeddable allowlist**
+  (Georgia, Times, Helvetica, Arial, monospace family) are
+  subset-embedded; layers using any other font fall back to vector
+  paths and are listed in a per-export warning so authors can pick
+  whether to swap fonts before re-exporting.
 - Crop marks toggle: thin black L-marks at each trim corner, offset
   outside the trim by the bleed amount.
 
@@ -846,10 +977,12 @@ For each page (resolved via the manifest):
 3. Token-substitute `{page-number}` etc. at render time using the
    manifest's `pageNumbering` config.
 4. Take the rendered output and stamp it into a new PDF page via
-   `pdf-lib`. Text layers ideally get re-emitted as PDF text objects
-   (vector + searchable / selectable); v1 may flatten text to vector
-   paths to dodge font-subset complexity, with a follow-up to switch
-   to true PDF text.
+   `pdf-lib`. Text layers — both designed-page text layers and the
+   pagination engine's reflowed prose — emit as real PDF text
+   objects (vector, searchable, copyable) when the font is on the
+   allowlist; otherwise fall back to vector paths with the per-export
+   warning. This applies uniformly to both reflowed prose and
+   designed-page text.
 5. Cover page is single-PDF-page with the full spread; print shops
    typically want it as one wide spread, so a separate "Cover-only
    PDF" download is also offered.
@@ -869,9 +1002,12 @@ Cover view toolbar opens an export modal:
 
 ### Limitations baked in v1
 
-- Vector text fidelity may regress where the renderer rasterises text
-  for SVG output. We accept it and flag as a phase B PDF improvement.
-- No bookmarks / outline / TOC links inside the PDF.
+- Layers using fonts outside the embeddable allowlist fall back to
+  vector-path text (still visually identical, just not selectable in
+  the PDF). The per-export warning lists which layers were affected.
+- No PDF bookmarks / outline / TOC links. Phase I+ adds bookmarks
+  built from each reflow segment's `chapterTitle` and the
+  `{toc}` token's targets.
 - No press-quality CMYK profile.
 - Premium-gated pages: by default the export refuses to include them
   if the user is not the author or hasn't unlocked them. A user
@@ -908,6 +1044,25 @@ it. Used for:
 ---
 
 ## Phased delivery
+
+### MVP launch path
+
+Book mode is a large feature. The phase order is set up so each
+phase ships independently and the project never sits in a half-done
+state. Two reasonable launch targets:
+
+- **MVP-A: Designed-only books.** Phases **A + B + D1 + D2**.
+  A user can lay out a fixed-layout book with cover + designed
+  interior pages and publish it as a manifest + sidecar events.
+  No reflow, no PDF, no Reader Mode. Useful for art books,
+  zines, photo books, comic chapbooks.
+- **MVP-B: Books with prose.** MVP-A + Phase **C + C.5 + E**.
+  Adds masters, reflowable chapters via NIP-23, and PDF export.
+  This is the full "book designer" experience.
+
+Phases **F (templates + deck-to-book import)**, **G (Reader Mode +
+embed)**, **H (premium gating)**, and **I (markdown + extras)** are
+strict enhancements — none of them block MVP-A or MVP-B.
 
 ### Phase A — Spec + Book mode skeleton
 - New `templateMode: 'book'` with `state.book = { spec, cover: null,
@@ -1136,28 +1291,44 @@ it. Used for:
 
 - **Facing pages.** Do we want a v1.5 facing-page preview (two pages
   side by side) even without facing-page editing? It's a small render
-  addition.
-- **Bleed in the per-page editor.** Show as a guide always, or
-  toggleable? Cover designer shows it; we should match.
-- **Per-page background image** vs masters owning the background.
-  Currently the spec puts `background` on both the page event and
-  masters. Resolve precedence: page beats master beats spec default.
-- **TOC generation.** Out of scope for v1, but a manual TOC page can
-  use the `{page-count}` token and a list of layer-text entries. A
-  `{toc}` magic token that auto-builds from page labels would be a
-  natural Phase G+ addition.
+  addition; useful for previewing recto / verso bookbinding before
+  print.
+- **Bleed guide in the per-page editor.** Show as a guide always, or
+  toggleable? Cover designer shows it always; recommend matching for
+  consistency unless user research surfaces a reason not to.
+- **`background` precedence.** Spec puts `background` on the page
+  event, the master, and `spec` (implicitly). Proposed precedence:
+  page event's `background` wins, then master's, then spec default
+  (`#ffffff`). Lock this in code review of Phase B.
 - **Manifest event size at the extreme.** A 1,000-page book's
-  manifest is 1,000 refs × ~80 bytes each = ~80 KB. Approaching relay
+  manifest is ~1,000 refs × ~80 bytes = ~80 KB. Approaching relay
   limits. If we ever hit them, the manifest itself can be sharded
-  (chapter-manifests referenced from a top-level book event).
-- **NIP-89 / client recommendations.** Worth publishing a kind-31990
+  (chapter-manifests referenced from a top-level book event). Not
+  worth solving until a real user runs into it.
+- **NIP-89 / client recommendations.** Publishing a kind-31990
   recommendation so other Nostr clients know to open
-  `casewrap-book` / `casewrap-page` events with Artstr Studio. v2
-  unless someone else builds a competing book viewer first.
-- **Linked Designs interaction.** Pages can themselves use Linked
-  Design layers (a page that pulls in another author's illustration).
-  Confirm this works through the renderer's existing async resolver
-  path — should "just work" but worth a smoke test in Phase B.
+  `casewrap-book` / `casewrap-page` events with Artstr Studio is
+  worth doing eventually but only matters once a competing viewer
+  exists.
+- **Inline-image source resolution.** v1 markdown images accept
+  `https://` URLs. Adding `nostr:` resolution (image events under
+  NIP-94, profile pictures by npub) is a small Phase C.5 follow-up
+  worth scoping once the engine is working.
+
+## Compatibility notes
+
+- **Linked Designs inside pages.** A page can include a Linked
+  Design layer (e.g. an illustration pulled from another author).
+  The existing async resolver path handles it; no special book
+  code needed. Worth a smoke test in Phase B since this is the
+  first place we render a Linked Design *inside* a page that is
+  itself fetched via the resolver — a two-level lookup.
+- **Layer types known to work on a book page.** All existing layer
+  types (`shape`, `image`, `text`, `qr`, `pixelart`, `design`,
+  `slide`) render unchanged on `book-page` / `book-master` /
+  `book-cover-*` targets — the renderer keys off layer type, not
+  target. The new `text-frame` layer is the only book-specific
+  layer type.
 
 ---
 
@@ -1244,9 +1415,22 @@ it. Used for:
 - [ ] "Proof one page" / "Proof one chapter" produces a single-page
   PDF in under 2 seconds end-to-end.
 
+### Phase F — Templates + import polish
+- [ ] At least three book templates ship at common sizes (US Trade
+  6×9, A5, US Letter); each opens as a fresh book with master(s)
+  configured.
+- [ ] Import-from-deck produces a book of N designed pages whose
+  layouts match the deck's slides (letterboxed when the deck aspect
+  doesn't match the book trim).
+- [ ] Import-single-page from another book lands a Linked-Designs
+  ref in the manifest without re-publishing the page.
+
 ### Phase G — Reader Mode + embed
 - [ ] Reader Mode walks the manifest's pages with progressive fetch;
   prev / next page navigation works keyboard + touch + click.
+- [ ] Reader Mode works on a book with **no** reflow segments
+  (designed-only) and on a book with **only** reflow segments
+  (prose-only).
 - [ ] EXTERNAL_EMBED `?book=<naddr>` opens the same book in an iframe
   flip-book.
 - [ ] A gated page in Reader Mode shows the watermarked preview and a
@@ -1256,3 +1440,22 @@ it. Used for:
 - [ ] A book with one gated chapter publishes; an unauthorised reader
   sees the preview; a reader who zaps to unlock sees the real content
   in Reader Mode without re-opening the book.
+- [ ] A book whose **manifest itself** is gated shows only its cover
+  thumbnail + price to unauthorised readers; the page list resolves
+  after unlock.
+
+### Phase I — Markdown editor + extended subset
+- [ ] CodeMirror editor replaces the plain textarea for reflow
+  entries; syntax highlighting + smart list continuation + drag-
+  and-drop image insert work.
+- [ ] Each extended markdown feature (tables, footnotes, nested
+  lists, definition lists) has typography rules in
+  `spec.textStyles`, paginates correctly across page breaks, and
+  is acceptance-tested with its own fixture set in the engine's
+  canonical corpus.
+- [ ] `{toc}` magic token expands into a styled list of chapter
+  titles with page numbers; updates live as reflow re-paginates.
+- [ ] Cross-references (`[See chapter 3](#chapter-3)`) resolve to
+  the right page number in both Reader Mode and PDF output.
+- [ ] PDF export includes a bookmarks outline built from
+  `chapterTitle` per reflow segment.
