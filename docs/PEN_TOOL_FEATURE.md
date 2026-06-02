@@ -48,15 +48,91 @@ tool-mode system with flanking toolbars to host it.
   arcs, abs & rel). *Not convertible:* multi-element SVGs and compound
   (multi-subpath) paths — the panel shows a hint instead.
 
+### Implementation status — 2026-06-02 (Illustrator parity arc)
+
+A subsequent arc brought the pen / select tools much closer to
+Adobe Illustrator's feel. The tool-mode system from Phases A–E is
+unchanged; the new work plugs into it:
+
+- **Direct Selection (A)** as a separate tool from Select (V),
+  matching Illustrator's V/A split. Cmd / Ctrl held from any
+  non-pen tool temporarily flips the effective tool to Direct
+  Selection so a quick anchor tweak doesn't require dropping the
+  current tool.
+- **Hover cursor cues**: − over an anchor in Pen mode (auto-delete),
+  + over a segment (auto-add), the "continue" pointer over an
+  endpoint of an open path, grab over a segment in Direct Select
+  (bow the curve).
+- **Pen auto-add / auto-delete**: clicking a segment with no
+  modifier inserts an anchor at the click point; clicking an
+  existing anchor deletes it. Drag (instead of click) on an anchor
+  converts it on the fly — pulls symmetric handles out. Alt-drag
+  pulls an asymmetric corner.
+- **Convert anchor** (Alt-click in Pen or Direct Select): flips
+  curved ↔ pointed completely. Curved → pointed drops both handles
+  for a real sharp corner; pointed → curved grows symmetric handles
+  along the chord through the anchor (1/3 of chord length).
+- **Shift constrains** pen segments to 0 / 45 / 90° while drawing
+  and previewing the next click.
+- **Multi-anchor selection**: Shift-click anchors to add / remove
+  them from a selection Set. Drag a marquee inside the editable
+  path to box-select anchors. Arrow keys nudge every selected
+  anchor (1 px, 10 px with Shift) instead of the whole layer.
+  Backspace deletes the whole anchor selection at once.
+- **Drag a segment** to bow the curve (Direct Select). Equal-split
+  delta across the two inner control points so the cursor tracks
+  the grabbed point; smooth anchors on either end keep their
+  handles mirrored.
+- **Continue an open path**: with the Pen tool, click the start /
+  end anchor of an open path to resume drawing from there. The
+  source layer is hidden during the draft; on commit (Enter / close
+  / Escape) the new path takes its place, preserving z-order,
+  target, fill and stroke.
+- **Spacebar reposition** during pen create-drag: slides the anchor
+  itself instead of growing handles; release Space to resume
+  handle-pulling from the new position.
+- **Alt mid-draw** during pen create-drag: only the outgoing handle
+  is pulled, incoming side stays at the anchor — asymmetric corner
+  for tangent-then-corner transitions without lifting the pen.
+- **Alt-drag handle** in Direct Selection: breaks symmetry, the
+  opposite handle stays put.
+- **Path keyboard ops**: Cmd+J closes an open path when both
+  endpoints are selected; Cmd+Alt+J averages selected anchors to
+  their centroid.
+- **Path Actions side panel**: when Pen or Direct Selection is
+  active and a pen path is selected, a sidebar block surfaces the
+  same ops as buttons — Pointed corner, Curved smooth, Delete
+  anchor, Average, Join endpoints, Close / Open path, Reverse
+  direction. Buttons auto-disable when the action would be a no-op.
+
 ### Non-goals (v1)
 - A raster paint layer (true pixel buffers). Explicitly out of scope — the
   app's design-as-JSON model and Nostr-friendliness depend on storing
   instructions, not bitmaps. A `paint` layer type could be a separate future
   feature; this doc does not pursue it.
 - Pressure / tilt / velocity-sensitive brushes.
-- Boolean path operations (union / subtract / intersect).
 - Moving the existing shape-primitive menu into the left toolbar. The
   sidebar "+ Shape" menu stays; pen/pencil are additive.
+
+### Adjacent design-tool features (shipped in the same arc)
+- **Eyedropper (I)** — native EyeDropper picker, samples any pixel
+  on screen to the selected layer's fill (or stroke with Shift).
+- **Align & distribute panel** — six align ops + horizontal /
+  vertical distribute on the layer selection (uses the selection
+  bbox for 2+, target bounds for a single layer).
+- **Free Transform rotation handle** above both the single-layer
+  selection bbox and the multi-layer selection box; Shift snaps to
+  15°. Multi-layer rotates each layer's centre around the bbox
+  centre AND advances each layer's own rotation.
+- **Pathfinder** — Unite / Subtract / Intersect / Exclude on 2+
+  selected shape layers, backed by `vendor/polygon-clipping.min.js`.
+  Curves are flattened to polygon approximations. Rotated layers
+  are not supported yet.
+- **Marquee box-select** on empty canvas with the Select (V) tool —
+  marching-ants rectangle, Shift adds to the existing selection.
+- **Double-click dive-into-edit**: a vector shape under the Select
+  tool flips to Direct Selection on dbl-click and auto-converts
+  primitives to editable pen paths so anchors show immediately.
 
 ---
 

@@ -8,6 +8,29 @@ Running list of deferred work. Detailed specs for the larger items live in
 _(Empty — see "Shipped (recent)" below for the items that just
 landed. Drop new items in here as they come up.)_
 
+## Design-tool follow-ups (Illustrator parity arc)
+
+The pen / select / pathfinder bundle (`docs/PEN_TOOL_FEATURE.md`)
+landed with these intentional gaps:
+
+- **Smart Guides.** Snap-to-anchor and snap-to-edge alignment with
+  on-canvas distance hints while dragging. Biggest "feels professional"
+  upgrade still on the table; deserves its own arc.
+- **Gradients + drop shadows.** Linear / radial gradient fills and a
+  basic drop-shadow / glow effect on the appearance panel. Mostly an
+  SVG `<defs>` + `filter` addition.
+- **Scissors (C) + Outline text + Command palette (Cmd+K).** Three
+  small wins: split a path at a click, convert text to editable pen
+  paths (font-independent for Nostr export), searchable action list.
+- **Flip H / V.** Prototyped during the Align panel arc but pulled
+  out — needs the renderer to honor per-layer scaleX / scaleY.
+- **Pathfinder limitations to lift.** Today: refuses rotated shapes,
+  flattens curves, only the first polygon's outer ring stays
+  pen-editable post-op. Rotation support is the most user-facing of
+  these; curve fidelity would need a Bézier-aware clipper.
+- **Pixel-art frame timeline.** Onion skin + frame list + FPS control.
+  Largest open arc; transformative if pixel art is a focus.
+
 ## QR code layer — remaining phases
 
 Phases A and B shipped (the `qr` layer type: data, error-correction level,
