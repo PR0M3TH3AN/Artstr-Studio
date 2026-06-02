@@ -782,14 +782,21 @@
       cursor: pointer; font-size: .8rem; padding: 2px 6px; line-height: 1.1;
     }
     .deckSlideActions button:hover { background: #f1f5f9; }
+    /* Overlay wrapper occupies the canvas grid column. The bars
+       inside are absolutely positioned to its top-center, so they
+       hover over the canvas-host (#previewShell) without being a
+       child of it — panning / zooming the canvas doesn't drag them
+       along, and they don't drift over the sidebar or header. */
+    .canvasOverlayBars {
+      grid-area: canvas;
+      position: relative;
+      pointer-events: none;
+      z-index: 60;
+    }
+    .canvasOverlayBars > * { pointer-events: auto; }
     #deckEditBar {
-      /* Pinned to the viewport so panning / zooming the canvas
-         doesn't drag the bar along. The bar still visually sits over
-         the canvas area because the sidebar is on the left — top:10px
-         + left:50% lands roughly centred over the canvas at common
-         widths. */
-      position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
-      z-index: 60; align-items: center; gap: 10px;
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      align-items: center; gap: 10px;
       background: var(--panel, #fff); border: 1px solid var(--line);
       border-radius: 999px; padding: 5px 14px 5px 8px;
       box-shadow: 0 6px 20px rgba(15,23,42,.18); font-size: .82rem;
@@ -1506,15 +1513,13 @@
       box-sizing: border-box;
       min-height: calc(100vh - 160px);
     }
-    /* Page-context bar — pinned to the viewport (not the scrolling
-       canvas) so panning / zooming doesn't drag it along. Top-center
-       placement lines up over the canvas area at typical sidebar
-       widths. */
+    /* Page-context bar — lives inside .canvasOverlayBars so it
+       hovers at the top-center of the canvas grid column without
+       being a child of the scrolling #previewShell. */
     #bookPageEditBar {
       display: none;
-      position: fixed; top: 10px; left: 50%;
+      position: absolute; top: 10px; left: 50%;
       transform: translateX(-50%);
-      z-index: 60;
       align-items: center; gap: 8px;
       background: var(--panel, #fff);
       border: 1px solid var(--line);
@@ -4240,18 +4245,6 @@
           </div>
         </div>
 
-        <div id="deckEditBar">
-          <button type="button" id="deckBackBtn">← Back to deck</button>
-          <span id="deckEditLabel"></span>
-        </div>
-
-        <div id="bookPageEditBar" style="display:none">
-          <button type="button" id="bookPageEditBack">← Back to Pages</button>
-          <button type="button" id="bookPageEditPrev" title="Previous page">←</button>
-          <button type="button" id="bookPageEditNext" title="Next page">→</button>
-          <span id="bookPageEditLabel"></span>
-        </div>
-
         <div id="pixelEditorView">
           <div class="pixelEditorBar">
             <div class="pixelToolGroup">
@@ -4367,6 +4360,19 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="canvasOverlayBars" aria-hidden="true">
+        <div id="deckEditBar">
+          <button type="button" id="deckBackBtn">← Back to deck</button>
+          <span id="deckEditLabel"></span>
+        </div>
+        <div id="bookPageEditBar" style="display:none">
+          <button type="button" id="bookPageEditBack">← Back to Pages</button>
+          <button type="button" id="bookPageEditPrev" title="Previous page">←</button>
+          <button type="button" id="bookPageEditNext" title="Next page">→</button>
+          <span id="bookPageEditLabel"></span>
         </div>
       </div>
 
