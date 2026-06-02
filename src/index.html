@@ -2517,6 +2517,25 @@
     .toolOptions .buttonRow { margin:6px 0 0; }
     .toolOptHint { font-size:.7rem; color:var(--muted); margin:4px 0 0; line-height:1.35; }
     .penOverlay { position:absolute; inset:0; z-index:998; pointer-events:none; }
+    /* Marching-ants marquee box drawn while drag-selecting on the
+       canvas. CSS animation shifts four 1px dashed borders so the
+       outline reads as moving — same effect as Photoshop / Figma. */
+    .marqueeSelectBox {
+      position: absolute;
+      pointer-events: none;
+      z-index: 10000;
+      background:
+        linear-gradient(90deg, rgba(15,23,42,0.95) 50%, rgba(255,255,255,0.95) 50%) 0 0/8px 1px repeat-x,
+        linear-gradient(90deg, rgba(15,23,42,0.95) 50%, rgba(255,255,255,0.95) 50%) 0 100%/8px 1px repeat-x,
+        linear-gradient(0deg, rgba(15,23,42,0.95) 50%, rgba(255,255,255,0.95) 50%) 0 0/1px 8px repeat-y,
+        linear-gradient(0deg, rgba(15,23,42,0.95) 50%, rgba(255,255,255,0.95) 50%) 100% 0/1px 8px repeat-y;
+      animation: marqueeAntsMarch 0.6s linear infinite;
+    }
+    @keyframes marqueeAntsMarch {
+      to {
+        background-position: 8px 0, -8px 100%, 0 -8px, 100% 8px;
+      }
+    }
     body.tool-drawing .penOverlay { pointer-events:auto; cursor:crosshair; }
     /* Direct Selection captures segment + marquee drags too, but
        individual anchor / handle dots still set their own cursors. */
@@ -18733,6 +18752,110 @@
       setLayerSelection([]);
     }
 
+    // Marquee drag-select on an empty canvas region. Used by the
+    // Select (V) tool only — other tools own their canvas drags
+    // (pen creates anchors, hand pans, shape drags out a box,
+    // direct-select marquees over anchors). A short click without
+    // movement keeps the legacy "click empty area to deselect"
+    // behavior; a real drag draws a marching-ants rectangle and on
+    // release selects every layer whose bbox intersects it.
+    // Shift / Ctrl / Cmd held adds to the existing selection
+    // instead of replacing it.
+    function attachCanvasMarquee(host, isDesignerLayer) {
+      if (!host) return;
+      const MARQUEE_THRESHOLD = 4; // px before a click becomes a drag
+      host.addEventListener('pointerdown', (event) => {
+        if (event.button !== 0) return; // left button only
+        // Bail if the user is on a tool that owns canvas drags.
+        const tool = (typeof effectiveEditorTool === 'function') ? effectiveEditorTool() : 'select';
+        if (tool !== 'select') return;
+        // freeLayer pointerdowns stopPropagation, so reaching here
+        // means the click missed every layer. But also bail if the
+        // event originated inside a layer overlay (e.g. selection box).
+        if (event.target.closest('.freeLayer')) return;
+        if (event.target.closest('.layerSelectionBox')) return;
+
+        const hostRect = host.getBoundingClientRect();
+        const unitW = isDesignerLayer ? discTemplate.discD : sheetW();
+        const unitH = isDesignerLayer ? discTemplate.discD : sheetH();
+        const additive = !!(event.shiftKey || event.ctrlKey || event.metaKey);
+        const startScreenX = event.clientX, startScreenY = event.clientY;
+        const startBaseIds = additive ? new Set(selectedLayerIds()) : new Set();
+
+        let box = null;
+        let dragging = false;
+        try { host.setPointerCapture(event.pointerId); } catch {}
+
+        const screenToInch = (sx, sy) => ({
+          x: (sx - hostRect.left) / hostRect.width  * unitW,
+          y: (sy - hostRect.top)  / hostRect.height * unitH,
+        });
+        const screenToHostPct = (sx, sy) => ({
+          x: (sx - hostRect.left) / hostRect.width  * 100,
+          y: (sy - hostRect.top)  / hostRect.height * 100,
+        });
+
+        const move = (e) => {
+          if (!dragging) {
+            const dx = e.clientX - startScreenX;
+            const dy = e.clientY - startScreenY;
+            if (dx * dx + dy * dy < MARQUEE_THRESHOLD * MARQUEE_THRESHOLD) return;
+            dragging = true;
+            box = document.createElement('div');
+            box.className = 'marqueeSelectBox';
+            host.appendChild(box);
+          }
+          const a = screenToHostPct(startScreenX, startScreenY);
+          const b = screenToHostPct(e.clientX, e.clientY);
+          const x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x);
+          const y0 = Math.min(a.y, b.y), y1 = Math.max(a.y, b.y);
+          box.style.left   = `${x0}%`;
+          box.style.top    = `${y0}%`;
+          box.style.width  = `${x1 - x0}%`;
+          box.style.height = `${y1 - y0}%`;
+        };
+
+        const up = (e) => {
+          host.removeEventListener('pointermove', move);
+          host.removeEventListener('pointerup', up);
+          host.removeEventListener('pointercancel', up);
+          if (box && box.parentNode) box.parentNode.removeChild(box);
+          if (!dragging) {
+            // Plain click on empty canvas → legacy behaviour: deselect.
+            if (!additive) { clearLayerSelection(); render(); }
+            return;
+          }
+          // Compute marquee rect in inch space + find intersecting layers.
+          const a = screenToInch(startScreenX, startScreenY);
+          const b = screenToInch(e.clientX, e.clientY);
+          const r = {
+            x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+            w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y),
+          };
+          const hits = state.layers.filter(l => {
+            if (!l || l.locked || l.hidden || l._generatedDiscLayer) return false;
+            const onDesigner = l.target === 'designer-disc';
+            if (onDesigner !== isDesignerLayer) return false;
+            if (!isDesignerLayer && typeof isLayerForCurrentMode === 'function'
+                && !isLayerForCurrentMode(l)) return false;
+            const lx = Number(l.x) || 0, ly = Number(l.y) || 0;
+            const lw = Number(l.w) || 0, lh = Number(l.h) || 0;
+            // AABB intersection — fast and matches Illustrator's
+            // "loose" marquee behaviour (any touch selects).
+            return lx < r.x + r.w && lx + lw > r.x && ly < r.y + r.h && ly + lh > r.y;
+          });
+          const idsAfter = additive
+            ? Array.from(new Set([...startBaseIds, ...hits.map(l => l.id)]))
+            : hits.map(l => l.id);
+          setLayerSelection(idsAfter, idsAfter[idsAfter.length - 1] || '');
+          render();
+        };
+        host.addEventListener('pointermove', move);
+        host.addEventListener('pointerup', up);
+        host.addEventListener('pointercancel', up);
+      });
+    }
+
     let _layerPanelSelectionAnchor = null;
     let _layerPanelDrag = null;
 
@@ -29964,10 +30087,12 @@
       const addTextLayerBtn = $('addTextLayerBtn');
       if (addTextLayerBtn) addTextLayerBtn.addEventListener('click', () => addTextLayer());
 
-      $('sheet').addEventListener('click', () => {
-        clearLayerSelection();
-        render();
-      });
+      // Empty-canvas pointerdown: marquee drag-select with the
+      // Select tool, plain click clears the selection. Layers
+      // stopPropagation on their own pointerdowns so this only fires
+      // when the click misses every layer.
+      attachCanvasMarquee($('sheet'), false);
+      attachCanvasMarquee($('designerDiscWrap'), true);
       // Clicks in the gutter between the sheet edge and the previewShell
       // edge also deselect — the existing #sheet handler misses those.
       // Layer .freeLayer clicks stopPropagation so they don't bubble up
