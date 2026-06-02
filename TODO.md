@@ -8,18 +8,37 @@ Running list of deferred work. Detailed specs for the larger items live in
 _(Empty — see "Shipped (recent)" below for the items that just
 landed. Drop new items in here as they come up.)_
 
-## Book Designer (unified flow)
+## Book Designer (unified flow, Nostr-native)
 
 Drafted spec at `docs/BOOK_DESIGNER_FEATURE.md`. New top-level
 `templateMode: 'book'` that unifies the cover designer (front +
 spine + back), the deck overview (pages grid), and the custom-art
 canvas (per-page editor) around a shared `state.book.spec` (trim
-size, page count, paper thickness, bleed). Phased delivery:
-A (spec + skeleton) → B (pages + per-page editor) → C (master
-pages + `{page-number}` tokens) → D (Nostr publish as
-`casewrap-book`) → E (multi-page PDF export via vendored
-`pdf-lib`) → F (templates + deck-to-book import). Big arc; v1 is
-fixed-layout only — no reflowable text or paragraph-style engine.
+size, page count, paper thickness, bleed).
+
+Pages, masters, and the cover spread are **separate addressable
+Nostr events** (`casewrap-page` kind-30078, `role`-discriminated)
+referenced by a thin **`casewrap-book` manifest** — same sidecar
+pattern Linked Designs already uses. Edit one page → that page
+event replaces; the manifest is unchanged unless the page list
+or order moves. Per-page reactions, comments, tips, and premium
+gating come for free because each page is its own event.
+
+Phased delivery:
+- **A** spec + book mode skeleton
+- **B** pages overview + per-page editor + token substitution
+- **C** master pages with single-level inheritance
+- **D1** publish individual page / cover / master events
+- **D2** publish the `casewrap-book` manifest
+- **E** multi-page PDF export via vendored `pdf-lib`
+- **F** templates + deck-to-book import
+- **G** Reader Mode (Slide Decks' Presenter Mode counterpart) +
+  EXTERNAL_EMBED `?book=<naddr>` flip-book
+- **H** per-page + whole-book premium gating using PREMIUM_DESIGNS
+
+Big arc; v1 is fixed-layout only — no reflowable text or
+paragraph-style engine. Reflowable prose belongs on NIP-23
+long-form articles, not here.
 
 ## Design-tool follow-ups (Illustrator parity arc)
 
