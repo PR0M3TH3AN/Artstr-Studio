@@ -3704,6 +3704,25 @@
             <button type="button" id="layerUngroupBtn">Ungroup</button>
             <button type="button" class="danger" id="deleteLayer">Delete layer</button>
           </div>
+
+          <details id="alignDetails" style="margin-top:10px" open>
+            <summary style="cursor:pointer;font-size:.82rem;font-weight:600">Align &amp; distribute</summary>
+            <p class="hint" id="alignHint" style="margin:4px 0">Select 2+ layers to align to their bounding box, or 1 layer to align to the page bounds. 3+ layers needed to distribute.</p>
+            <div class="buttonRow">
+              <button type="button" id="alignLeft"   title="Align left edges">⫷ L</button>
+              <button type="button" id="alignCX"     title="Align horizontal centers">⊟ H</button>
+              <button type="button" id="alignRight"  title="Align right edges">R ⫸</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="alignTop"    title="Align top edges">⫶ T</button>
+              <button type="button" id="alignCY"     title="Align vertical centers">⊟ V</button>
+              <button type="button" id="alignBottom" title="Align bottom edges">B ⫶</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="distributeX" title="Distribute horizontal spacing evenly">↔ Distribute H</button>
+              <button type="button" id="distributeY" title="Distribute vertical spacing evenly">↕ Distribute V</button>
+            </div>
+          </details>
         </details>
 
         <p class="hint">Click a layer to select it. Shift/Ctrl/Cmd-click to select multiple layers, then drag any selected layer to move the set together. Text layers are editable in place.</p>
@@ -18357,6 +18376,60 @@
       );
     }
 
+    // Align every editable layer in the selection to a reference
+    // bbox. Multi-selection uses the selection's own bbox so the
+    // outer layers stay put; a single layer aligns to its target
+    // (page / panel / disc) bounds so the user can centre or pin a
+    // single asset without setting up a second one.
+    function alignSelection(axis) {
+      const layers = selectedLayers().filter(l => !l?.locked && !l?._generatedDiscLayer);
+      if (!layers.length) { toastError?.('Select a layer first.'); return; }
+      let ref;
+      if (layers.length >= 2) {
+        ref = layersBounds(layers);
+      } else {
+        const single = layers[0];
+        const tb = targetBounds(single.target || (typeof currentDrawTarget === 'function' ? currentDrawTarget() : 'page'));
+        ref = { x: tb.x, y: tb.y, w: tb.w, h: tb.h };
+      }
+      if (!ref) return;
+      pushHistory(`align ${axis}`);
+      for (const l of layers) {
+        const w = Number(l.w) || 0;
+        const h = Number(l.h) || 0;
+        if (axis === 'left')   l.x = ref.x;
+        else if (axis === 'right')  l.x = ref.x + ref.w - w;
+        else if (axis === 'cx')     l.x = ref.x + (ref.w - w) / 2;
+        else if (axis === 'top')    l.y = ref.y;
+        else if (axis === 'bottom') l.y = ref.y + ref.h - h;
+        else if (axis === 'cy')     l.y = ref.y + (ref.h - h) / 2;
+      }
+      render();
+    }
+
+    // Distribute selected layers so the spacing between consecutive
+    // centres is uniform along the chosen axis. Outer two layers stay
+    // pinned; inner ones slide. Requires at least three layers.
+    function distributeSelection(axis) {
+      const layers = selectedLayers().filter(l => !l?.locked && !l?._generatedDiscLayer);
+      if (layers.length < 3) { toastError?.('Select three or more layers to distribute.'); return; }
+      const dim = axis === 'x' ? 'w' : 'h';
+      const sorted = layers.slice().sort((a, b) => {
+        const ka = (Number(a[axis]) || 0) + (Number(a[dim]) || 0) / 2;
+        const kb = (Number(b[axis]) || 0) + (Number(b[dim]) || 0) / 2;
+        return ka - kb;
+      });
+      const firstCenter = (Number(sorted[0][axis]) || 0) + (Number(sorted[0][dim]) || 0) / 2;
+      const lastCenter  = (Number(sorted.at(-1)[axis]) || 0) + (Number(sorted.at(-1)[dim]) || 0) / 2;
+      const step = (lastCenter - firstCenter) / (sorted.length - 1);
+      pushHistory(`distribute ${axis}`);
+      for (let i = 1; i < sorted.length - 1; i++) {
+        const l = sorted[i];
+        l[axis] = (firstCenter + step * i) - (Number(l[dim]) || 0) / 2;
+      }
+      render();
+    }
+
     function layersBounds(layers) {
       if (!layers.length) return null;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -29792,6 +29865,17 @@
 
       $('layerForward').addEventListener('click', () => moveLayerStep('forward'));
       $('layerBackward').addEventListener('click', () => moveLayerStep('backward'));
+      // Align / distribute side-panel wiring. Each button targets the
+      // current layer selection; the helpers themselves toast a hint
+      // when the action would be a no-op (e.g. < 3 layers + distribute).
+      on('alignLeft',    'click', () => alignSelection('left'));
+      on('alignCX',      'click', () => alignSelection('cx'));
+      on('alignRight',   'click', () => alignSelection('right'));
+      on('alignTop',     'click', () => alignSelection('top'));
+      on('alignCY',      'click', () => alignSelection('cy'));
+      on('alignBottom',  'click', () => alignSelection('bottom'));
+      on('distributeX',  'click', () => distributeSelection('x'));
+      on('distributeY',  'click', () => distributeSelection('y'));
 
       $('deleteLayer').addEventListener('click', deleteSelectedLayer);
 
