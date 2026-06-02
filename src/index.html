@@ -1581,6 +1581,16 @@
       position: absolute; top: 6px; left: 8px;
       font-size: .72rem; color: var(--muted); font-weight: 600;
     }
+    .bookPageTileThumb {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: #fff;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .bookPageTileThumb > div {
+      max-width: 100%; max-height: 100%;
+    }
     .bookPageTileActions {
       position: absolute; top: 4px; right: 4px;
       display: flex; gap: 4px;
@@ -8383,6 +8393,13 @@
     function renderBookPagesGrid() {
       const grid = document.getElementById('bookPagesGrid');
       if (!grid) return;
+      // Skip the (potentially expensive) thumbnail rebuild when the
+      // overview isn't actually visible — book mode hides it while
+      // editing a page; non-book modes don't see it at all.
+      if (state.templateMode !== 'book' || state.book?.editingEntryId) {
+        grid.innerHTML = '';
+        return;
+      }
       grid.innerHTML = '';
       const book = state.book;
       const pages = book?.pages || [];
@@ -8405,12 +8422,43 @@
       let printedNum = numbering?.startAt ?? 1;
       const firstNumberedIdx = (numbering?.firstNumberedPage ?? 1) - 1;
       const fmt = numbering?.format || '{n}';
+      // Trim dimensions feed every tile's preview canvas size (no
+       // bleed — the thumbnail shows the trimmed page, matching what
+       // gets printed). Layers are stored against the
+       // `book-page:<entryId>` target; the preview helper expects a
+       // flat-canvas payload with `target === 'canvas'`, so we swap
+       // the target onto the cloned layer just for the preview.
+      const trimW = Number(book.spec?.trimW) || 6;
+      const trimH = Number(book.spec?.trimH) || 9;
       pages.forEach((p, idx) => {
         const tile = document.createElement('div');
         tile.className = `bookPageTile ${p.type === 'reflow' ? 'reflowSegment' : 'designedPage'}`;
         tile.dataset.entryId = p.id;
         tile.dataset.index = String(idx);
         tile.draggable = true;
+        // Live thumbnail of the page's current layers — only for
+        // designed pages. Reflow tiles keep the striped placeholder.
+        if (p.type === 'design') {
+          const thumb = document.createElement('div');
+          thumb.className = 'bookPageTileThumb';
+          tile.appendChild(thumb);
+          const pageTarget = `book-page:${p.id}`;
+          const pageLayers = (state.layers || [])
+            .filter(l => l.target === pageTarget && !l.hidden)
+            .map(l => ({ ...l, target: 'canvas' })); // remap for preview helper
+          try {
+            renderCustomArtPreviewDOM(thumb, {
+              customArt: {
+                width: trimW * 96,
+                height: trimH * 96,
+                background: p.background || book.spec?.background || '#ffffff',
+              },
+              layers: pageLayers,
+            }, { compact: true });
+          } catch (err) {
+            console.warn('book page thumb render failed', err);
+          }
+        }
         const numEl = document.createElement('div');
         numEl.className = 'bookPageTileNum';
         if ((numbering?.enabled !== false) && !p.skipNumber && idx >= firstNumberedIdx) {
