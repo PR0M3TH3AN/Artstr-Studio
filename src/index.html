@@ -1581,6 +1581,30 @@
       position: absolute; top: 6px; left: 8px;
       font-size: .72rem; color: var(--muted); font-weight: 600;
     }
+    .bookMasterRow {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border: 1px solid var(--line);
+      border-radius: 0; background: var(--bg);
+    }
+    .bookMasterRow.isDefault { border-color: var(--accent); background: rgba(59,130,246,.05); }
+    .bookMasterRowLabel { flex: 1; min-width: 0; }
+    .bookMasterRowLabel input {
+      width: 100%; padding: 3px 6px; font-size: .9rem;
+      border: 1px solid var(--line); background: #fff;
+    }
+    .bookMasterRowDefault {
+      font-size: .68rem; color: var(--accent);
+      text-transform: uppercase; letter-spacing: .06em;
+      font-weight: 700;
+    }
+    .bookMasterRowActions { display: flex; gap: 4px; flex-wrap: nowrap; }
+    .bookMasterRowActions button {
+      padding: 3px 8px; font-size: .78rem;
+      border: 1px solid var(--line); background: #fff; cursor: pointer;
+    }
+    .bookMasterRowActions button.danger:hover {
+      background: var(--warn, #fee2e2); border-color: var(--warn, #fca5a5);
+    }
     .bookPageTileThumb {
       position: absolute; inset: 0;
       display: flex; align-items: center; justify-content: center;
@@ -3433,7 +3457,7 @@
         <div id="bookSpecSummary" class="hint" style="margin-top:8px"></div>
         <div class="buttonRow" style="margin-top:8px">
           <button type="button" id="bookDocumentSettingsBtn">Document settings…</button>
-          <button type="button" id="bookManageMastersBtn" disabled>Manage masters…</button>
+          <button type="button" id="bookManageMastersBtn">Manage masters…</button>
         </div>
         <p class="hint" style="margin-top:8px">Document settings, Pages overview, Cover view, and PDF export ship in subsequent phases. This entry is the Phase A2 skeleton.</p>
       </fieldset>
@@ -5017,6 +5041,19 @@
       <div class="buttonRow" style="margin:0;justify-content:flex-end;flex-wrap:wrap;gap:8px">
         <button type="button" id="publishConfirmCancelBtn">Cancel</button>
         <button type="button" id="publishConfirmPublishBtn" class="primary">Publish</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="bookMastersModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:520px;position:relative">
+      <button type="button" id="bookMastersCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
+      <h2 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Master pages</h2>
+      <p class="hint" style="margin:0 0 12px">Masters are reusable page templates — running headers, page numbers, margin guides, background art. Pages that inherit a master render its layers underneath their own. The <b>default</b> master is applied to new pages automatically; per-page overrides come from the Pages overview.</p>
+      <div id="bookMastersList" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div class="buttonRow" style="margin-top:12px;justify-content:flex-end;gap:8px">
+        <button type="button" id="bookMastersAddBtn" class="primary">+ New master</button>
+        <button type="button" id="bookMastersDoneBtn">Done</button>
       </div>
     </div>
   </div>
@@ -8138,6 +8175,11 @@
         },
         bookSize: 'US Trade 6×9',
         defaultMasterRef: null,
+        // Local id of the master applied to new pages on creation.
+        // Until D1 publishes masters as Nostr events, this is how the
+        // book remembers which master is "default" (defaultMasterRef
+        // gets filled in at publish time).
+        defaultMasterId: null,
         textStyles: defaultBookTextStyles(),
       };
     }
@@ -8292,6 +8334,148 @@
       closeBookDocumentSettings();
       syncInputs();
       render();
+    }
+
+    // Stable opaque id for masters. Same shape as page entry ids
+    // so id collisions across pages and masters stay impossible.
+    function makeBookMasterId() {
+      return 'master:' + Math.random().toString(36).slice(2, 10);
+    }
+
+    // Add a fresh master entry. Phase C ships masters as local-only
+    // — no Nostr publish yet, so the entry carries just an id +
+    // label. Layers for the master live in state.layers under
+    // `book-master:<id>`. The first master created becomes the
+    // default automatically.
+    function addBookMaster(label) {
+      const book = ensureBookState();
+      pushHistory('book: add master');
+      const m = { id: makeBookMasterId(), label: label || 'Body pages' };
+      book.masters.push(m);
+      if (!book.spec.defaultMasterId) book.spec.defaultMasterId = m.id;
+      renderBookMastersList();
+      syncInputs();
+      render();
+      return m;
+    }
+    function renameBookMaster(id, label) {
+      const m = state.book?.masters?.find(x => x.id === id);
+      if (!m) return;
+      pushHistoryDebounced(`master:${id}:rename`, 'book: rename master', 400);
+      m.label = label || '';
+      renderBookMastersList();
+      render();
+    }
+    function deleteBookMaster(id) {
+      const book = state.book;
+      if (!book) return;
+      const idx = book.masters.findIndex(m => m.id === id);
+      if (idx < 0) return;
+      pushHistory('book: delete master');
+      book.masters.splice(idx, 1);
+      // Page entries that referenced this master drop back to default.
+      for (const p of book.pages) {
+        if (p.masterId === id) p.masterId = null;
+      }
+      // Drop the layers that lived on this master — they're orphans now.
+      state.layers = state.layers.filter(l => l.target !== `book-master:${id}`);
+      if (book.spec.defaultMasterId === id) {
+        // Promote next remaining master to default, if any.
+        book.spec.defaultMasterId = book.masters[0]?.id || null;
+      }
+      renderBookMastersList();
+      syncInputs();
+      render();
+    }
+    function setBookDefaultMaster(id) {
+      const book = state.book;
+      if (!book) return;
+      if (book.spec.defaultMasterId === id) return;
+      pushHistory('book: set default master');
+      book.spec.defaultMasterId = id;
+      renderBookMastersList();
+      render();
+    }
+
+    // Masters modal lifecycle.
+    function openBookMastersModal() {
+      const modal = document.getElementById('bookMastersModal');
+      if (!modal) return;
+      ensureBookState();
+      renderBookMastersList();
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+      if (typeof bringModalToFront === 'function') bringModalToFront(modal);
+    }
+    function closeBookMastersModal() {
+      const modal = document.getElementById('bookMastersModal');
+      if (!modal) return;
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    function renderBookMastersList() {
+      const wrap = document.getElementById('bookMastersList');
+      if (!wrap) return;
+      wrap.innerHTML = '';
+      const book = state.book;
+      const masters = book?.masters || [];
+      if (!masters.length) {
+        const empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.style.margin = '0';
+        empty.textContent = 'No masters yet. Add one to start sharing layers across pages.';
+        wrap.appendChild(empty);
+        return;
+      }
+      const defaultId = book.spec?.defaultMasterId;
+      masters.forEach(m => {
+        const row = document.createElement('div');
+        row.className = 'bookMasterRow' + (m.id === defaultId ? ' isDefault' : '');
+        const label = document.createElement('div');
+        label.className = 'bookMasterRowLabel';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = m.label || '';
+        input.placeholder = 'Master name';
+        input.addEventListener('input', () => renameBookMaster(m.id, input.value));
+        label.appendChild(input);
+        row.appendChild(label);
+        if (m.id === defaultId) {
+          const badge = document.createElement('span');
+          badge.className = 'bookMasterRowDefault';
+          badge.textContent = 'Default';
+          row.appendChild(badge);
+        }
+        const actions = document.createElement('div');
+        actions.className = 'bookMasterRowActions';
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.title = 'Edit master layers (Phase C2)';
+        editBtn.textContent = 'Edit';
+        editBtn.disabled = true;  // C2 wires this
+        actions.appendChild(editBtn);
+        if (m.id !== defaultId) {
+          const defBtn = document.createElement('button');
+          defBtn.type = 'button';
+          defBtn.title = 'Set as default for new pages';
+          defBtn.textContent = 'Set default';
+          defBtn.addEventListener('click', () => setBookDefaultMaster(m.id));
+          actions.appendChild(defBtn);
+        }
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'danger';
+        delBtn.title = 'Remove master + its layers';
+        delBtn.textContent = '×';
+        delBtn.addEventListener('click', () => {
+          if (confirm(`Delete master "${m.label || 'untitled'}" and any layers on it?`)) {
+            deleteBookMaster(m.id);
+          }
+        });
+        actions.appendChild(delBtn);
+        row.appendChild(actions);
+        wrap.appendChild(row);
+      });
     }
 
     // Stable opaque id for manifest entries. The id stays put across
@@ -31711,6 +31895,16 @@
       on('bookPageEditPrev', 'click', () => gotoBookPageRelative(-1));
       on('bookPageEditNext', 'click', () => gotoBookPageRelative(1));
 
+      // Book Designer — Masters modal.
+      on('bookManageMastersBtn', 'click', openBookMastersModal);
+      on('bookMastersCloseBtn',  'click', closeBookMastersModal);
+      on('bookMastersDoneBtn',   'click', closeBookMastersModal);
+      on('bookMastersAddBtn',    'click', () => addBookMaster('Body pages'));
+      const _bookMastersModal = $('bookMastersModal');
+      if (_bookMastersModal) _bookMastersModal.addEventListener('click', (e) => {
+        if (e.target === _bookMastersModal) closeBookMastersModal();
+      });
+
       // Book Designer — Document settings modal.
       on('bookDocumentSettingsBtn', 'click', openBookDocumentSettings);
       on('bookDocumentSettingsCloseBtn', 'click', closeBookDocumentSettings);
@@ -32026,6 +32220,8 @@
         if (pubConfirmM && pubConfirmM.getAttribute('aria-hidden') === 'false') { closePublishConfirmModal(); return; }
         const bookDocM = $('bookDocumentSettingsModal');
         if (bookDocM && bookDocM.getAttribute('aria-hidden') === 'false') { closeBookDocumentSettings(); return; }
+        const bookMastersM = $('bookMastersModal');
+        if (bookMastersM && bookMastersM.getAttribute('aria-hidden') === 'false') { closeBookMastersModal(); return; }
         // Esc while editing a book page returns to the Pages overview.
         if (state.templateMode === 'book' && state.book?.editingEntryId) {
           closeBookPage();
