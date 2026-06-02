@@ -10496,6 +10496,17 @@
         _penOverlay.removeEventListener('pointermove', move);
         _penOverlay.removeEventListener('pointerup', up);
         _penOverlay.removeEventListener('pointercancel', up);
+        const dx = Math.abs(cur.x - startPt.x);
+        const dy = Math.abs(cur.y - startPt.y);
+        // A plain click in DSel mode (no real drag) deselects the
+        // layer entirely. The overlay vanishes on the next render
+        // because no editable pen layer is selected anymore.
+        const noDrag = dx < 0.005 && dy < 0.005;
+        if (noDrag && !additive) {
+          clearLayerSelection?.();
+          render?.();
+          return;
+        }
         const x0 = Math.min(startPt.x, cur.x), x1 = Math.max(startPt.x, cur.x);
         const y0 = Math.min(startPt.y, cur.y), y1 = Math.max(startPt.y, cur.y);
         const nodes = layer.shape.pen.nodes;
@@ -16890,6 +16901,24 @@
           el.addEventListener('dblclick', (event) => {
             event.stopPropagation();
             beginDesignObjectEdit(layer.id);
+          });
+        } else if (layer.type === 'shape') {
+          // Illustrator-style "dive into edit": double-click a vector
+          // shape with Select active and we flip to Direct Selection,
+          // auto-converting non-pen primitives so anchors show up
+          // right away. Only fires while the Select tool is active —
+          // double-clicking from any other tool stays out of the way.
+          el.addEventListener('dblclick', (event) => {
+            if (event.target.closest('.layerHandle')) return;
+            if (_editorTool !== 'select') return;
+            event.preventDefault();
+            event.stopPropagation();
+            setLayerSelection([layer.id], layer.id);
+            if (layer.shape && !layer.shape.pen) {
+              const r = convertShapeToEditablePath?.(layer);
+              if (r && !r.ok) { toastError?.(r.reason || 'Can’t edit this shape directly.'); return; }
+            }
+            setEditorTool('direct-select');
           });
         }
         el.addEventListener('click', (event) => {
