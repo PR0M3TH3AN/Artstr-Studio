@@ -3216,7 +3216,7 @@
         <p class="hint">A book combines a cover spread (front + spine + back), an ordered list of designed pages, optional reflowable chapters written as NIP-23 markdown, and master pages for shared running heads and page numbers. See <code>docs/BOOK_DESIGNER_FEATURE.md</code> for the full spec.</p>
         <div id="bookSpecSummary" class="hint" style="margin-top:8px"></div>
         <div class="buttonRow" style="margin-top:8px">
-          <button type="button" id="bookDocumentSettingsBtn" disabled>Document settings…</button>
+          <button type="button" id="bookDocumentSettingsBtn">Document settings…</button>
           <button type="button" id="bookManageMastersBtn" disabled>Manage masters…</button>
         </div>
         <p class="hint" style="margin-top:8px">Document settings, Pages overview, Cover view, and PDF export ship in subsequent phases. This entry is the Phase A2 skeleton.</p>
@@ -4764,6 +4764,91 @@
       <div class="buttonRow" style="margin:0;justify-content:flex-end;flex-wrap:wrap;gap:8px">
         <button type="button" id="publishConfirmCancelBtn">Cancel</button>
         <button type="button" id="publishConfirmPublishBtn" class="primary">Publish</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="bookDocumentSettingsModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:560px;position:relative">
+      <button type="button" id="bookDocumentSettingsCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
+      <h2 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Document settings</h2>
+      <p class="hint" style="margin:0 0 14px">Trim, bleed, paper thickness, and page-numbering rules for this book. Changes apply immediately and are saved with the project.</p>
+
+      <label for="bookSettingsPreset">Book size</label>
+      <select id="bookSettingsPreset">
+        <option value="US Trade 6×9">US Trade 6 × 9 in</option>
+        <option value="US Letter 8.5×11">US Letter 8.5 × 11 in</option>
+        <option value="A5 5.83×8.27">A5 5.83 × 8.27 in</option>
+        <option value="A4 8.27×11.69">A4 8.27 × 11.69 in</option>
+        <option value="Square 8×8">Square 8 × 8 in</option>
+        <option value="Custom">Custom</option>
+      </select>
+
+      <div class="row" style="display:flex;gap:8px;margin-top:8px">
+        <div style="flex:1">
+          <label for="bookSettingsTrimW">Trim width (in)</label>
+          <input type="number" id="bookSettingsTrimW" min="0.5" max="40" step="0.01" />
+        </div>
+        <div style="flex:1">
+          <label for="bookSettingsTrimH">Trim height (in)</label>
+          <input type="number" id="bookSettingsTrimH" min="0.5" max="40" step="0.01" />
+        </div>
+      </div>
+
+      <label for="bookSettingsBleed" style="margin-top:8px">Bleed (in, outside each trim edge)</label>
+      <input type="number" id="bookSettingsBleed" min="0" max="0.5" step="0.005" />
+
+      <label for="bookSettingsPaperThickness" style="margin-top:8px">Paper thickness (in / page)</label>
+      <input type="number" id="bookSettingsPaperThickness" min="0.001" max="0.02" step="0.0001" />
+
+      <label class="toggle" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:8px">
+        <input type="checkbox" id="bookSettingsSpineFromPages" />
+        <span>Derive spine width from page count × paper thickness</span>
+      </label>
+      <div id="bookSettingsSpineManualRow" style="display:none;margin-top:6px">
+        <label for="bookSettingsSpineWManual">Spine width (in)</label>
+        <input type="number" id="bookSettingsSpineWManual" min="0" max="5" step="0.01" />
+      </div>
+      <p class="hint" id="bookSettingsSpineDerivedNote" style="margin:6px 0 0"></p>
+
+      <fieldset style="margin-top:14px;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
+        <legend style="font-size:.82rem;padding:0 4px">Cover layout</legend>
+        <label class="toggle" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0 0 4px">
+          <input type="checkbox" id="bookSettingsCoverHasSpine" />
+          <span>Include spine (softcover wraparound)</span>
+        </label>
+        <label class="toggle" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="bookSettingsCoverHasBack" />
+          <span>Include back panel</span>
+        </label>
+      </fieldset>
+
+      <fieldset style="margin-top:14px;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
+        <legend style="font-size:.82rem;padding:0 4px">Page numbering</legend>
+        <label class="toggle" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0 0 6px">
+          <input type="checkbox" id="bookSettingsNumberingEnabled" />
+          <span>Enable page numbering</span>
+        </label>
+        <div id="bookSettingsNumberingDetails" style="display:none">
+          <div class="row" style="display:flex;gap:8px">
+            <div style="flex:1">
+              <label for="bookSettingsNumberingStartAt">Start at</label>
+              <input type="number" id="bookSettingsNumberingStartAt" min="1" step="1" />
+            </div>
+            <div style="flex:1">
+              <label for="bookSettingsNumberingFirst">First numbered page (manifest index)</label>
+              <input type="number" id="bookSettingsNumberingFirst" min="1" step="1" />
+            </div>
+          </div>
+          <label for="bookSettingsNumberingFormat" style="margin-top:6px">Format</label>
+          <input type="text" id="bookSettingsNumberingFormat" placeholder="{n}" />
+          <p class="hint" style="margin:4px 0 0">Use <code>{n}</code> as the page number placeholder, e.g. <code>Page {n}</code> or <code>— {n} —</code>.</p>
+        </div>
+      </fieldset>
+
+      <div class="buttonRow" style="margin-top:16px;justify-content:flex-end;gap:8px">
+        <button type="button" id="bookSettingsCancelBtn">Cancel</button>
+        <button type="button" id="bookSettingsApplyBtn" class="primary">Apply</button>
       </div>
     </div>
   </div>
@@ -7848,6 +7933,114 @@
       if (!spec.spineFromPages) return Number(spec.spineWManual) || 0;
       return bookPageCount() * (Number(spec.paperThickness) || 0);
     }
+    // Book size presets in inches. Custom unlocks the trim inputs;
+    // every other choice forces them to known-good values.
+    const BOOK_SIZE_PRESETS = {
+      'US Trade 6×9':       { trimW: 6,    trimH: 9     },
+      'US Letter 8.5×11':   { trimW: 8.5,  trimH: 11    },
+      'A5 5.83×8.27':       { trimW: 5.83, trimH: 8.27  },
+      'A4 8.27×11.69':      { trimW: 8.27, trimH: 11.69 },
+      'Square 8×8':         { trimW: 8,    trimH: 8     },
+    };
+
+    // Open the Document settings modal. Fills inputs from the live
+    // state.book.spec; "Apply" copies values back. Cancel discards.
+    function openBookDocumentSettings() {
+      const book = ensureBookState();
+      const spec = book.spec;
+      const modal = $('bookDocumentSettingsModal');
+      if (!modal) return;
+      const preset = $('bookSettingsPreset');
+      if (preset) preset.value = BOOK_SIZE_PRESETS[spec.bookSize] ? spec.bookSize : 'Custom';
+      const setNum = (id, val) => { const el = $(id); if (el) el.value = String(val); };
+      setNum('bookSettingsTrimW', spec.trimW);
+      setNum('bookSettingsTrimH', spec.trimH);
+      setNum('bookSettingsBleed', spec.bleed);
+      setNum('bookSettingsPaperThickness', spec.paperThickness);
+      setNum('bookSettingsSpineWManual', spec.spineWManual);
+      const setChk = (id, val) => { const el = $(id); if (el) el.checked = !!val; };
+      setChk('bookSettingsSpineFromPages', spec.spineFromPages);
+      setChk('bookSettingsCoverHasSpine', spec.coverHasSpine);
+      setChk('bookSettingsCoverHasBack', spec.coverHasBack);
+      setChk('bookSettingsNumberingEnabled', spec.pageNumbering?.enabled);
+      setNum('bookSettingsNumberingStartAt', spec.pageNumbering?.startAt ?? 1);
+      setNum('bookSettingsNumberingFirst', spec.pageNumbering?.firstNumberedPage ?? 1);
+      const fmt = $('bookSettingsNumberingFormat'); if (fmt) fmt.value = spec.pageNumbering?.format || '{n}';
+      // Toggle dependent rows + spine-derived note.
+      const spineManualRow = $('bookSettingsSpineManualRow');
+      if (spineManualRow) spineManualRow.style.display = spec.spineFromPages ? 'none' : '';
+      const numDetails = $('bookSettingsNumberingDetails');
+      if (numDetails) numDetails.style.display = spec.pageNumbering?.enabled ? '' : 'none';
+      _syncBookSettingsSpineNote();
+      _syncBookSettingsPresetLock();
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+      if (typeof bringModalToFront === 'function') bringModalToFront(modal);
+    }
+    function closeBookDocumentSettings() {
+      const modal = $('bookDocumentSettingsModal');
+      if (!modal) return;
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    function _syncBookSettingsSpineNote() {
+      const note = $('bookSettingsSpineDerivedNote');
+      if (!note) return;
+      const fromPages = $('bookSettingsSpineFromPages')?.checked;
+      const thickness = Number($('bookSettingsPaperThickness')?.value || 0);
+      const pages = bookPageCount();
+      const derived = pages * thickness;
+      note.textContent = fromPages
+        ? `Spine = ${pages} pages × ${thickness.toFixed(4)} in = ${derived.toFixed(3)} in.`
+        : 'Manual spine width — adjust above. Spine width does not react to page count changes.';
+    }
+    function _syncBookSettingsPresetLock() {
+      // When a non-Custom preset is selected, trim fields are locked
+      // to the preset values. Switching to Custom unlocks them.
+      const preset = $('bookSettingsPreset')?.value;
+      const trimW = $('bookSettingsTrimW');
+      const trimH = $('bookSettingsTrimH');
+      if (!trimW || !trimH) return;
+      if (preset && preset !== 'Custom' && BOOK_SIZE_PRESETS[preset]) {
+        trimW.value = String(BOOK_SIZE_PRESETS[preset].trimW);
+        trimH.value = String(BOOK_SIZE_PRESETS[preset].trimH);
+        trimW.disabled = true;
+        trimH.disabled = true;
+      } else {
+        trimW.disabled = false;
+        trimH.disabled = false;
+      }
+    }
+    function applyBookDocumentSettings() {
+      const book = ensureBookState();
+      pushHistory('book: document settings');
+      const num = (id, fallback) => {
+        const v = Number($(id)?.value);
+        return Number.isFinite(v) ? v : fallback;
+      };
+      const chk = (id) => !!$(id)?.checked;
+      const preset = $('bookSettingsPreset')?.value || 'Custom';
+      book.spec.bookSize = preset;
+      book.spec.trimW = num('bookSettingsTrimW', book.spec.trimW);
+      book.spec.trimH = num('bookSettingsTrimH', book.spec.trimH);
+      book.spec.bleed = num('bookSettingsBleed', book.spec.bleed);
+      book.spec.paperThickness = num('bookSettingsPaperThickness', book.spec.paperThickness);
+      book.spec.spineFromPages = chk('bookSettingsSpineFromPages');
+      book.spec.spineWManual = num('bookSettingsSpineWManual', book.spec.spineWManual);
+      book.spec.coverHasSpine = chk('bookSettingsCoverHasSpine');
+      book.spec.coverHasBack = chk('bookSettingsCoverHasBack');
+      book.spec.pageNumbering = {
+        ...(book.spec.pageNumbering || {}),
+        enabled: chk('bookSettingsNumberingEnabled'),
+        startAt: Math.max(1, Math.round(num('bookSettingsNumberingStartAt', 1))),
+        firstNumberedPage: Math.max(1, Math.round(num('bookSettingsNumberingFirst', 1))),
+        format: ($('bookSettingsNumberingFormat')?.value || '{n}'),
+      };
+      closeBookDocumentSettings();
+      syncInputs();
+      render();
+    }
+
     function syncBookSidebarSummary() {
       const el = $('bookSpecSummary');
       if (!el) return;
@@ -30757,6 +30950,25 @@
       on('publishConfirmCloseBtn', 'click', closePublishConfirmModal);
       on('publishConfirmCancelBtn', 'click', closePublishConfirmModal);
       on('publishConfirmPublishBtn', 'click', handlePublishConfirmPublish);
+
+      // Book Designer — Document settings modal.
+      on('bookDocumentSettingsBtn', 'click', openBookDocumentSettings);
+      on('bookDocumentSettingsCloseBtn', 'click', closeBookDocumentSettings);
+      on('bookSettingsCancelBtn', 'click', closeBookDocumentSettings);
+      on('bookSettingsApplyBtn', 'click', applyBookDocumentSettings);
+      const _bookDocModal = $('bookDocumentSettingsModal');
+      if (_bookDocModal) _bookDocModal.addEventListener('click', (e) => { if (e.target === _bookDocModal) closeBookDocumentSettings(); });
+      on('bookSettingsPreset', 'change', _syncBookSettingsPresetLock);
+      on('bookSettingsSpineFromPages', 'change', () => {
+        const r = $('bookSettingsSpineManualRow');
+        if (r) r.style.display = $('bookSettingsSpineFromPages').checked ? 'none' : '';
+        _syncBookSettingsSpineNote();
+      });
+      on('bookSettingsPaperThickness', 'input', _syncBookSettingsSpineNote);
+      on('bookSettingsNumberingEnabled', 'change', () => {
+        const d = $('bookSettingsNumberingDetails');
+        if (d) d.style.display = $('bookSettingsNumberingEnabled').checked ? '' : 'none';
+      });
       document.querySelectorAll('input[name="pubVisibility"]').forEach((radio) => {
         radio.addEventListener('change', (e) => {
           if (e.target.checked) {
@@ -31052,6 +31264,8 @@
         if (tipM && tipM.getAttribute('aria-hidden') === 'false') { closeTipModal(); return; }
         const pubConfirmM = $('publishConfirmModal');
         if (pubConfirmM && pubConfirmM.getAttribute('aria-hidden') === 'false') { closePublishConfirmModal(); return; }
+        const bookDocM = $('bookDocumentSettingsModal');
+        if (bookDocM && bookDocM.getAttribute('aria-hidden') === 'false') { closeBookDocumentSettings(); return; }
         const supportM = $('supportDevModal');
         if (supportM && supportM.getAttribute('aria-hidden') === 'false') { closeSupportDevModal(); return; }
         const shapePathM = $('shapePathModal');
