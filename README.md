@@ -169,7 +169,7 @@ Spec lives in `docs/PREMIUM_DESIGNS_FEATURE.md`.
 - `docs/` — feature specs.
   - **Shipped:** `PEN_TOOL_FEATURE.md` (pen / pencil / vector tooling), `SLIDE_DECK_FEATURE.md` (slide / deck / presenter, Phases A–D; dual-window presenter still future), `PIXEL_ART_FEATURE.md` (palette-indexed pixel art, Phases A–D), `PREMIUM_DESIGNS_FEATURE.md` (NWC split-zap + soft-gate + purchase vault), `LINKED_DESIGNS_FEATURE.md` (cross-reference imports + auto-update + attribution chain), `PPTX_IMPORT_FEATURE.md` (Phases 0–7 of PowerPoint deck import), `CHART_IMPORT_FEATURE.md` (Phases 1–4 of native OOXML chart rendering), `EXTERNAL_EMBED_FEATURE.md` (iframe-able read-only viewer with code generator).
   - **Partial:** `PRIVATE_PUBLISHING_FEATURE.md` (Phases 1+2 shipped; share-with-pubkeys + gift-wrap metadata privacy deferred).
-  - **Drafted-but-unbuilt:** `STACKS_FEATURE.md`, `BADGES_FEATURE.md`, `COLLECTIONS_FEATURE.md`.
+  - **Drafted-but-unbuilt:** `BOOK_DESIGNER_FEATURE.md` (unified book mode — cover spread + interior pages + masters + PDF export), `STACKS_FEATURE.md`, `BADGES_FEATURE.md`, `COLLECTIONS_FEATURE.md`.
 - `TODO.md` — running list of deferred work and cleanup items.
 
 ## Schema
