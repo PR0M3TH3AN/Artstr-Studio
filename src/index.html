@@ -20255,16 +20255,21 @@
         const ang = Math.atan2(e.clientY - cyPx, e.clientX - cxPx) * 180 / Math.PI;
         let next = rot0 + (ang - ang0);
         if (e.shiftKey) next = Math.round(next / 15) * 15;
-        // Normalize to (-180, 180] for cleaner numeric display.
         next = ((next + 540) % 360) - 180;
         layer.rotate = next;
-        render();
+        // Update the freeLayer's transform in place — calling render()
+        // here would tear down the handle the user is dragging and
+        // break pointer capture, so the drag would "let go" after one
+        // tick. The transform style is what renderLayers writes too.
+        el.style.transform = `rotate(${next}deg)`;
+        syncLayerInputs?.();
       };
       const up = () => {
         document.body.classList.remove('dragging-layer');
         handle.removeEventListener('pointermove', move);
         handle.removeEventListener('pointerup', up);
         handle.removeEventListener('pointercancel', up);
+        if (snapshotted) render();
       };
       handle.addEventListener('pointermove', move);
       handle.addEventListener('pointerup', up);
@@ -20323,14 +20328,20 @@
           s.layer.x = nx - w / 2;
           s.layer.y = ny - h / 2;
           s.layer.rotate = ((s.rot + delta + 540) % 360) - 180;
+          // Update each affected freeLayer in place — render() inside
+          // the drag tears down the handle and breaks pointer capture.
+          updateLayerElementBox(s.layer, isDesignerLayer);
+          const layerEl = document.querySelector(`.freeLayer[data-layer-id="${s.layer.id}"]`);
+          if (layerEl) layerEl.style.transform = `rotate(${s.layer.rotate}deg)`;
         }
-        render();
+        syncLayerInputs?.();
       };
       const up = () => {
         document.body.classList.remove('dragging-layer');
         handle.removeEventListener('pointermove', move);
         handle.removeEventListener('pointerup', up);
         handle.removeEventListener('pointercancel', up);
+        if (snapshotted) render();
       };
       handle.addEventListener('pointermove', move);
       handle.addEventListener('pointerup', up);
