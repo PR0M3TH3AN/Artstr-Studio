@@ -9485,7 +9485,14 @@
     function syncPenOverlay() {
       if (_penOverlay && _penOverlay.parentNode) _penOverlay.parentNode.removeChild(_penOverlay);
       _penOverlay = null;
-      if (_editorTool === 'select') { document.body.classList.remove('tool-drawing'); return; }
+      if (_editorTool === 'select') {
+        document.body.classList.remove('tool-drawing');
+        // Skip creating the overlay unless a pen-shape layer is
+        // selected. With one selected, the overlay renders anchor /
+        // handle glyphs so the user can drag-edit or right-click
+        // delete without switching to the pen tool.
+        if (!getEditablePenLayer()) return;
+      }
       const host = currentCanvasHost();
       if (!host) return;
       const dims = currentCanvasDims();
@@ -9649,6 +9656,24 @@
     }
 
     function onPenPointerDown(evt) {
+      // In select mode the overlay base has pointer-events:none and
+      // events only reach this handler via anchor/handle elements
+      // with pointer-events:all. The pen-only branches (pencil /
+      // hand / shape / text / new-path) shouldn't run in select mode.
+      if (_editorTool === 'select') {
+        const editLayer = getEditablePenLayer();
+        if (!editLayer) return;
+        const hit = hitTestPenEdit(editLayer, evt);
+        if (!hit || hit.part === 'segment') return; // pass empty/segment clicks through to layer
+        evt.preventDefault();
+        evt.stopPropagation();
+        if (hit.part === 'anchor' && evt.altKey) {
+          togglePenAnchorKind(editLayer, hit.nodeIndex);
+          return;
+        }
+        startPenEditDrag(editLayer, hit, evt);
+        return;
+      }
       evt.preventDefault();
       if (_editorTool === 'pencil') { startPencilStroke(evt); return; }
       if (_editorTool === 'hand') { startHandPan(evt); return; }
@@ -9818,7 +9843,13 @@
     // ---- Phase D: editing an existing pen path's anchors / handles ----
 
     function getEditablePenLayer() {
-      if (_editorTool !== 'pen') return null;
+      // Anchors are exposed for editing in BOTH pen mode and select
+      // mode — select-mode editing lets the user drag / delete an
+      // anchor without having to switch tools first. Pen mode keeps
+      // its richer affordances (segment-click to insert anchor,
+      // Alt-click to toggle corner/smooth) since those would conflict
+      // with the select tool's normal layer-click behavior.
+      if (_editorTool !== 'pen' && _editorTool !== 'select') return null;
       const layer = selectedLayer();
       if (!layer || layer.type !== 'shape') return null;
       const sh = layer.shape;
@@ -10134,6 +10165,11 @@
       const lineW = unit * 0.0018;
       const dotR = unit * 0.0075;
       const nodes = layer.shape.pen.nodes;
+      // In select mode the overlay base passes pointer events through
+      // to the layer underneath (so clicks on empty canvas still
+      // select layers). Anchors / handles get explicit pointer-events
+      // to ensure they capture their own clicks regardless of the
+      // overlay-level setting.
       nodes.forEach((n, i) => {
         const a = penNodeToInch(layer, n);
         for (const part of ['hIn', 'hOut']) {
@@ -10144,11 +10180,14 @@
           hl.setAttribute('x2', h.x); hl.setAttribute('y2', h.y);
           hl.setAttribute('stroke', '#3b82f6');
           hl.setAttribute('stroke-width', String(lineW));
+          hl.setAttribute('pointer-events', 'none');
           _penOverlay.appendChild(hl);
           const hd = document.createElementNS(ns, 'circle');
           hd.setAttribute('cx', h.x); hd.setAttribute('cy', h.y);
           hd.setAttribute('r', String(dotR * 0.62));
           hd.setAttribute('fill', '#3b82f6');
+          hd.setAttribute('pointer-events', 'all');
+          hd.style.cursor = 'pointer';
           _penOverlay.appendChild(hd);
         }
         // Anchor glyph: smooth = circle, corner = square. Selected
@@ -10163,6 +10202,8 @@
           dot.setAttribute('fill', '#ffffff');
           dot.setAttribute('stroke', stroke);
           dot.setAttribute('stroke-width', String(lineW * (isSelected ? 2.4 : 1.6)));
+          dot.setAttribute('pointer-events', 'all');
+          dot.style.cursor = 'pointer';
           _penOverlay.appendChild(dot);
         } else {
           const sq = document.createElementNS(ns, 'rect');
@@ -10174,6 +10215,8 @@
           sq.setAttribute('fill', '#ffffff');
           sq.setAttribute('stroke', stroke);
           sq.setAttribute('stroke-width', String(lineW * (isSelected ? 2.4 : 1.6)));
+          sq.setAttribute('pointer-events', 'all');
+          sq.style.cursor = 'pointer';
           _penOverlay.appendChild(sq);
         }
       });
@@ -10669,6 +10712,14 @@
       // After updateBodyClasses so the designer view is displayed/laid out —
       // the disc image's cover-pan math needs the wrapper's real size.
       renderDesignerDisc();
+      // In select mode the overlay is conditionally present based on
+      // whether an editable pen layer is selected — re-sync each
+      // render so the overlay appears / disappears with selection
+      // changes. Cheap (a single removeChild + recreate when
+      // needed). In tool-drawing modes setEditorTool already created
+      // the overlay; this is a no-op idempotent refresh.
+      const wantsOverlayNow = _editorTool !== 'select' || !!getEditablePenLayer();
+      if (wantsOverlayNow !== !!_penOverlay) syncPenOverlay();
       refreshPenOverlayGeometry();
       refreshPenOverlayContent();
       if (_editorTool !== 'select') syncToolOptionInputs();
