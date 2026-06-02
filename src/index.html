@@ -783,7 +783,12 @@
     }
     .deckSlideActions button:hover { background: #f1f5f9; }
     #deckEditBar {
-      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      /* Pinned to the viewport so panning / zooming the canvas
+         doesn't drag the bar along. The bar still visually sits over
+         the canvas area because the sidebar is on the left — top:10px
+         + left:50% lands roughly centred over the canvas at common
+         widths. */
+      position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
       z-index: 60; align-items: center; gap: 10px;
       background: var(--panel, #fff); border: 1px solid var(--line);
       border-radius: 999px; padding: 5px 14px 5px 8px;
@@ -1501,12 +1506,13 @@
       box-sizing: border-box;
       min-height: calc(100vh - 160px);
     }
-    /* Page-context bar — floats at the top-center over the canvas
-       while editing a book page. Mirrors the deck-edit-bar pill so
-       both flows feel consistent. */
+    /* Page-context bar — pinned to the viewport (not the scrolling
+       canvas) so panning / zooming doesn't drag it along. Top-center
+       placement lines up over the canvas area at typical sidebar
+       widths. */
     #bookPageEditBar {
       display: none;
-      position: absolute; top: 10px; left: 50%;
+      position: fixed; top: 10px; left: 50%;
       transform: translateX(-50%);
       z-index: 60;
       align-items: center; gap: 8px;
