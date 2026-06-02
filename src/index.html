@@ -13553,9 +13553,25 @@
           return jewel('front');
         case 'jewel-tray':
           return jewel('tray');
-        default:
-          return { x: 0, y: 0, w: sheetW(), h: sheetH() };
       }
+      // Book-mode targets (entry-id qualified): `book-page:<id>`,
+      // `book-master:<id>`, `book-cover-{front,back,spine}`. Each
+      // page is a trim-sized artboard with bleed on all sides; the
+      // cover panels return their slice of the spread.
+      if (typeof target === 'string' && target.startsWith('book-')) {
+        const s = state.book?.spec || defaultBookSpec();
+        const trimW = Number(s.trimW) || 0;
+        const trimH = Number(s.trimH) || 0;
+        const bleed = Number(s.bleed) || 0;
+        const spineW = bookSpineWidthInches();
+        if (target.startsWith('book-page:') || target.startsWith('book-master:')) {
+          return { x: bleed, y: bleed, w: trimW, h: trimH };
+        }
+        if (target === 'book-cover-back')  return { x: bleed, y: bleed, w: trimW, h: trimH };
+        if (target === 'book-spine')       return { x: bleed + trimW, y: bleed, w: spineW, h: trimH };
+        if (target === 'book-cover-front') return { x: bleed + trimW + spineW, y: bleed, w: trimW, h: trimH };
+      }
+      return { x: 0, y: 0, w: sheetW(), h: sheetH() };
     }
 
     function applyTargetMode(target) {
@@ -13568,6 +13584,11 @@
         // 'canvas' layers belong to both Custom Art and Slide — don't flip a
         // slide back to custom art just because a layer was added.
         if (!isCanvasMode(state.templateMode)) state.templateMode = 'customart';
+      } else if (typeof target === 'string' && target.startsWith('book-')) {
+        // Book-mode surfaces (`book-page:<id>`, `book-master:<id>`,
+        // `book-cover-*`, `book-spine`). Stay in book mode; don't
+        // bounce to cover just because a new layer was added.
+        state.templateMode = 'book';
       } else if (target.startsWith('disc')) {
         state.templateMode = 'disc';
       } else if (target.startsWith('jewel')) {
@@ -28940,6 +28961,18 @@
         `;
       } else if (isCanvasMode(state.templateMode)) {
         select.innerHTML = `<option value="canvas">Canvas</option>`;
+      } else if (state.templateMode === 'book') {
+        // Book mode: the only target a new layer should land on is
+        // the currently-open page (Phase B). Other surfaces (cover,
+        // masters) get their own routes in A5/C/D1. If no page is
+        // open, fall back to a stub so the layers panel doesn't
+        // appear broken.
+        const editId = state.book?.editingEntryId;
+        if (editId) {
+          select.innerHTML = `<option value="book-page:${editId}">Current book page</option>`;
+        } else {
+          select.innerHTML = `<option value="page">No page open</option>`;
+        }
       } else {
         select.innerHTML = `
           <option value="page">Whole page</option>
