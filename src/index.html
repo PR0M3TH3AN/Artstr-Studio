@@ -3746,6 +3746,19 @@
               <button type="button" id="distributeY" title="Distribute vertical spacing evenly">↕ Distribute V</button>
             </div>
           </details>
+
+          <details id="pathfinderDetails" style="margin-top:10px">
+            <summary style="cursor:pointer;font-size:.82rem;font-weight:600">Pathfinder</summary>
+            <p class="hint">Boolean ops on 2+ selected shape layers. Result is a polygon approximation (curves get flattened). Non-pen primitives are auto-converted; rotated shapes aren’t supported yet.</p>
+            <div class="buttonRow">
+              <button type="button" id="pathfinderUnite"     title="Combine all selected shapes into one">Unite</button>
+              <button type="button" id="pathfinderSubtract"  title="Subtract upper shapes from the bottom-most one">Subtract</button>
+            </div>
+            <div class="buttonRow">
+              <button type="button" id="pathfinderIntersect" title="Keep only the overlapping region">Intersect</button>
+              <button type="button" id="pathfinderExclude"   title="Keep only the non-overlapping regions">Exclude</button>
+            </div>
+          </details>
         </details>
 
         <p class="hint">Click a layer to select it. Shift/Ctrl/Cmd-click to select multiple layers, then drag any selected layer to move the set together. Text layers are editable in place.</p>
@@ -4919,6 +4932,7 @@
   </div>
 
   <script src="vendor/qrcode.min.js"></script>
+  <script src="vendor/polygon-clipping.min.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
     const safe$ = (id) => { try { return $(id); } catch { return null; } };
@@ -10609,6 +10623,169 @@
       return true;
     }
 
+    // ---- Pathfinder: boolean ops on selected shape layers --------
+    //
+    // Backed by the vendored polygon-clipping library (window.polygonClipping).
+    // The library operates on MultiPolygon geometries: [polygon, ...] where
+    // polygon = [outerRing, innerRing, ...] and ring = [[x,y], ...]. Curves
+    // can't be represented exactly so we sample each Bézier segment into a
+    // polyline; the result of every op is therefore a polygon approximation
+    // (matches what Illustrator's Pathfinder also produces internally).
+    function _samplePenLayerToWorldRing(layer, samplesPerSeg) {
+      const pen = layer.shape?.pen;
+      if (!pen?.nodes || pen.nodes.length < 2) return null;
+      const nodes = pen.nodes;
+      const vb = layer.shape.viewBox || { x: 0, y: 0, w: (Number(layer.w)||0)*96, h: (Number(layer.h)||0)*96 };
+      const lw = Number(layer.w) || 0, lh = Number(layer.h) || 0;
+      const vbw = Math.max(0.0001, Number(vb.w) || 0.0001);
+      const vbh = Math.max(0.0001, Number(vb.h) || 0.0001);
+      const toWorld = (p) => [
+        (Number(layer.x) || 0) + (p.x - (Number(vb.x) || 0)) / vbw * lw,
+        (Number(layer.y) || 0) + (p.y - (Number(vb.y) || 0)) / vbh * lh,
+      ];
+      const ring = [];
+      const closed = !!pen.closed;
+      const segCount = closed ? nodes.length : nodes.length - 1;
+      ring.push(toWorld(nodes[0]));
+      for (let i = 0; i < segCount; i++) {
+        const a = nodes[i], b = nodes[(i + 1) % nodes.length];
+        const inner = sampleSegment(a, b, samplesPerSeg);
+        for (const s of inner) ring.push(toWorld(s));
+        ring.push(toWorld(b));
+      }
+      // polygon-clipping wants closed rings to end at the start point.
+      // For an open path, force-close: the user picked Pathfinder which only
+      // makes sense for filled regions, so treat open paths as polylines
+      // that get closed by a straight segment.
+      if (ring.length > 0) {
+        const first = ring[0], last = ring[ring.length - 1];
+        if (first[0] !== last[0] || first[1] !== last[1]) ring.push([first[0], first[1]]);
+      }
+      return ring;
+    }
+
+    function layerToWorldMultiPolygon(layer, samplesPerSeg = 16) {
+      const ring = _samplePenLayerToWorldRing(layer, samplesPerSeg);
+      if (!ring || ring.length < 4) return null;
+      return [[ring]];
+    }
+
+    function worldMultiPolygonToShapeLayer(mp, attrs) {
+      if (!mp || !mp.length) return null;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const poly of mp) {
+        for (const ring of poly) {
+          for (const [x, y] of ring) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (!Number.isFinite(minX)) return null;
+      const w = Math.max(0.05, maxX - minX);
+      const h = Math.max(0.05, maxY - minY);
+      const sx = 96, sy = 96;
+      // d-string: each ring becomes its own M..L..Z subpath. Outer +
+      // hole rings of a single polygon share fill via even-odd winding.
+      let d = '';
+      for (const poly of mp) {
+        for (const ring of poly) {
+          ring.forEach((pt, i) => {
+            const px = ((pt[0] - minX) * sx).toFixed(2);
+            const py = ((pt[1] - minY) * sy).toFixed(2);
+            d += (i === 0 ? `M ${px} ${py}` : ` L ${px} ${py}`);
+          });
+          d += ' Z';
+        }
+      }
+      // Pen.nodes for the first polygon's outer ring so the result is
+      // still editable with the Direct Select / Pen tools.
+      const firstRing = mp[0][0];
+      const ringForNodes = firstRing[0][0] === firstRing[firstRing.length - 1][0]
+                        && firstRing[0][1] === firstRing[firstRing.length - 1][1]
+        ? firstRing.slice(0, -1) : firstRing;
+      const nodes = ringForNodes.map(([x, y]) => ({
+        x: (x - minX) * sx,
+        y: (y - minY) * sy,
+        hIn: null, hOut: null, kind: 'corner',
+      }));
+      return {
+        type: 'shape',
+        target: attrs?.target || (typeof currentDrawTarget === 'function' ? currentDrawTarget() : 'page'),
+        x: minX, y: minY, w, h,
+        rotate: 0, opacity: 1, z: attrs?.z ?? nextLayerZ(),
+        name: attrs?.name || 'Pathfinder result',
+        shape: {
+          kind: 'path',
+          d,
+          viewBox: { x: 0, y: 0, w: w * sx, h: h * sy },
+          pen: { closed: true, tool: 'pen', nodes },
+          fillRule: 'evenodd',
+        },
+        fill: attrs?.fill || { type: 'solid', color: '#3b82f6' },
+        stroke: attrs?.stroke || { type: 'none', color: '#000000', width: 0, dash: 'solid' },
+      };
+    }
+
+    // op: 'union' | 'intersection' | 'difference' | 'xor'
+    function runPathfinder(op) {
+      if (typeof window.polygonClipping !== 'object' || !window.polygonClipping?.union) {
+        toastError?.('Pathfinder library failed to load.');
+        return;
+      }
+      const layers = selectedLayers().filter(l => l && l.type === 'shape' && !l.locked && !l._generatedDiscLayer);
+      if (layers.length < 2) { toastError?.('Select at least two shape layers.'); return; }
+      const rotated = layers.find(l => (Number(l.rotate) || 0) !== 0);
+      if (rotated) { toastError?.('Pathfinder doesn’t support rotated shapes yet. Set rotation to 0 first.'); return; }
+      // Auto-convert any non-pen shape (rect, circle, etc.) to a pen
+      // path so we have nodes to sample. Bails out for SVG / multi-element layers.
+      for (const l of layers) {
+        if (!l.shape?.pen) {
+          const r = convertShapeToEditablePath(l);
+          if (!r.ok) { toastError?.(`Can't run Pathfinder on "${l.name || 'layer'}": ${r.reason}`); return; }
+        }
+      }
+      const polys = layers.map(l => layerToWorldMultiPolygon(l)).filter(Boolean);
+      if (polys.length < 2) { toastError?.('Could not sample selected paths.'); return; }
+      let result;
+      try {
+        if (op === 'union')        result = window.polygonClipping.union(...polys);
+        else if (op === 'intersection') result = window.polygonClipping.intersection(...polys);
+        else if (op === 'difference')   result = window.polygonClipping.difference(polys[0], ...polys.slice(1));
+        else if (op === 'xor')     result = window.polygonClipping.xor(...polys);
+      } catch (err) {
+        console.warn('Pathfinder', op, 'failed:', err);
+        toastError?.('Pathfinder failed on these shapes — try simpler paths.');
+        return;
+      }
+      if (!result || !result.length) {
+        toastError?.('Pathfinder produced no result (shapes may not overlap).');
+        return;
+      }
+      pushHistory(`pathfinder ${op}`);
+      // Inherit style + z + target from the BOTTOM-most layer of the
+      // selection (matches Illustrator's Pathfinder convention).
+      const sortedByZ = [...layers].sort((a, b) => (Number(a.z) || 0) - (Number(b.z) || 0));
+      const bottom = sortedByZ[0];
+      const opName = { union: 'Unite', intersection: 'Intersect', difference: 'Subtract', xor: 'Exclude' }[op] || 'Pathfinder';
+      const newLayer = worldMultiPolygonToShapeLayer(result, {
+        z: bottom.z,
+        target: bottom.target,
+        fill: bottom.fill ? { ...bottom.fill } : undefined,
+        stroke: bottom.stroke ? { ...bottom.stroke } : undefined,
+        name: `${opName} result`,
+      });
+      if (!newLayer) { toastError?.('Could not build result layer.'); return; }
+      newLayer.id = makeLayerId();
+      const removeIds = new Set(layers.map(l => l.id));
+      state.layers = state.layers.filter(l => !removeIds.has(l.id));
+      state.layers.push(newLayer);
+      setLayerSelection([newLayer.id], newLayer.id);
+      render();
+    }
+
     function deletePenAnchors(layer, idxList) {
       const nodes = layer.shape.pen.nodes;
       const sorted = Array.from(new Set(idxList))
@@ -16001,7 +16178,8 @@
           const sy = vb.h > 0 ? H / vb.h : 1;
           // SVG transform applies right-to-left: translate the path's bbox to
           // the origin, then scale so it fills the 100×vbH shape space.
-          body = `<g transform="scale(${sx.toFixed(6)} ${sy.toFixed(6)}) translate(${(-vb.x).toFixed(3)} ${(-vb.y).toFixed(3)})"><path d="${escapeHtml(d)}" fill="${fillAttr}"${strokeAttr}/></g>`;
+          const fr = shape.fillRule === 'evenodd' ? ' fill-rule="evenodd"' : '';
+          body = `<g transform="scale(${sx.toFixed(6)} ${sy.toFixed(6)}) translate(${(-vb.x).toFixed(3)} ${(-vb.y).toFixed(3)})"><path d="${escapeHtml(d)}" fill="${fillAttr}"${fr}${strokeAttr}/></g>`;
         }
       } else if (kind === 'svg') {
         // Pre-sanitized multi-element SVG content. Fills / strokes are baked
@@ -30016,6 +30194,10 @@
       on('alignBottom',  'click', () => alignSelection('bottom'));
       on('distributeX',  'click', () => distributeSelection('x'));
       on('distributeY',  'click', () => distributeSelection('y'));
+      on('pathfinderUnite',     'click', () => runPathfinder('union'));
+      on('pathfinderSubtract',  'click', () => runPathfinder('difference'));
+      on('pathfinderIntersect', 'click', () => runPathfinder('intersection'));
+      on('pathfinderExclude',   'click', () => runPathfinder('xor'));
 
       $('deleteLayer').addEventListener('click', deleteSelectedLayer);
 
