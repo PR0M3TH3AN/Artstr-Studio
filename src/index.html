@@ -4195,11 +4195,11 @@
             </select>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="shapeFillEnabled" checked style="accent-color:var(--accent)" /> Fill</label>
             <div class="toolOptRow">
-              <div><label for="shapeFillColor">Fill</label><input type="color" id="shapeFillColor" value="#3b82f6" /></div>
-              <div><label for="shapeStrokeColor">Stroke</label><input type="color" id="shapeStrokeColor" value="#111827" /></div>
+              <div><label for="shapeToolFillColor">Fill</label><input type="color" id="shapeToolFillColor" value="#3b82f6" /></div>
+              <div><label for="shapeToolStrokeColor">Stroke</label><input type="color" id="shapeToolStrokeColor" value="#111827" /></div>
             </div>
-            <label for="shapeStrokeWidth">Stroke width</label>
-            <input type="number" id="shapeStrokeWidth" min="0" max="50" step="0.5" value="0" />
+            <label for="shapeToolStrokeWidth">Stroke width</label>
+            <input type="number" id="shapeToolStrokeWidth" min="0" max="50" step="0.5" value="0" />
             <p class="toolOptHint">Drag on the canvas to draw. Tweak points / sides / radius in the layer controls.</p>
           </div>
           <div id="textToolOptions" style="display:none">
@@ -9564,9 +9564,9 @@
       } else if (_editorTool === 'shape') {
         set('shapeToolKind', _shapeToolOpts.kind);
         setChk('shapeFillEnabled', _shapeToolOpts.fill);
-        set('shapeFillColor', _shapeToolOpts.fillColor);
-        set('shapeStrokeColor', _shapeToolOpts.strokeColor);
-        set('shapeStrokeWidth', _shapeToolOpts.strokeWidth);
+        set('shapeToolFillColor', _shapeToolOpts.fillColor);
+        set('shapeToolStrokeColor', _shapeToolOpts.strokeColor);
+        set('shapeToolStrokeWidth', _shapeToolOpts.strokeWidth);
       } else if (_editorTool === 'text') {
         // With a text layer selected the panel mirrors (and edits) it;
         // otherwise it shows the defaults for the next text box.
@@ -30710,9 +30710,9 @@
       on('pencilStrokeWidth', 'input', (e) => { _penToolOpts.pencilStrokeWidth = Math.max(0.5, Math.min(50, Number(e.target.value) || 1)); applyPencilStrokeToSelection(); });
       on('shapeToolKind', 'change', (e) => { _shapeToolOpts.kind = e.target.value; });
       on('shapeFillEnabled', 'change', (e) => { _shapeToolOpts.fill = e.target.checked; });
-      on('shapeFillColor', 'input', (e) => { _shapeToolOpts.fillColor = e.target.value; });
-      on('shapeStrokeColor', 'input', (e) => { _shapeToolOpts.strokeColor = e.target.value; });
-      on('shapeStrokeWidth', 'input', (e) => { _shapeToolOpts.strokeWidth = Math.max(0, Math.min(50, Number(e.target.value) || 0)); });
+      on('shapeToolFillColor', 'input', (e) => { _shapeToolOpts.fillColor = e.target.value; });
+      on('shapeToolStrokeColor', 'input', (e) => { _shapeToolOpts.strokeColor = e.target.value; });
+      on('shapeToolStrokeWidth', 'input', (e) => { _shapeToolOpts.strokeWidth = Math.max(0, Math.min(50, Number(e.target.value) || 0)); });
       // Text tool controls: set the default for the next text box, and —
       // when a text layer is selected — restyle it live.
       const applyTextToolField = (field, value) => {
