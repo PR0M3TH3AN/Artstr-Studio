@@ -1581,6 +1581,15 @@
       position: absolute; top: 6px; left: 8px;
       font-size: .72rem; color: var(--muted); font-weight: 600;
     }
+    /* Master layers shown as an underlay while editing a page —
+       click-through and slightly faded so the page layers above
+       are obviously the editable ones. Master-edit mode (the
+       master IS the editing target) keeps them opaque +
+       interactive via the :not(.editing-book-master) guard. */
+    body.editing-book-page:not(.editing-book-master) .freeLayer[data-target^="book-master:"] {
+      pointer-events: none;
+      opacity: 0.55;
+    }
     .bookMasterRow {
       display: flex; align-items: center; gap: 8px;
       padding: 8px 10px; border: 1px solid var(--line);
@@ -8336,6 +8345,19 @@
       render();
     }
 
+    // Resolve a page's effective master — its own `masterId`
+    // override, falling back to the book spec's default master.
+    function effectiveMasterIdForPage(entryOrId) {
+      const book = state.book;
+      if (!book) return null;
+      const entry = (typeof entryOrId === 'string')
+        ? book.pages.find(p => p.id === entryOrId)
+        : entryOrId;
+      if (!entry) return book.spec?.defaultMasterId || null;
+      if (entry.masterId === null) return null;            // explicit "no master"
+      return entry.masterId || book.spec?.defaultMasterId || null;
+    }
+
     // Stable opaque id for masters. Same shape as page entry ids
     // so id collisions across pages and masters stay impossible.
     function makeBookMasterId() {
@@ -8627,9 +8649,20 @@
           thumb.className = 'bookPageTileThumb';
           tile.appendChild(thumb);
           const pageTarget = `book-page:${p.id}`;
-          const pageLayers = (state.layers || [])
-            .filter(l => l.target === pageTarget && !l.hidden)
-            .map(l => ({ ...l, target: 'canvas' })); // remap for preview helper
+          const masterId = effectiveMasterIdForPage(p);
+          const masterTarget = masterId ? `book-master:${masterId}` : null;
+          // Composite master layers first (so they render below
+          // the page's own layers) then the page's own. Both get
+          // their target remapped to 'canvas' so the preview
+          // helper's flat-canvas filter accepts them.
+          const masterLayers = masterTarget
+            ? (state.layers || []).filter(l => l.target === masterTarget && !l.hidden)
+            : [];
+          const pageLayers = (state.layers || []).filter(l => l.target === pageTarget && !l.hidden);
+          const composed = [
+            ...masterLayers.map((l, i) => ({ ...l, target: 'canvas', z: -1e6 + i })),
+            ...pageLayers.map(l => ({ ...l, target: 'canvas' })),
+          ];
           try {
             renderCustomArtPreviewDOM(thumb, {
               customArt: {
@@ -8637,7 +8670,7 @@
                 height: trimH * 96,
                 background: p.background || book.spec?.background || '#ffffff',
               },
-              layers: pageLayers,
+              layers: composed,
             }, { compact: true });
           } catch (err) {
             console.warn('book page thumb render failed', err);
@@ -8975,13 +9008,18 @@
       // is bound to. Targets are id-qualified (`book-page:<entryId>`
       // for pages, `book-master:<masterId>` for masters) so multiple
       // surfaces can coexist in `state.layers` without leaking onto
-      // each other.
+      // each other. Page-edit mode also pulls in the page's
+      // effective master so its layers render underneath (the
+      // renderer marks them non-interactive via CSS).
       if (mode === 'book') {
         if (state.book?.editingMasterId) {
           return t === `book-master:${state.book.editingMasterId}`;
         }
         if (state.book?.editingEntryId) {
-          return t === `book-page:${state.book.editingEntryId}`;
+          if (t === `book-page:${state.book.editingEntryId}`) return true;
+          const masterId = effectiveMasterIdForPage(state.book.editingEntryId);
+          if (masterId && t === `book-master:${masterId}`) return true;
+          return false;
         }
         // Pages overview (no surface open) → no canvas layers render.
         return false;
@@ -10270,8 +10308,16 @@
       document.body.classList.toggle('template-slide', state.templateMode === 'slide');
       document.body.classList.toggle('template-deck', state.templateMode === 'deck');
       document.body.classList.toggle('template-book', state.templateMode === 'book');
+      // 'editing-book-page' is the shared "canvas is open in book
+      // mode" class — covers both page-edit and master-edit so the
+      // sheet + tool palette unhide. The more specific
+      // 'editing-book-master' class lets CSS target master-edit
+      // alone (e.g. don't fade master layers when *they're* the
+      // editing target).
       document.body.classList.toggle('editing-book-page',
         state.templateMode === 'book' && (!!state.book?.editingEntryId || !!state.book?.editingMasterId));
+      document.body.classList.toggle('editing-book-master',
+        state.templateMode === 'book' && !!state.book?.editingMasterId);
       document.body.classList.toggle('editing-deck-slide', !!state.deck && state.deck.editingIndex !== null);
       document.body.classList.toggle('hide-guides', !state.showGuides);
       document.body.classList.toggle('hide-bleed', !state.showBleed);
@@ -18122,7 +18168,18 @@
       const designerOverlay = $('designerLayerOverlay');
       overlay.innerHTML = '';
       if (designerOverlay) designerOverlay.innerHTML = '';
-      const ordered = [...state.layers].sort((a, b) => (a.z || 0) - (b.z || 0));
+      // In book page-edit mode, master layers render *under* the
+      // page's own layers regardless of their z values. We offset
+      // their effective sort key by a large negative number so they
+      // always come first in DOM order (which equals lowest visual
+      // stack).
+      const _bookPageEdit = state.templateMode === 'book' && !!state.book?.editingEntryId;
+      const effectiveZ = (layer) => {
+        const z = Number(layer.z) || 0;
+        if (_bookPageEdit && String(layer.target || '').startsWith('book-master:')) return z - 1e6;
+        return z;
+      };
+      const ordered = [...state.layers].sort((a, b) => effectiveZ(a) - effectiveZ(b));
 
       for (const layer of ordered) {
         const isDesignerLayer = layer.target === 'designer-disc';
@@ -18139,6 +18196,10 @@
         const el = document.createElement('div');
         el.className = `freeLayer${layerSelected ? ' selected' : ''}${multiSelected ? ' multiSelected' : ''}`;
         el.dataset.layerId = layer.id;
+        // Surface the layer's target on the wrapper so CSS can
+        // style master underlays (.freeLayer[data-target^="book-master:"])
+        // without needing the renderer to know about book mode.
+        if (layer.target) el.dataset.target = layer.target;
         if (layer.clip && layer.clip.kind !== 'none' && resolveClipSourceShape(layer, state.layers)) {
           el.style.clipPath = `url(#${clipIdForLayer(layer)})`;
         }
