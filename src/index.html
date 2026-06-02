@@ -1467,15 +1467,18 @@
     body.template-pixelart #layersFieldset,
     body.template-pixelart #printExportRow { display: none !important; }
 
-    /* Book mode (Phase A): the canvas-host shouldn't render any of
-       the cover-mode panels (BACK / SPINE / FRONT slots, trim+bleed
-       guides, fold lines, crop marks). The Pages overview view
-       (A4) and Cover view (A5) replace this with their own DOM. The
-       sidebar export / layers panels also hide — they don't apply
-       until pages exist. */
+    /* Book mode (Phase A): the canvas-host is replaced by the
+       Pages overview / Cover view (see #bookView below). Hide the
+       sheet, tool palette, canvas toolbar, layers panel, export
+       fieldset — none of them apply until pages or a cover exist
+       under the book's own surfaces. */
+    body.template-book #sheetWrap,
+    body.template-book #toolOptions,
+    body.template-book #canvasToolbar,
     body.template-book #exportFieldset,
     body.template-book #layersFieldset,
     body.template-book #printExportRow,
+    body.template-book .toolPalette,
     body.template-book .coverOnly,
     body.template-book .diskLayer,
     body.template-book .jewelLayer,
@@ -1485,6 +1488,64 @@
     body.template-book .discSpineStrip,
     body.template-book .jewelSpineGuide,
     body.template-book .spineText { display: none !important; }
+
+    /* Book view shell — mirrors the deck-sorter layout pattern. */
+    #bookView { display: none; }
+    body.template-book #bookView {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      gap: 16px;
+      padding: 22px 26px;
+      box-sizing: border-box;
+      min-height: calc(100vh - 160px);
+    }
+    .bookViewToggleBar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding-bottom: 8px; border-bottom: 1px solid var(--line);
+    }
+    .bookViewToggle {
+      padding: 6px 14px; font-size: .88rem; cursor: pointer;
+      background: transparent; border: 1px solid var(--line);
+      border-radius: 0;
+    }
+    .bookViewToggle.active {
+      background: var(--accent); color: #fff;
+      border-color: var(--accent);
+    }
+    .bookViewSpacer { flex: 1; }
+    .bookCountReadout {
+      font-size: .82rem; color: var(--muted); white-space: nowrap;
+    }
+    .bookPageTile {
+      position: relative;
+      border: 1px solid var(--line); background: #fff;
+      aspect-ratio: 2 / 3;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      cursor: pointer; transition: border-color .12s;
+    }
+    .bookPageTile:hover { border-color: var(--accent); }
+    .bookPageTile.designedPage { background: #fff; }
+    .bookPageTile.reflowSegment {
+      background: linear-gradient(135deg, #f8fafc 25%, transparent 25%, transparent 50%, #f8fafc 50%, #f8fafc 75%, transparent 75%) 0 0/8px 8px;
+    }
+    .bookPageTileNum {
+      position: absolute; top: 6px; left: 8px;
+      font-size: .72rem; color: var(--muted); font-weight: 600;
+    }
+    .bookPageTileDelete {
+      position: absolute; top: 4px; right: 4px;
+      width: 22px; height: 22px; border-radius: 0;
+      border: 1px solid var(--line); background: #fff;
+      cursor: pointer; font-size: .9rem; line-height: 1;
+      opacity: 0; transition: opacity .12s;
+    }
+    .bookPageTile:hover .bookPageTileDelete { opacity: 1; }
+    .bookPageTileLabel {
+      font-size: .8rem; color: var(--muted); text-align: center;
+      padding: 0 8px;
+    }
 
     .templateLayerPanels {
       display: grid;
@@ -4027,6 +4088,28 @@
             <button type="button" id="deckSorterAddBtn" class="primary">+ Add slide</button>
           </div>
           <div class="deckSlideGrid" id="deckSlideGrid"></div>
+        </div>
+
+        <div id="bookView">
+          <div class="bookViewToggleBar">
+            <button type="button" id="bookViewTogglePages"  class="bookViewToggle active">Pages</button>
+            <button type="button" id="bookViewToggleCover"  class="bookViewToggle">Cover</button>
+            <span class="bookViewSpacer"></span>
+            <span class="bookCountReadout" id="bookCountReadout">0 pages · 0 reflow</span>
+          </div>
+          <div id="bookPagesView">
+            <div class="deckSorterBar">
+              <div class="buttonRow">
+                <button type="button" id="bookAddPageBtn" class="primary">+ Add page</button>
+                <button type="button" id="bookAddTenBtn">+ Add 10 pages</button>
+              </div>
+            </div>
+            <div class="deckSlideGrid" id="bookPagesGrid"></div>
+            <p class="hint" id="bookPagesHint" style="margin:8px 0 0">Phase A4 skeleton: tiles are placeholders. Click a tile in Phase B to edit the page. Reflow / NIP-23 chapters arrive in Phase C.5; per-page Nostr publish in Phase D1.</p>
+          </div>
+          <div id="bookCoverView" style="display:none">
+            <p class="hint">Cover view ships in Phase A5. The cover designer (front + spine + back) will mount here, with the spine column derived from page count × paper thickness.</p>
+          </div>
         </div>
 
         <div id="deckEditBar">
@@ -8060,6 +8143,139 @@
       render();
     }
 
+    // Stable opaque id for manifest entries. The id stays put across
+    // reorders, so anchor refs (`anchor.entryId`) survive shuffling
+    // the page list. Format mirrors Linked Designs' provisional ids.
+    function makeBookEntryId() {
+      return 'entry:' + Math.random().toString(36).slice(2, 10);
+    }
+    // Append a fresh designed-page entry to the manifest. Phase A4:
+    // entries carry ref:null until the page event is published in D1.
+    function addBookDesignedPage() {
+      const book = ensureBookState();
+      pushHistory('book: add page');
+      book.pages.push({
+        id: makeBookEntryId(),
+        type: 'design',
+        ref: null,
+        label: '',
+        masterRef: null,
+        skipNumber: false,
+        anchor: null,
+        gating: null,
+      });
+      renderBookPagesGrid();
+      syncInputs();
+      render();
+    }
+    function addBookTenPages() {
+      const book = ensureBookState();
+      pushHistory('book: add 10 pages');
+      for (let i = 0; i < 10; i++) {
+        book.pages.push({
+          id: makeBookEntryId(),
+          type: 'design', ref: null, label: '',
+          masterRef: null, skipNumber: false, anchor: null, gating: null,
+        });
+      }
+      renderBookPagesGrid();
+      syncInputs();
+      render();
+    }
+    function deleteBookPage(entryId) {
+      const book = state.book;
+      if (!book) return;
+      const idx = book.pages.findIndex(p => p.id === entryId);
+      if (idx < 0) return;
+      pushHistory('book: delete page');
+      book.pages.splice(idx, 1);
+      // Any other entry that anchored to this one drops back to null.
+      for (const p of book.pages) {
+        if (p.anchor && (p.anchor.entryId === entryId || p.anchor.after === entryId)) {
+          p.anchor = null;
+        }
+      }
+      renderBookPagesGrid();
+      syncInputs();
+      render();
+    }
+
+    // Render the Pages overview grid. Each tile is a placeholder
+    // (the actual rendered-page thumbnail lands in Phase B once the
+    // per-page canvas exists). The tile shows the page number from
+    // the manifest's numbering config, a label, and a delete affordance.
+    function renderBookPagesGrid() {
+      const grid = document.getElementById('bookPagesGrid');
+      if (!grid) return;
+      grid.innerHTML = '';
+      const book = state.book;
+      const pages = book?.pages || [];
+      const readout = document.getElementById('bookCountReadout');
+      if (readout) {
+        const reflowN = pages.filter(p => p.type === 'reflow').length;
+        readout.textContent = `${pages.length} page${pages.length === 1 ? '' : 's'} · ${reflowN} reflow`;
+      }
+      if (!pages.length) {
+        const empty = document.createElement('div');
+        empty.className = 'deckSlideEmpty';
+        empty.textContent = 'No pages yet. Click "+ Add page" to begin your book.';
+        grid.appendChild(empty);
+        return;
+      }
+      // Numbered-page counter walks the visible sequence, skipping
+      // any entry flagged skipNumber:true. The displayed number also
+      // honours pageNumbering.startAt + firstNumberedPage.
+      const numbering = book.spec?.pageNumbering;
+      let printedNum = numbering?.startAt ?? 1;
+      const firstNumberedIdx = (numbering?.firstNumberedPage ?? 1) - 1;
+      const fmt = numbering?.format || '{n}';
+      pages.forEach((p, idx) => {
+        const tile = document.createElement('div');
+        tile.className = `bookPageTile ${p.type === 'reflow' ? 'reflowSegment' : 'designedPage'}`;
+        tile.dataset.entryId = p.id;
+        const numEl = document.createElement('div');
+        numEl.className = 'bookPageTileNum';
+        if ((numbering?.enabled !== false) && !p.skipNumber && idx >= firstNumberedIdx) {
+          numEl.textContent = fmt.replace('{n}', String(printedNum));
+          printedNum++;
+        } else {
+          numEl.textContent = '—';
+        }
+        tile.appendChild(numEl);
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'bookPageTileDelete';
+        del.title = 'Remove from book';
+        del.textContent = '×';
+        del.addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteBookPage(p.id);
+        });
+        tile.appendChild(del);
+        const label = document.createElement('div');
+        label.className = 'bookPageTileLabel';
+        if (p.type === 'reflow') {
+          label.textContent = p.chapterTitle || 'Chapter';
+        } else {
+          label.textContent = p.label || 'Designed page';
+        }
+        tile.appendChild(label);
+        grid.appendChild(tile);
+      });
+    }
+
+    function setBookSubView(view) {
+      const pages = document.getElementById('bookPagesView');
+      const cover = document.getElementById('bookCoverView');
+      const tPages = document.getElementById('bookViewTogglePages');
+      const tCover = document.getElementById('bookViewToggleCover');
+      const showCover = view === 'cover';
+      if (pages) pages.style.display = showCover ? 'none' : '';
+      if (cover) cover.style.display = showCover ? '' : 'none';
+      if (tPages) tPages.classList.toggle('active', !showCover);
+      if (tCover) tCover.classList.toggle('active', showCover);
+    }
+
     function syncBookSidebarSummary() {
       const el = $('bookSpecSummary');
       if (!el) return;
@@ -12063,6 +12279,7 @@
       syncDesignerInputs();
       updateBodyClasses();
       renderDeckSorter();
+      renderBookPagesGrid();
       renderCreditsPanel();
       if (state.templateMode === 'pixelart') ensureStandalonePixelEditor();
       // After updateBodyClasses so the designer view is displayed/laid out —
@@ -30976,6 +31193,12 @@
       on('publishConfirmCloseBtn', 'click', closePublishConfirmModal);
       on('publishConfirmCancelBtn', 'click', closePublishConfirmModal);
       on('publishConfirmPublishBtn', 'click', handlePublishConfirmPublish);
+
+      // Book Designer — Pages overview + Cover view toggle.
+      on('bookAddPageBtn', 'click', addBookDesignedPage);
+      on('bookAddTenBtn',  'click', addBookTenPages);
+      on('bookViewTogglePages', 'click', () => setBookSubView('pages'));
+      on('bookViewToggleCover', 'click', () => setBookSubView('cover'));
 
       // Book Designer — Document settings modal.
       on('bookDocumentSettingsBtn', 'click', openBookDocumentSettings);
