@@ -9670,21 +9670,76 @@
       _penDraft.cursor = p;
       renderPenDraft();
       // Drag from this anchor pulls out symmetric Bézier handles.
+      // Two modifier-driven variants (Illustrator parity):
+      //   Alt held during drag → asymmetric (only outgoing handle is
+      //     pulled; incoming side stays at the anchor for a corner
+      //     transition into the next segment).
+      //   Spacebar held during drag → reposition the anchor itself
+      //     (and slide its handles along) instead of growing handles.
+      //     Releasing Space resumes handle-pulling from the new anchor
+      //     position.
       try { _penOverlay.setPointerCapture(evt.pointerId); } catch {}
       let dragged = false;
+      let spaceHeld = false;
+      let mode = 'handles'; // 'handles' | 'reposition'
+      let modeStartMouse = { x: p.x, y: p.y };
+      let modeStartNode = {
+        x: node.x, y: node.y,
+        hIn: node.hIn ? { ...node.hIn } : null,
+        hOut: node.hOut ? { ...node.hOut } : null,
+      };
+      const snapshotNode = (mousePt) => {
+        modeStartMouse = mousePt;
+        modeStartNode = {
+          x: node.x, y: node.y,
+          hIn: node.hIn ? { ...node.hIn } : null,
+          hOut: node.hOut ? { ...node.hOut } : null,
+        };
+      };
+      const onKey = (e) => {
+        if (e.code !== 'Space' && e.key !== ' ') return;
+        e.preventDefault();
+        const next = e.type === 'keydown';
+        if (next === spaceHeld) return;
+        spaceHeld = next;
+      };
+      document.addEventListener('keydown', onKey);
+      document.addEventListener('keyup', onKey);
       const move = (e) => {
         const pt = overlayPointToInches(e);
         if (!pt) return;
         dragged = true;
-        node.hOut = { x: pt.x, y: pt.y };
-        node.hIn = { x: node.x - (pt.x - node.x), y: node.y - (pt.y - node.y) };
-        node.kind = 'smooth';
+        const wantMode = spaceHeld ? 'reposition' : 'handles';
+        if (wantMode !== mode) {
+          mode = wantMode;
+          snapshotNode(pt);
+        }
+        if (mode === 'reposition') {
+          const dx = pt.x - modeStartMouse.x;
+          const dy = pt.y - modeStartMouse.y;
+          node.x = modeStartNode.x + dx;
+          node.y = modeStartNode.y + dy;
+          if (modeStartNode.hIn)  node.hIn  = { x: modeStartNode.hIn.x  + dx, y: modeStartNode.hIn.y  + dy };
+          if (modeStartNode.hOut) node.hOut = { x: modeStartNode.hOut.x + dx, y: modeStartNode.hOut.y + dy };
+        } else {
+          node.hOut = { x: pt.x, y: pt.y };
+          if (e.altKey) {
+            // Asymmetric corner: only the outgoing handle is set.
+            node.hIn = null;
+            node.kind = 'corner';
+          } else {
+            node.hIn = { x: 2 * node.x - pt.x, y: 2 * node.y - pt.y };
+            node.kind = 'smooth';
+          }
+        }
         renderPenDraft();
       };
       const up = () => {
         _penOverlay.removeEventListener('pointermove', move);
         _penOverlay.removeEventListener('pointerup', up);
         _penOverlay.removeEventListener('pointercancel', up);
+        document.removeEventListener('keydown', onKey);
+        document.removeEventListener('keyup', onKey);
         renderPenDraft();
       };
       _penOverlay.addEventListener('pointermove', move);
