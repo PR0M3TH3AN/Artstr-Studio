@@ -63,18 +63,36 @@ Designs already uses.
 10. **Per-page reactions and comments** — because each page is its own
     addressable event, NIP-25 reactions and kind-1 comments work per
     page for free, no extra plumbing.
+11. **Reflowable text via Markdown + NIP-23.** Prose-heavy chapters are
+    written as **markdown** and published as **NIP-23 long-form
+    articles** (kind-30023). The book manifest references each
+    chapter's article event and pours its markdown into per-page
+    text frames at render time using a book-level **stylesheet**
+    (H1 / H2 / H3 / body / blockquote / code / link typography).
+    Designed pages and reflow segments interleave in the page
+    sequence. The same NIP-23 article can be read standalone on
+    Habla.news *and* presented as a designed chapter inside a book
+    — one source, two presentations.
 
 ### Non-goals (v1)
 
-- **Reflowable text / paragraph styles / threaded text frames.** A book
-  in Artstr is fixed-layout; you design each page as a canvas, not as
-  a continuous text flow with master typography. For reflowable prose,
-  Nostr already has **NIP-23 long-form articles** (kind-30023, markdown
-  body) — Book mode is explicitly the *design* counterpart, not a
-  competing prose format.
-- **Footnote / endnote engine, index, automatic TOC, cross-references.**
-  These all depend on a text-flow model we don't have. Manual TOC
-  pages are fine.
+- **Reflowable text beyond the v1 markdown subset.** v1 supports
+  paragraphs, h1-h6, **bold** / *italic* / `inline code`, code
+  blocks, lists (ordered + unordered), blockquotes, links, hr, and
+  inline images (one per line). **Out of scope for v1:** tables,
+  footnotes / endnotes, definition lists, GFM task lists, embedded
+  HTML, multi-column text frames, float-around-image, ligatures
+  beyond the renderer's defaults. Each deferred feature can land
+  later as its own phase with its own typography rules.
+- **Threaded text frames across non-adjacent pages.** Reflow always
+  fills frames in master-page order; you can't manually link a
+  frame on page 12 to one on page 47.
+- **A WYSIWYG markdown editor.** v1 ships a textarea + live preview.
+  Rich syntax-highlighted editing is a Phase I follow-up.
+- **Auto-paginated tables of contents, indices, cross-references.**
+  All of these depend on a richer flow model. Manual TOC pages are
+  fine; a `{toc}` magic token that auto-builds from chapter titles
+  is on the open-questions list.
 - **CMYK colour management or ICC profile attachment.** PDF export is
   sRGB. Pro-print colour fidelity is a phase E+ concern.
 - **Imposition / signatures / booklet print layouts.** Pages export in
@@ -123,6 +141,11 @@ manifest**, not a new engine.
 - **PREMIUM_DESIGNS** already implements per-event gating (watermarked
   preview + zap-unlocked content). A book gates individual page events
   with the same machinery — no new crypto path.
+- **NIP-23 long-form articles** are already first-class Nostr citizens
+  with rich tooling (Habla.news, Yakihonne, others). A book chapter
+  *is* a NIP-23 article event — we reuse the kind, the editor
+  ecosystem, and the discovery surface for free. Authors can write
+  on whatever NIP-23 client they prefer and assemble the book later.
 - **Nostr publish + fork + embed.** Books reuse the existing publish
   pipeline; each constituent event reuses the same kind-30078 with new
   tag names.
@@ -130,16 +153,29 @@ manifest**, not a new engine.
 What's actually new:
 
 - **`state.book`** as a manifest plus a hydrated cache of referenced
-  page / master / cover objects.
+  page / master / cover / chapter objects.
 - **Manifest publish flow** that fans out per-page autosave events and
   separately versions the manifest.
 - **Spine derivation** when page count or paper thickness changes.
 - **Master pages** as a new event type with a single-level inheritance
   render pass.
+- **`text-frame` layer type** on masters — a rectangular flow region
+  the pagination engine fills with markdown content.
+- **Pagination engine.** Markdown tokens → measured lines → page
+  breaks, with widow / orphan rules to avoid bad page splits. Powers
+  both on-screen render and PDF export.
+- **Book-level text stylesheet** (`spec.textStyles`) that maps each
+  markdown element to typography (font, size, weight, leading,
+  alignment, top/bottom margin).
+- **Markdown editor surface** in the page editor for `reflow`
+  entries — a textarea with live preview of the rendered chapter,
+  scrolled in sync with the source.
 - **Page-aware navigation** (prev / next, page numbers).
 - **Multi-page PDF export.** Currently there is no PDF export at all;
   Custom-art exports PNG/JPG and the cover designer exports per-panel
-  PNG. Books need one PDF stamped with every page in order.
+  PNG. Books need one PDF stamped with every page in order — with
+  reflowed prose as real PDF text (searchable, copyable, not
+  flattened-to-paths) where possible.
 - **Reader Mode** (analogous to the Slide Decks' Presenter Mode) — a
   full-screen page-flip viewer driven off the manifest.
 - **Book embed** — a flip-book player in the EXTERNAL_EMBED iframe
@@ -213,12 +249,26 @@ Convertible to / from `naddr` at the UI layer.
       },
       bookSize: 'US Trade 6×9',                  // label matching a preset
       defaultMasterRef: { … } | null,            // applied to new pages on creation
+      textStyles: {                              // book-level markdown stylesheet (see "Reflowable text" below)
+        body:       { fontFamily: 'Georgia', fontSize: 11, lineHeight: 1.5, color: '#111', marginAfter: 0.08, alignment: 'left' },
+        h1:         { fontFamily: 'Helvetica', fontSize: 24, fontWeight: 700, marginBefore: 0.4, marginAfter: 0.2, alignment: 'center', keepWithNext: true },
+        h2:         { fontFamily: 'Helvetica', fontSize: 18, fontWeight: 700, marginBefore: 0.3, marginAfter: 0.15, keepWithNext: true },
+        h3:         { fontFamily: 'Helvetica', fontSize: 14, fontWeight: 700, marginBefore: 0.2, marginAfter: 0.1, keepWithNext: true },
+        blockquote: { fontStyle: 'italic', marginLeft: 0.3, marginRight: 0.3 },
+        codeBlock:  { fontFamily: 'monospace', fontSize: 10, background: '#f5f5f5', padding: 0.05 },
+        inlineCode: { fontFamily: 'monospace', fontSize: 10, background: '#f5f5f5' },
+        link:       { color: '#0066cc', underline: true },
+        list:       { marginAfter: 0.08, indent: 0.2 },
+        hr:         { color: '#cccccc', thickness: 0.5, marginBefore: 0.15, marginAfter: 0.15 },
+      },
     },
     cover: { ref: { kind, pubkey, dTag } },      // a `casewrap-page` with role:'cover-spread'
-    pages: [
+    pages: [                                     // discriminated union — see two shapes below
+      // 1) Designed page (fixed-layout):
       {
+        type: 'design',
         ref: { kind, pubkey, dTag },             // a `casewrap-page` with role:'interior'
-        label: 'Intro',                          // optional sorter label override
+        label: 'Title page',                     // optional sorter label override
         inheritsMasterRef: { kind, pubkey, dTag } | null,  // overrides defaultMasterRef
         skipNumber: false,                       // true = excluded from {page-number} sequence
         gating: null | {                         // optional, opt-in per page
@@ -226,6 +276,19 @@ Convertible to / from `naddr` at the UI layer.
           previewWatermark: true,                // PREMIUM_DESIGNS pipeline
           // unlock details live on the gated page event itself
         },
+      },
+      // 2) Reflow segment (markdown text poured into N pages):
+      {
+        type: 'reflow',
+        textRef: { kind: 30023, pubkey, dTag },  // a NIP-23 article event carrying the chapter's markdown
+        textPinnedEventId: '<hex>' | null,       // when set, lock to this exact revision (event id ref). null = always use latest addressable.
+        masterRef: { kind, pubkey, dTag },       // master whose text-frame layer the markdown flows into; required
+        chapterTitle: 'Chapter 3: The Threshold',// overrides article's title for the book's own running header
+        chapterNumber: 3,                        // optional explicit number for {chapter-number} tokens; auto if omitted
+        startsOnPage: 'recto' | 'verso' | 'any', // bookbinding: chapter starts on right-hand page = 'recto'
+        skipNumberOnFirstPage: false,            // common print convention: page number suppressed on a chapter's first page
+        styleOverrides: { … } | null,            // per-chapter overrides to spec.textStyles (rare)
+        gating: null | { … },                    // gates the textRef event in PREMIUM_DESIGNS pipeline
       },
       …                                          // ordered list, variable length
     ],
@@ -322,10 +385,16 @@ out side-by-side.
   additive. Old clients see an unknown templateMode and either skip or
   render a stub.
 - **Attribution.** Manifest p-tags every author that contributed a
-  referenced page / master / cover (already how Linked Designs Phase
-  3a handles attribution).
+  referenced page / master / cover / chapter (already how Linked
+  Designs Phase 3a handles attribution).
 - **NIP-89 / kind-31990** client recommendations: a future arc; for v1
   Artstr is the only client that opens these by URL.
+- **Chapter events are vanilla NIP-23.** A book chapter is just a
+  kind-30023 article — same kind Habla.news and Yakihonne publish.
+  No book-specific tag is required, though we'll add an optional
+  `t` tag `book-chapter` for discoverability. A book can reference
+  any author's existing NIP-23 article as a chapter, and any NIP-23
+  client can open a referenced chapter standalone.
 
 ---
 
@@ -340,14 +409,213 @@ time using the manifest's context.
 - `{page-count}` → total **numbered** pages (counts excluding any
   `skipNumber: true` entries). This is what users mean when they say
   "page 3 of 240."
-- `{physical-page-count}` → total pages in the manifest, including
-  skipped ones. Rarely useful but exposed for completeness.
+- `{physical-page-count}` → total pages in the manifest after reflow
+  pagination, including skipped ones. Rarely useful but exposed for
+  completeness.
 - `{book-title}` → manifest `meta.title`.
 - `{book-author}` → manifest `pubkey` resolved to a profile name.
+- `{chapter-title}` → the current reflow segment's `chapterTitle`,
+  or the NIP-23 article's title when none is overridden. Useful for
+  running headers on master pages — the value updates as the reader
+  moves through chapters.
+- `{chapter-number}` → the current reflow segment's `chapterNumber`,
+  or its 1-based ordinal among reflow segments if not explicit.
 
 Tokens resolve in both the editor preview and rendered output. Standalone
 preview (a page event opened without its manifest) shows tokens with a
 greyed-out placeholder (`[page]`, `[N]`).
+
+---
+
+## Reflowable text + Markdown
+
+Prose chapters are stored as **NIP-23 long-form articles** (kind-30023,
+markdown body). A reflow entry on the book manifest references the
+chapter event and pairs it with a master that has a `text-frame`
+layer; at render time the pagination engine pours the chapter's
+markdown into copies of the master until the chapter is exhausted.
+Designed pages and reflow entries interleave in the page sequence.
+
+### Why markdown
+
+- **Markdown encodes paragraph + character styles** without inventing a
+  schema. `# H1`, `## H2`, `**bold**`, `> blockquote`, ``` ` `` `code` ``,
+  lists, links, images. The book's `spec.textStyles` defines how each
+  element renders — that's the entire "paragraph styles" feature.
+- **One source, many presentations.** An author writes a chapter on
+  Habla.news. It's published as a kind-30023 article. Readers on Habla
+  see a clean reading view. The author later assembles a book on Artstr
+  Studio that references the same article event; readers on Artstr see
+  it laid out as designed book pages. Edit on Habla → the next book
+  read picks up the change.
+- **Event size fits.** A typical chapter is 3-5K words ≈ 20-30 KB of
+  markdown. Well within relay event limits. A 100K-word novel splits
+  cleanly into ~30 chapter events.
+
+### `text-frame` layer type (new)
+
+A new shape-like layer that masters can carry. Has:
+
+- `x` / `y` / `w` / `h` / `rotate` (same as any layer)
+- `padding` (inside the frame, inches)
+- `verticalAlign`: `top` | `middle` | `bottom`
+- `columns`: 1 in v1 (multi-column deferred)
+- `styleOverrides`: optional partial `textStyles` block; merges over
+  the manifest's `spec.textStyles` for prose rendered into *this*
+  frame only
+
+A master with no `text-frame` is invalid for use as a reflow master
+(the manifest UI refuses the pairing). A master with `text-frame` can
+still be used for designed pages — the frame just doesn't get filled.
+
+### `spec.textStyles` (book-level stylesheet)
+
+Maps each markdown element to typography. Inheritance order at render
+time, low → high precedence:
+
+1. Built-in defaults (sane fallbacks per element)
+2. `book.spec.textStyles`
+3. Reflow entry's `styleOverrides` (per chapter)
+4. Master's `text-frame.styleOverrides` (per frame)
+
+Each style block is a plain typography object — same fields the existing
+text layer already speaks: `fontFamily`, `fontSize`, `fontWeight`,
+`fontStyle`, `lineHeight`, `color`, `alignment`, `marginBefore`,
+`marginAfter`, `marginLeft`, `marginRight`, plus boolean flow controls
+(`keepWithNext`, `keepTogether`) for the pagination engine.
+
+### Markdown subset (v1)
+
+Supported:
+
+- Paragraphs (blank-line separated)
+- `# H1` through `###### H6`
+- `**bold**`, `*italic*`, `***bold-italic***`, `~~strikethrough~~`
+- `` `inline code` ``, fenced code blocks (```` ``` ````)
+- `> blockquote` (single-level)
+- Ordered (`1.`) and unordered (`-`, `*`) lists, **single level**
+- `[link text](url)` — links render with the `link` style; URL is
+  preserved as a layer attribute for PDF export
+- `![alt](url)` inline images — one per line, full-width-of-frame,
+  with optional alt-text caption underneath (per stylesheet config).
+  URLs may be `nostr:` (resolves to a NIP-94 file event) or `https:`
+- `---` horizontal rule
+- Soft line break (two trailing spaces): renders as `<br>`
+- Hard line break (blank line): paragraph break
+
+Deferred (Phase I+):
+
+- Tables (own typography rules + layout pass)
+- Footnotes / endnotes (need a footnote-frame layer and per-page
+  collection)
+- Definition lists, GFM task lists
+- Nested lists beyond one level
+- HTML embedded in markdown (security + complexity)
+- Multi-column text frames
+- Float-around-image (text wraps around an inline figure)
+
+### Pagination engine
+
+Pure function: takes `(markdown, frame geometry, stylesheet, master,
+page-context)` and returns `({ pageBreaks, lineLayout, overflow })`.
+
+1. **Parse** markdown into a token stream using `marked` (~30 KB
+   minified, MIT, vendored as `src/vendor/marked.min.js`). We use the
+   lexer output directly, not the HTML renderer — we want token shapes
+   for measurement, not HTML strings.
+2. **Measure** each token against the current frame's available width.
+   Text wrapping uses a Canvas2D measurement context with the right
+   font / size loaded.
+3. **Line-break** greedily within paragraphs (no Knuth–Plass in v1).
+4. **Page-break** when a line doesn't fit, with these rules:
+   - `keepWithNext: true` on a heading style → if the heading would
+     be the last line on the page, push it to the next page too.
+   - `keepTogether: true` on a small block (e.g. an image with its
+     caption) → don't split it across pages.
+   - Widow rule: a paragraph's last line should not stand alone at
+     the top of the next page. If it would, push the previous line
+     too.
+   - Orphan rule: a paragraph's first line should not stand alone at
+     the bottom of the previous page. If it would, push the heading
+     too.
+5. **Generate** virtual page entries (master + filled `text-frame`)
+   that feed into `renderLayers` exactly like designed pages.
+
+Token substitution (`{chapter-title}` etc.) happens at the
+text-frame's containing-page level, not at the token-stream level —
+the engine emits placeholder tokens and the page renderer substitutes
+on draw.
+
+Edge cases v1 documents (and does not fix):
+
+- A word wider than the frame: render with horizontal overflow + a
+  warning toast.
+- A code block wider than the frame: same — no auto-hyphenation, no
+  shrink-to-fit.
+- An image wider than the frame: scale down to frame width.
+- A page that has zero room (the master's text-frame has negative
+  effective height due to padding overflow): refuse and surface an
+  error.
+
+### Anchoring designed pages around reflow segments
+
+A reflow segment expands to N pages at render time, so designed pages
+can't be addressed by absolute page index — N changes when prose
+changes. Designed pages carry an `anchor` field on the manifest entry:
+
+```js
+{ type: 'design', ref: …, anchor: { mode: 'before-chapter', chapterIndex: 2 } }
+{ type: 'design', ref: …, anchor: { mode: 'after-chapter',  chapterIndex: 5 } }
+{ type: 'design', ref: …, anchor: { mode: 'at-position',    after: 'design:title-page' } }
+```
+
+The pagination pipeline interleaves anchored designed pages around
+reflow segments so the *semantic* order is stable even as page counts
+shift. (Default for new designed pages: anchored after the previous
+manifest entry — same as today's "just sits here" intuition.)
+
+### Pinning chapter revisions
+
+Text drift is the biggest reflow tradeoff: if an author edits the
+NIP-23 article a book references, the book's pagination changes —
+designed pages may shift, the printed page count may differ from
+what was proofed. Two modes per reflow segment:
+
+- **Pinned** (`textPinnedEventId` set): the manifest locks to a
+  specific event id. `kind-5` deletes or addressable replacements
+  upstream don't affect this book. Updates are explicit: an
+  "Update pinned chapter" command pulls the latest revision and
+  re-runs pagination.
+- **Live** (`textPinnedEventId` null): the manifest tracks the
+  addressable ref — always the latest. Linked Designs' upstream-
+  update notification surfaces when the chapter changes, and the
+  reader prompts to refresh.
+
+Default: **pinned at publish time.** Safe by default for print
+runs. Authors can opt a chapter into live mode if they want
+"latest-always" behaviour (e.g. for a serialised work in progress).
+
+### Markdown editor surface
+
+For each reflow entry, the page editor switches to a two-pane layout:
+
+- Left pane: markdown textarea (autosaves to the chapter's local
+  draft; explicit "Save chapter" publishes a new revision of the
+  NIP-23 event).
+- Right pane: live preview rendered through the same pagination engine
+  the book will use, showing the chapter as paginated pages with the
+  selected master applied.
+
+v1 ships a plain textarea + preview; a syntax-highlighted CodeMirror
+upgrade is a Phase I follow-up.
+
+The editor also exposes:
+
+- A **"Import from Nostr"** field that paste-fetches an existing
+  kind-30023 article event and seeds the textarea with its content.
+- A **"Pin / Live"** toggle.
+- A **"Re-paginate now"** button (shows page count + warns about
+  changes since last paginate).
 
 ---
 
@@ -397,23 +665,31 @@ cover designer:
 
 Reuses the deck-sorter component. Differences:
 
-- Title says "Pages" with a `Total: N` counter (numbered / physical
-  shown separately).
-- Each tile shows the page number below the thumbnail, derived from
-  the manifest's `pageNumbering`. Skipped pages show no number.
-- Drag-reorder writes back to `book.pages[]`. Numbering re-renders
-  live; the manifest event is marked dirty for republish.
-- Per-tile menu: **Edit** (jumps to the per-page editor), **Duplicate**
-  (creates a new page event seeded with the current one's layers,
-  appends to manifest), **Delete** (removes from manifest; the page
-  event itself is left untouched on relays — manifest reference just
-  drops), **Apply master…** (pick from `book.masters`), **Skip
-  numbering**, **Rename**, **Open standalone** (opens the page event
-  in a fresh tab as if you imported it via Linked Designs).
-- A toolbar above the grid: **+ Add page**, **+ Add 10 pages**,
-  **Import page from Nostr** (paste a `casewrap-page` event id;
-  manifest gets a ref to it without re-publishing the page),
-  **Manage masters…**, **Document settings**.
+- Title says "Pages" with three counters: `Numbered: N`,
+  `Physical: M` (after reflow pagination), `Reflow segments: K`.
+- Two tile styles by entry type:
+  - **Designed-page tile**: a thumbnail of the rendered page, just
+    like the deck sorter shows slides today.
+  - **Reflow tile**: a stack-of-pages icon with the chapter title,
+    chapter number, a master-name pill, the latest paginated page
+    count (e.g. "Chapter 3 — Body pages master — 14 pages"), and
+    a tiny preview thumbnail of the chapter's first paginated page.
+- Drag-reorder writes back to `book.pages[]`. Numbering and reflow
+  re-paginate live; the manifest event is marked dirty for republish.
+- Per-tile menu — designed:  **Edit**, **Duplicate**, **Delete**
+  (removes from manifest; the page event itself is left untouched on
+  relays), **Apply master…**, **Skip numbering**, **Rename**, **Open
+  standalone**.
+- Per-tile menu — reflow: **Edit chapter** (opens the markdown editor),
+  **Change master…**, **Pin / Live toggle**, **Re-paginate**,
+  **Open chapter on Habla** (link to the NIP-23 article on a public
+  long-form client for cross-checking), **Delete from book**.
+- A toolbar above the grid: **+ Add designed page**, **+ Add chapter**
+  (creates a new draft NIP-23 article + a reflow entry referencing
+  it), **Import chapter from Nostr** (paste an existing kind-30023
+  article id; manifest gets a ref to it without republishing),
+  **Import designed page from Nostr**, **Manage masters…**,
+  **Document settings**.
 
 ### 4. Per-page editor
 
@@ -658,21 +934,52 @@ it. Used for:
 - Masters modal, master-edit mode in the canvas, master-layer
   underlay in the page editor.
 - Default master applied to new pages.
+- **`text-frame` layer type** added — masters can carry a text-frame
+  on the canvas (a new layer kind that renders as a labelled
+  rectangle in the editor and is the future drop-target for prose).
+  No reflow yet; the frame is purely structural.
 - Masters still in-memory, not yet published.
 
-### Phase D1 — Publish individual page / cover / master events
+### Phase C.5 — Reflowable text (markdown + pagination)
+- Vendor `marked` (~30 KB MIT) as `src/vendor/marked.min.js`.
+- Implement the pagination engine (token stream → measured lines →
+  page breaks, with widow / orphan + `keepWithNext` /
+  `keepTogether`). Pure-function shape so it's testable in isolation.
+- `spec.textStyles` editor in Document settings.
+- `reflow`-type entries in `book.pages[]`; pages overview tiles
+  render reflow segments with the "stack of pages" affordance and
+  paginated page-count.
+- Markdown editor pane in the per-page editor for reflow entries
+  (textarea + live preview).
+- Anchoring of designed pages around reflow segments
+  (`anchor.mode = 'before-chapter' | 'after-chapter' | 'at-position'`).
+- `{chapter-title}` / `{chapter-number}` tokens substitute correctly
+  in master text layers.
+- Pin / Live revision tracking for chapter refs.
+- `text-frame` layer is now functional — masters with one become
+  valid reflow-master targets; masters without one are rejected by
+  the "Set master" picker for reflow entries.
+- NIP-23 import: paste a kind-30023 article id, get a reflow entry
+  that references it.
+
+### Phase D1 — Publish individual page / cover / master / chapter events
 - Per-page autosave publishes a `casewrap-page` event. Provisional
   ids are upgraded to real `naddr` refs on first publish.
 - Cover save publishes its own `casewrap-page` event with
   `role: 'cover-spread'`.
 - Master save publishes a `casewrap-page` event with `role: 'master'`.
+- **Chapter save publishes a `kind-30023` (NIP-23) article event.**
+  Title comes from the reflow entry's `chapterTitle`; body is the
+  markdown source. The article event is independent — readable on
+  any NIP-23 client.
 - Linked Designs resolver wired so opening a book on a second client
   / device fetches the referenced events progressively.
-- Disk cache: page / master / cover events cached in localStorage so
-  re-opens are instant offline.
+- Disk cache: page / master / cover / chapter events cached in
+  localStorage so re-opens are instant offline.
 - Upstream-update notifications surface on the sorter tiles +
   cover-view header when a referenced event has a newer version
-  upstream.
+  upstream; for chapters, the notice also reports the new word count
+  delta.
 
 ### Phase D2 — Publish the manifest
 - Manifest publish path: `casewrap-book` event with the spec + list
@@ -686,12 +993,18 @@ it. Used for:
 - Feed-card preview shows the cover spread thumbnail + page count.
 
 ### Phase E — PDF export
-- Vendor `pdf-lib`. Build the render-to-PDF pipeline (Canvas2D first,
-  text-flatten for v1).
+- Vendor `pdf-lib`. Build the render-to-PDF pipeline.
+- **Reflowed prose exports as real PDF text** (not flattened paths)
+  using `pdf-lib`'s font subsetting. Designed-page text layers
+  whose font isn't embeddable fall back to vector-path text with a
+  per-export warning listing which layers were flattened.
 - Export modal in Pages + Cover toolbars.
 - Bleed + crop marks options. Single-file and split (cover + interior)
   output modes.
 - Gated-page export rules enforced.
+- A **"Proof one page"** quick-export emits a single page or a
+  single chapter as a PDF — useful for sending to a printer to
+  test colour / paper before exporting the full book.
 
 ### Phase F — Templates + import polish
 - New `book` template category for the community browser; templates
@@ -715,6 +1028,26 @@ it. Used for:
   `gating` hint; the page event carries the actual encrypted payload.
 - Whole-book paywall via gating the manifest itself.
 - "Unlock with zap" flow tested end-to-end in Reader Mode.
+
+### Phase I — Markdown editor + extended subset
+- Replace the plain textarea with a syntax-highlighted CodeMirror
+  instance (~150 KB minified, vendored). Adds inline rendering hints,
+  smart quotes, list-continuation, drag-and-drop image insert.
+- Extended markdown features, each added with its own typography
+  rules and pagination handling:
+  - **Tables** with column-width balancing and per-cell alignment.
+  - **Footnotes** — a footnote-frame layer on masters collects
+    references per page; reference markers in the flow render as
+    superscripts.
+  - **Nested lists** beyond one level (typography per level).
+  - **Definition lists**, GFM task lists.
+- Auto-generated TOC via `{toc}` magic token that walks every
+  reflow segment's H1 / H2 / H3 headings and emits a styled list
+  with page numbers.
+- Auto-generated index via `{index}` and inline `^[term]` markers
+  in the markdown source.
+- Cross-references: `[See chapter 3](#chapter-3)` resolves to a
+  page number at render time.
 
 ---
 
@@ -751,6 +1084,51 @@ it. Used for:
   user has to remember where they are. The page-context bar with
   prev / next / "Back to Pages" is essential and should never be
   hidden.
+- **Pagination is fiddly.** Pagination engines have a long tail of
+  edge cases — long words on narrow columns, code blocks wider than
+  the frame, images that should keep with their caption, mid-line
+  font changes. **Mitigations:**
+  - **Tight v1 subset.** Document the supported markdown subset
+    explicitly. Each deferred feature lands as a separate phase
+    with its own tests.
+  - **Pure-function engine** so it's testable in isolation: feed it
+    a markdown string + frame geometry + stylesheet, assert page
+    breaks. Build a small canonical corpus of "should paginate
+    these ways" fixtures.
+  - **"Preview pagination"** command before publish so the author
+    sees the page count + any overflow warnings without committing.
+  - **Overflow warnings** in the editor: a long word, a too-wide
+    code block, a margin that swallows the frame — each emits a
+    toast pointing at the offending line, rather than silently
+    rendering wrong.
+- **Text drift breaking pagination.** A chapter event updates
+  upstream → its word count changes → physical page count shifts →
+  designed pages anchored after that chapter move. **Mitigations:**
+  - **Pin chapters at publish time by default.** Authors who want
+    "latest-always" opt-in to live mode per chapter.
+  - **Re-paginate notice** when a live chapter changes, with a
+    diff (`+12 pages` / `-3 pages`) shown in the sorter so the
+    author knows what shifted before accepting the update.
+  - **Anchor-based designed pages.** Designed pages on the manifest
+    use `anchor.mode: 'before-chapter' | 'after-chapter'` rather
+    than absolute index, so they stay semantically in place even
+    when page counts shift.
+- **PDF text fidelity for reflowed prose.** Reflowed paragraphs
+  must export as real PDF text objects (searchable, copyable) — the
+  Phase E PDF pipeline uses `pdf-lib` font subsetting for this.
+  **Mitigations:**
+  - **Font allowlist.** Document settings restricts text-frame
+    fonts to ones we know `pdf-lib` can subset cleanly (start with
+    a small set of bundled web-safe fonts: Georgia, Times, Helvetica,
+    Arial, monospace).
+  - **Fallback to vector paths** for fonts outside the allowlist,
+    with a per-export warning listing which paragraphs were
+    flattened.
+- **Markdown editor scope.** Building a full WYSIWYG markdown
+  editor would eat the v1 timeline. **Mitigation:** ship a plain
+  textarea + live preview for v1 (Phase C.5). CodeMirror upgrade is
+  Phase I. A WYSIWYG editor is explicitly never in scope — markdown
+  is the source of truth, not a transient representation.
 
 ---
 
@@ -810,12 +1188,36 @@ it. Used for:
   master layers below their own.
 - [ ] Master-layer underlay is non-interactive in the page editor
   (hover shows an "M" badge, click passes through).
+- [ ] A master can carry a `text-frame` layer; the editor renders it
+  as a labelled rectangle but the frame is empty (no reflow yet).
+
+### Phase C.5 — Reflowable text
+- [ ] A reflow entry on the manifest renders the chapter's markdown
+  into the chosen master's `text-frame`, paginating across as many
+  pages as the prose needs.
+- [ ] Each markdown element type (H1 / H2 / H3 / body / blockquote /
+  code / list / link / image / hr) renders with the typography
+  defined by `spec.textStyles`.
+- [ ] `keepWithNext` on headings prevents a heading-as-last-line on
+  any page; widow / orphan rules prevent single-line splits.
+- [ ] `{chapter-title}` / `{chapter-number}` tokens on master text
+  layers resolve to the *containing* chapter's values.
+- [ ] Designed pages with `anchor.mode: 'before-chapter' |
+  'after-chapter'` interleave around reflow segments correctly, and
+  stay in place semantically when prose changes.
+- [ ] Pin / Live revision tracking: a pinned chapter ignores
+  upstream updates; a live chapter surfaces an update notice with
+  page-count delta.
+- [ ] "Preview pagination" shows page count + overflow warnings
+  before publish.
 
 ### Phase D1 — Per-event publish
 - [ ] Saving a page publishes a `casewrap-page` kind-30078 event
   under the user's pubkey.
+- [ ] Saving a chapter publishes a `kind-30023` NIP-23 article event;
+  the same event opens cleanly on Habla.news as a long-form article.
 - [ ] Reopening a book on a second device resolves every page /
-  master / cover ref via the Linked Designs resolver.
+  master / cover / chapter ref via the Linked Designs resolver.
 - [ ] An upstream master update surfaces a "new version available"
   notice in the masters modal and (when accepted) propagates to every
   page that inherits it.
@@ -831,11 +1233,16 @@ it. Used for:
 ### Phase E — PDF export
 - [ ] Export modal produces a PDF with the expected page count + cover
   spread on a separate page.
+- [ ] Reflowed prose exports as real PDF text (searchable + copyable)
+  for fonts on the allowlist; a per-export warning lists any layers
+  that fell back to vector paths.
 - [ ] Bleed + crop-marks toggle work; output passes a visual diff
   against a hand-laid InDesign export of the same book at a single
   reference size.
 - [ ] A premium-gated page included in the export is replaced by the
   watermarked preview when the user is not authorised to unlock it.
+- [ ] "Proof one page" / "Proof one chapter" produces a single-page
+  PDF in under 2 seconds end-to-end.
 
 ### Phase G — Reader Mode + embed
 - [ ] Reader Mode walks the manifest's pages with progressive fetch;

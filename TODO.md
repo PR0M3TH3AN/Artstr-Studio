@@ -24,21 +24,44 @@ event replaces; the manifest is unchanged unless the page list
 or order moves. Per-page reactions, comments, tips, and premium
 gating come for free because each page is its own event.
 
+Reflow integration: prose-heavy chapters are stored as **NIP-23
+long-form articles (kind-30023, markdown)**. The book manifest
+references each chapter's article event and pours its markdown
+into per-page **`text-frame` layers** on a master, using a
+book-level **stylesheet** (`spec.textStyles`) for typography.
+Designed pages and reflow segments interleave; designed pages are
+positioned by **anchor** (`before-chapter` / `after-chapter`) so
+their semantic position survives prose changes. Chapters can be
+**pinned** to a specific event id (safe by default — locks the
+pagination for print) or **live** (always-latest, with re-paginate
+notices).
+
 Phased delivery:
 - **A** spec + book mode skeleton
 - **B** pages overview + per-page editor + token substitution
-- **C** master pages with single-level inheritance
-- **D1** publish individual page / cover / master events
+- **C** master pages with single-level inheritance + `text-frame`
+  layer kind (structural only)
+- **C.5** reflowable text + pagination engine (markdown subset:
+  paragraphs, h1-h6, bold/italic/inline-code, code blocks, lists,
+  blockquotes, links, hr, inline images; widow / orphan +
+  `keepWithNext` rules)
+- **D1** publish individual page / cover / master events +
+  publish chapter events as kind-30023 NIP-23 articles
 - **D2** publish the `casewrap-book` manifest
-- **E** multi-page PDF export via vendored `pdf-lib`
+- **E** multi-page PDF export via vendored `pdf-lib`; reflowed
+  prose exports as real PDF text where the font is on the
+  allowlist
 - **F** templates + deck-to-book import
 - **G** Reader Mode (Slide Decks' Presenter Mode counterpart) +
   EXTERNAL_EMBED `?book=<naddr>` flip-book
 - **H** per-page + whole-book premium gating using PREMIUM_DESIGNS
+- **I** CodeMirror markdown editor + extended subset (tables,
+  footnotes, nested lists, auto-TOC via `{toc}` token,
+  cross-references)
 
-Big arc; v1 is fixed-layout only — no reflowable text or
-paragraph-style engine. Reflowable prose belongs on NIP-23
-long-form articles, not here.
+Big arc. v1 supports a tight markdown subset for prose; explicitly
+deferred to Phase I: tables, footnotes, nested lists, embedded
+HTML, multi-column text frames, float-around-image.
 
 ## Design-tool follow-ups (Illustrator parity arc)
 
