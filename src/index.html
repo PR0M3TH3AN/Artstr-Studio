@@ -16399,7 +16399,14 @@
     // to whatever pixel size the wrapper ends up at.
     function rebuildClipDefs(layers) {
       const defsRoot = ensureGlobalClipDefs();
-      const defs = defsRoot.querySelector('defs');
+      let defs = defsRoot.querySelector('defs');
+      if (!defs) {
+        // Pre-existing globalClipDefs SVG without an inner <defs>
+        // (e.g. injected by an early DOM hook or an extension). Recreate
+        // it so the rebuild doesn't crash and abort render().
+        defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+        defsRoot.appendChild(defs);
+      }
       defs.innerHTML = '';
       const map = new Map();
       for (const layer of layers || []) {
