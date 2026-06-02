@@ -9759,6 +9759,16 @@
             startPenEditDrag(editLayer, { nodeIndex: hit.segIndex + 1, part: 'anchor' }, evt);
             return;
           }
+          // Pen tool + plain click on an endpoint of an open path →
+          // resume drawing from that endpoint. Illustrator parity.
+          if (hit.part === 'anchor' && !evt.shiftKey && !evt.altKey
+              && editLayer.shape?.pen?.closed === false) {
+            const last = editLayer.shape.pen.nodes.length - 1;
+            if (hit.nodeIndex === 0 || hit.nodeIndex === last) {
+              startPenContinuation(editLayer, hit.nodeIndex);
+              return;
+            }
+          }
           startPenEditDrag(editLayer, hit, evt);
           return;
         }
@@ -10777,11 +10787,9 @@
           if (hit.part === 'anchor') {
             // Pen tool's "click anchor" deletes; DSel's "click anchor" selects/drags.
             cursor = (t === 'pen') ? 'crosshair' : 'pointer';
-            // Endpoint of an open path → "continue from here" affordance
-            // in pen mode (we won't wire the continue behavior in this
-            // commit, but the cursor cue is what makes the affordance
-            // discoverable; the actual resume-drawing logic lands in
-            // the polish commit).
+            // Endpoint of an open path in pen mode → "continue from
+            // here" affordance. Clicking seeds a draft from the
+            // existing nodes so the next click extends the path.
             if (t === 'pen' && !editLayer.shape.pen.closed) {
               const lastIdx = editLayer.shape.pen.nodes.length - 1;
               if (hit.nodeIndex === 0 || hit.nodeIndex === lastIdx) cursor = 'pointer';
@@ -10818,9 +10826,19 @@
     function finishPenPath(closed) {
       if (!_penDraft || _penDraft.tool !== 'pen') { cancelPenDraft(); return; }
       const nodes = _penDraft.nodes;
+      const continuationOf = _penDraft._continuationOf;
+      const inheritStyle = _penDraft._inheritStyle;
       _penDraft = null;
       clearPenDraftRender();
-      if (nodes.length < 2) return;
+      if (nodes.length < 2) {
+        // Restore the source path if continuation aborted without committing.
+        if (continuationOf) {
+          const src = state.layers.find(l => l.id === continuationOf);
+          if (src) src._hiddenForContinuation = false;
+          render();
+        }
+        return;
+      }
       // bbox includes anchor + handle points so curves that bow outward fit.
       const allPts = [];
       for (const n of nodes) {
@@ -10846,27 +10864,91 @@
       const vbW = bbox.w * 96;
       const vbH = bbox.h * 96;
       const d = penNodesToPathD(normNodes, closed);
-      pushHistory('draw pen path');
-      const fill = (closed && _penToolOpts.penFill)
+      pushHistory(continuationOf ? 'extend pen path' : 'draw pen path');
+      // Continuation: drop the source layer, carry its z + target +
+      // style so the replacement reads as "the same path, longer."
+      let layerZ = nextLayerZ();
+      let layerTarget = currentDrawTarget();
+      let layerFill = (closed && _penToolOpts.penFill)
         ? { type: 'solid', color: _penToolOpts.penFillColor }
         : { type: 'none' };
+      let layerStroke = { type: 'solid', color: _penToolOpts.penStrokeColor, width: _penToolOpts.penStrokeWidth, dash: 'solid' };
+      if (continuationOf) {
+        const idx = state.layers.findIndex(l => l.id === continuationOf);
+        if (idx >= 0) {
+          const src = state.layers[idx];
+          if (inheritStyle?.stroke) layerStroke = inheritStyle.stroke;
+          if (inheritStyle?.fill && (closed || inheritStyle.fill.type === 'none')) layerFill = inheritStyle.fill;
+          layerZ = src.z;
+          layerTarget = src.target;
+          state.layers.splice(idx, 1);
+        }
+      }
       addLayer({
         id: makeLayerId(),
         type: 'shape',
         name: closed ? 'Pen shape' : 'Pen path',
-        target: currentDrawTarget(),
+        target: layerTarget,
         x: bbox.x, y: bbox.y, w: bbox.w, h: bbox.h,
-        rotate: 0, opacity: 1, z: nextLayerZ(),
+        rotate: 0, opacity: 1, z: layerZ,
         shape: {
           kind: 'path', d, viewBox: { x: 0, y: 0, w: vbW, h: vbH },
           pen: { closed: !!closed, tool: 'pen', nodes: normNodes }
         },
-        fill,
-        stroke: { type: 'solid', color: _penToolOpts.penStrokeColor, width: _penToolOpts.penStrokeWidth, dash: 'solid' }
+        fill: layerFill,
+        stroke: layerStroke
       });
     }
 
+    // Pen tool: resume drawing from an endpoint of an open path.
+    // Seeds _penDraft with the existing layer's nodes (converted
+    // back to inch-space), reversing the order if the user clicked
+    // the start so the clicked endpoint becomes the trailing anchor
+    // ready to extend on the next click. The source layer is hidden
+    // for the duration of the draft; on commit it's removed and the
+    // new (continued) path takes its place, preserving z + target.
+    function startPenContinuation(layer, endpointIdx) {
+      const srcNodes = layer.shape.pen.nodes;
+      if (!srcNodes || srcNodes.length === 0) return;
+      const reverse = endpointIdx === 0;
+      const draftNodes = srcNodes.map(n => ({
+        x: layer.x + n.x / 96,
+        y: layer.y + n.y / 96,
+        hIn:  n.hIn  ? { x: layer.x + n.hIn.x  / 96, y: layer.y + n.hIn.y  / 96 } : null,
+        hOut: n.hOut ? { x: layer.x + n.hOut.x / 96, y: layer.y + n.hOut.y / 96 } : null,
+        kind: n.kind || 'corner',
+      }));
+      if (reverse) {
+        draftNodes.reverse();
+        // After reversal, what was hIn becomes hOut and vice versa.
+        for (const n of draftNodes) { const tmp = n.hIn; n.hIn = n.hOut; n.hOut = tmp; }
+      }
+      const last = draftNodes[draftNodes.length - 1];
+      layer._hiddenForContinuation = true;
+      _penDraft = {
+        tool: 'pen',
+        nodes: draftNodes,
+        cursor: { x: last.x, y: last.y },
+        _continuationOf: layer.id,
+      };
+      // Carry over the source layer's stroke + fill so the committed
+      // replacement matches the original's appearance.
+      const srcStroke = layer.stroke;
+      const srcFill = layer.fill;
+      if (srcStroke || srcFill) {
+        _penDraft._inheritStyle = { stroke: srcStroke, fill: srcFill, z: layer.z, target: layer.target };
+      }
+      render();
+      renderPenDraft();
+    }
+
     function cancelPenDraft() {
+      // Restore the hidden continuation source if the user backed out.
+      if (_penDraft && _penDraft._continuationOf) {
+        const src = state.layers.find(l => l.id === _penDraft._continuationOf);
+        if (src) src._hiddenForContinuation = false;
+        render();
+      }
       _penDraft = null;
       clearPenDraftRender();
     }
@@ -16101,7 +16183,7 @@
         // Only render layers whose target belongs to the current template mode
         // (prevents leftover cover/disc/jewel layers from leaking into custom-art
         // canvases and vice versa). Page-level layers render everywhere.
-        if (layer.hidden) continue;
+        if (layer.hidden || layer._hiddenForContinuation) continue;
         if (state.appMode !== 'designer' && !isLayerForCurrentMode(layer)) continue;
 
         const layerSelected = isLayerSelected(layer.id);
