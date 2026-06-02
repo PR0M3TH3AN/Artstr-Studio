@@ -1467,6 +1467,25 @@
     body.template-pixelart #layersFieldset,
     body.template-pixelart #printExportRow { display: none !important; }
 
+    /* Book mode (Phase A): the canvas-host shouldn't render any of
+       the cover-mode panels (BACK / SPINE / FRONT slots, trim+bleed
+       guides, fold lines, crop marks). The Pages overview view
+       (A4) and Cover view (A5) replace this with their own DOM. The
+       sidebar export / layers panels also hide — they don't apply
+       until pages exist. */
+    body.template-book #exportFieldset,
+    body.template-book #layersFieldset,
+    body.template-book #printExportRow,
+    body.template-book .coverOnly,
+    body.template-book .diskLayer,
+    body.template-book .jewelLayer,
+    body.template-book .bleedFill,
+    body.template-book .trimArea,
+    body.template-book .foldLine,
+    body.template-book .discSpineStrip,
+    body.template-book .jewelSpineGuide,
+    body.template-book .spineText { display: none !important; }
+
     .templateLayerPanels {
       display: grid;
       gap: 10px;
