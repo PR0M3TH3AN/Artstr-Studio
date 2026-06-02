@@ -8727,6 +8727,18 @@
       if (isCanvasMode(state.templateMode)) return [
         { key: 'canvas', label: 'Canvas' }
       ];
+      if (state.templateMode === 'book') {
+        // Book mode: the layers panel scopes to whichever page is
+        // open in the per-page editor. No page open → no panels
+        // (Pages overview shows tiles, not layer rows).
+        const editId = state.book?.editingEntryId;
+        if (editId) {
+          const idx = (state.book?.pages || []).findIndex(p => p.id === editId);
+          const human = idx >= 0 ? `Page ${idx + 1}` : 'Current page';
+          return [{ key: `book-page:${editId}`, label: human }];
+        }
+        return [];
+      }
       // Cover mode. In combined-wrap mode the artwork is one open canvas, so
       // back/spine/front sub-regions aren't meaningful — collapse to a single
       // "Cover trim area" panel that still lists any pre-existing back/spine/
