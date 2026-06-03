@@ -1663,6 +1663,75 @@
     .bookVisibilityChip.public  { color: #15803d; border-color: #86efac; }
     .bookVisibilityChip.private { color: #6b21a8; border-color: #c084fc; background: #faf5ff; }
     .bookVisibilityChip:disabled { opacity: .5; cursor: not-allowed; }
+    /* Reader Mode — full-screen book viewer launched from the
+       Pages overview. Mirrors Presenter Mode's pattern for decks
+       but with a TOC sidebar instead of a slide strip. */
+    #bookReaderOverlay {
+      position: fixed; inset: 0; z-index: 9999;
+      background: #1a1a1a; color: #fafafa;
+      display: none; flex-direction: column;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    #bookReaderOverlay.open { display: flex; }
+    .bookReaderHeader {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 14px; border-bottom: 1px solid #2a2a2a;
+      background: #0f0f0f;
+    }
+    .bookReaderTitle { flex: 1; font-size: .95rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bookReaderTocToggle, .bookReaderCloseBtn {
+      background: transparent; color: #fafafa; border: 1px solid #444;
+      padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: .82rem;
+    }
+    .bookReaderTocToggle:hover, .bookReaderCloseBtn:hover { background: #2a2a2a; }
+    .bookReaderBody {
+      flex: 1; display: flex; min-height: 0; position: relative;
+    }
+    .bookReaderToc {
+      width: 0; overflow: hidden; transition: width .18s ease;
+      background: #0f0f0f; border-right: 1px solid #2a2a2a;
+    }
+    .bookReaderToc.open { width: 240px; overflow-y: auto; }
+    .bookReaderTocList { padding: 6px 0; }
+    .bookReaderTocItem {
+      padding: 6px 14px; font-size: .82rem; color: #c0c0c0;
+      cursor: pointer; border-left: 3px solid transparent;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .bookReaderTocItem:hover { background: #1a1a1a; color: #fff; }
+    .bookReaderTocItem.current { background: #1a1a1a; color: #fff; border-left-color: var(--accent, #f59e0b); }
+    .bookReaderTocItem.chapterHead { color: #fde68a; font-weight: 600; padding-top: 10px; }
+    .bookReaderStage {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      position: relative; min-width: 0; cursor: pointer;
+      user-select: none;
+    }
+    .bookReaderPage {
+      max-width: 92%; max-height: 90%;
+      box-shadow: 0 8px 40px rgba(0,0,0,.6);
+      background: #fff;
+    }
+    .bookReaderPageWrap {
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; height: 100%;
+    }
+    .bookReaderArrow {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      width: 44px; height: 60px; display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,.4); border: none; color: #fafafa;
+      font-size: 1.6rem; cursor: pointer; opacity: 0; transition: opacity .12s;
+    }
+    .bookReaderStage:hover .bookReaderArrow { opacity: 1; }
+    .bookReaderArrow.prev { left: 14px; }
+    .bookReaderArrow.next { right: 14px; }
+    .bookReaderArrow:disabled { opacity: 0; pointer-events: none; }
+    .bookReaderFooter {
+      display: flex; align-items: center; gap: 14px;
+      padding: 8px 16px; background: #0f0f0f; border-top: 1px solid #2a2a2a;
+      font-size: .78rem; color: #c0c0c0;
+    }
+    .bookReaderProgress { flex: 1; height: 4px; background: #2a2a2a; border-radius: 2px; overflow: hidden; }
+    .bookReaderProgressFill { height: 100%; background: var(--accent, #f59e0b); width: 0%; transition: width .18s; }
     .bookStarterPanel {
       grid-column: 1 / -1;
       padding: 18px 22px; border: 1px dashed var(--line); border-radius: 8px;
@@ -4445,6 +4514,7 @@
                 <button type="button" id="bookAddTenBtn">+ Add 10 pages</button>
                 <button type="button" id="bookAddChapterBtn">+ Add chapter</button>
                 <button type="button" id="bookImportPageBtn" title="Import a page from another author's book by naddr / nevent">+ Import page</button>
+                <button type="button" id="bookReaderBtn" title="Open the book in Reader Mode (full-screen page-flip)">▶ Read</button>
                 <button type="button" id="bookExportPdfBtn" title="Export this book as a PDF (interior pages + cover spread)">Export PDF…</button>
                 <span id="bookExportPdfStatus" class="hint" style="margin-left:6px;font-size:.74rem"></span>
               </div>
@@ -5340,6 +5410,29 @@
         <button type="button" id="bookSettingsCancelBtn">Cancel</button>
         <button type="button" id="bookSettingsApplyBtn" class="primary">Apply</button>
       </div>
+    </div>
+  </div>
+
+  <div id="bookReaderOverlay" aria-hidden="true">
+    <div class="bookReaderHeader">
+      <button type="button" class="bookReaderTocToggle" id="bookReaderTocToggle" title="Toggle table of contents">☰ TOC</button>
+      <div class="bookReaderTitle" id="bookReaderTitle">Book</div>
+      <button type="button" class="bookReaderCloseBtn" id="bookReaderCloseBtn" title="Exit Reader (Esc)">✕ Close</button>
+    </div>
+    <div class="bookReaderBody">
+      <aside class="bookReaderToc" id="bookReaderToc">
+        <div class="bookReaderTocList" id="bookReaderTocList"></div>
+      </aside>
+      <div class="bookReaderStage" id="bookReaderStage">
+        <button type="button" class="bookReaderArrow prev" id="bookReaderPrev" title="Previous page (←)">‹</button>
+        <div class="bookReaderPageWrap" id="bookReaderPageWrap"></div>
+        <button type="button" class="bookReaderArrow next" id="bookReaderNext" title="Next page (→)">›</button>
+      </div>
+    </div>
+    <div class="bookReaderFooter">
+      <span id="bookReaderCounter">0 / 0</span>
+      <div class="bookReaderProgress"><div class="bookReaderProgressFill" id="bookReaderProgressFill"></div></div>
+      <span class="hint" style="font-size:.7rem;color:#888">← / → to flip · Space advances · Esc exits</span>
     </div>
   </div>
 
@@ -25855,6 +25948,177 @@
       }
       return { blob: interior, warnings };
     }
+    // ---- Reader Mode (Phase G1) ----------------------------------------
+    // Full-screen page-flip viewer driven off the manifest. Walks
+    // enumerateBookPhysicalPages and renders each via the existing
+    // export-canvas helpers (same path the PDF pipeline uses) at a
+    // moderate DPI so the canvas-as-image stays sharp at typical
+    // viewport sizes. Pages render lazily and cache during the
+    // session so re-visits are instant.
+    const _bookReaderState = {
+      active: false,
+      sequence: [],
+      currentIdx: 0,
+      canvases: new Map(),      // physicalIdx → HTMLCanvasElement
+      keyHandler: null,
+      tocOpen: false,
+    };
+    async function openBookReader() {
+      const book = state.book;
+      if (!book) return;
+      const seq = enumerateBookPhysicalPages(book);
+      if (!seq.length) {
+        toastError && toastError('Nothing to read — add at least one page or chapter first.');
+        return;
+      }
+      _bookReaderState.active = true;
+      _bookReaderState.sequence = seq;
+      _bookReaderState.currentIdx = 0;
+      _bookReaderState.canvases.clear();
+      const overlay = document.getElementById('bookReaderOverlay');
+      if (!overlay) return;
+      overlay.classList.add('open');
+      overlay.setAttribute('aria-hidden', 'false');
+      const titleEl = document.getElementById('bookReaderTitle');
+      if (titleEl) titleEl.textContent = state.meta?.title || 'Book';
+      _renderBookReaderToc();
+      await _showBookReaderPage(0);
+      _bookReaderState.keyHandler = (e) => {
+        if (!_bookReaderState.active) return;
+        if (e.key === 'Escape') { closeBookReader(); e.preventDefault(); return; }
+        if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+          _gotoBookReaderPage(_bookReaderState.currentIdx + 1); e.preventDefault();
+        } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+          _gotoBookReaderPage(_bookReaderState.currentIdx - 1); e.preventDefault();
+        } else if (e.key === 'Home') {
+          _gotoBookReaderPage(0); e.preventDefault();
+        } else if (e.key === 'End') {
+          _gotoBookReaderPage(_bookReaderState.sequence.length - 1); e.preventDefault();
+        }
+      };
+      document.addEventListener('keydown', _bookReaderState.keyHandler);
+    }
+    function closeBookReader() {
+      _bookReaderState.active = false;
+      const overlay = document.getElementById('bookReaderOverlay');
+      if (overlay) {
+        overlay.classList.remove('open');
+        overlay.setAttribute('aria-hidden', 'true');
+      }
+      if (_bookReaderState.keyHandler) {
+        document.removeEventListener('keydown', _bookReaderState.keyHandler);
+        _bookReaderState.keyHandler = null;
+      }
+      _bookReaderState.canvases.clear();
+    }
+    function _renderBookReaderToc() {
+      const list = document.getElementById('bookReaderTocList');
+      if (!list) return;
+      const seq = _bookReaderState.sequence;
+      const book = state.book;
+      let lastChapter = '';
+      const fragments = [];
+      seq.forEach((slot, idx) => {
+        const entry = book.pages.find(p => p.id === slot.entryId);
+        if (slot.chapterTitle && slot.chapterTitle !== lastChapter && slot.indexInEntry === 0) {
+          fragments.push(`<div class="bookReaderTocItem chapterHead" data-idx="${idx}">${escapeHtml(slot.chapterTitle)}</div>`);
+          lastChapter = slot.chapterTitle;
+        } else if (entry?.type === 'design') {
+          const labelBase = entry.label || `Page ${slot.pageNumber != null ? slot.pageNumber : (idx + 1)}`;
+          fragments.push(`<div class="bookReaderTocItem" data-idx="${idx}">${escapeHtml(labelBase)}</div>`);
+        }
+      });
+      list.innerHTML = fragments.join('') || '<div class="bookReaderTocItem">(empty)</div>';
+      list.querySelectorAll('.bookReaderTocItem').forEach(el => {
+        el.addEventListener('click', () => {
+          const idx = Number(el.dataset.idx);
+          if (Number.isFinite(idx)) _gotoBookReaderPage(idx);
+          if (window.innerWidth < 900) _toggleBookReaderToc(false);
+        });
+      });
+      _updateBookReaderTocCurrent();
+    }
+    function _updateBookReaderTocCurrent() {
+      const list = document.getElementById('bookReaderTocList');
+      if (!list) return;
+      const cur = _bookReaderState.currentIdx;
+      list.querySelectorAll('.bookReaderTocItem').forEach(el => {
+        const idx = Number(el.dataset.idx);
+        el.classList.toggle('current', idx === cur);
+      });
+    }
+    function _toggleBookReaderToc(force) {
+      const aside = document.getElementById('bookReaderToc');
+      if (!aside) return;
+      const wantOpen = typeof force === 'boolean' ? force : !aside.classList.contains('open');
+      aside.classList.toggle('open', wantOpen);
+      _bookReaderState.tocOpen = wantOpen;
+    }
+    async function _gotoBookReaderPage(idx) {
+      const max = _bookReaderState.sequence.length - 1;
+      const clamped = Math.max(0, Math.min(max, idx));
+      if (clamped === _bookReaderState.currentIdx && _bookReaderState.canvases.has(clamped)) return;
+      _bookReaderState.currentIdx = clamped;
+      await _showBookReaderPage(clamped);
+      _updateBookReaderTocCurrent();
+      // Prefetch the next two pages so forward flips feel instant.
+      for (let i = 1; i <= 2; i++) {
+        const j = clamped + i;
+        if (j <= max && !_bookReaderState.canvases.has(j)) {
+          _renderBookReaderPageCanvas(j).catch(() => {});
+        }
+      }
+    }
+    async function _renderBookReaderPageCanvas(idx) {
+      if (_bookReaderState.canvases.has(idx)) return _bookReaderState.canvases.get(idx);
+      const slot = _bookReaderState.sequence[idx];
+      const book = state.book;
+      const entry = book.pages.find(p => p.id === slot.entryId);
+      if (!entry) return null;
+      const ctxToken = bookTokenContext(book, slot.entryId, slot.indexInEntry);
+      const dpi = 144; // ~1.5× CSS px; sharp at typical viewport widths.
+      let canvas;
+      if (slot.type === 'reflow') {
+        const pag = paginateChapter(entry, book);
+        canvas = await renderBookReflowPhysicalPageToCanvas(entry, pag, slot.indexInEntry, dpi, ctxToken);
+      } else {
+        canvas = await renderBookDesignedPageToCanvas(entry, dpi, ctxToken);
+      }
+      _bookReaderState.canvases.set(idx, canvas);
+      return canvas;
+    }
+    async function _showBookReaderPage(idx) {
+      const wrap = document.getElementById('bookReaderPageWrap');
+      const counter = document.getElementById('bookReaderCounter');
+      const fill = document.getElementById('bookReaderProgressFill');
+      const prevBtn = document.getElementById('bookReaderPrev');
+      const nextBtn = document.getElementById('bookReaderNext');
+      if (!wrap) return;
+      wrap.innerHTML = '<div style="color:#888;font-size:.85rem">Rendering…</div>';
+      try {
+        const canvas = await _renderBookReaderPageCanvas(idx);
+        if (!canvas) { wrap.innerHTML = '<div style="color:#b91c1c">Failed to render this page.</div>'; return; }
+        const img = canvas.cloneNode(true);
+        // Browsers don't deep-clone canvas pixel data via cloneNode;
+        // copy pixels manually so the cloned canvas paints.
+        const ctx2 = img.getContext('2d');
+        ctx2.drawImage(canvas, 0, 0);
+        img.className = 'bookReaderPage';
+        wrap.innerHTML = '';
+        wrap.appendChild(img);
+      } catch (err) {
+        console.warn('reader render failed', err);
+        wrap.innerHTML = `<div style="color:#b91c1c">Render error: ${escapeHtml(String(err.message || err))}</div>`;
+      }
+      const total = _bookReaderState.sequence.length;
+      if (counter) counter.textContent = `${idx + 1} / ${total}`;
+      if (fill) fill.style.width = `${((idx + 1) / total) * 100}%`;
+      if (prevBtn) prevBtn.disabled = idx <= 0;
+      if (nextBtn) nextBtn.disabled = idx >= total - 1;
+    }
+
+    // ---- end Reader Mode ----------------------------------------------------
+
     // "Proof one page" / "Proof one chapter" quick export (E4).
     // Skips the modal — one click → PDF download scoped to a single
     // manifest entry. Useful for sending a single page to a printer
@@ -35413,6 +35677,21 @@
       on('bookAddTenBtn',  'click', addBookTenPages);
       on('bookAddChapterBtn', 'click', addBookChapter);
       on('bookImportPageBtn', 'click', importBookPageFromNostr);
+      on('bookReaderBtn', 'click', openBookReader);
+      on('bookReaderCloseBtn', 'click', closeBookReader);
+      on('bookReaderTocToggle', 'click', () => _toggleBookReaderToc());
+      on('bookReaderPrev', 'click', () => _gotoBookReaderPage(_bookReaderState.currentIdx - 1));
+      on('bookReaderNext', 'click', () => _gotoBookReaderPage(_bookReaderState.currentIdx + 1));
+      // Click on the page stage flips: left half = back, right half = forward.
+      const _bookReaderStageEl = document.getElementById('bookReaderStage');
+      if (_bookReaderStageEl) _bookReaderStageEl.addEventListener('click', (e) => {
+        // Don't flip when clicking the arrow buttons.
+        if (e.target.closest('.bookReaderArrow')) return;
+        const rect = _bookReaderStageEl.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        if (x < rect.width / 2) _gotoBookReaderPage(_bookReaderState.currentIdx - 1);
+        else _gotoBookReaderPage(_bookReaderState.currentIdx + 1);
+      });
       // Chapter editor panes.
       on('bookChapterEditorBack', 'click', closeBookChapter);
       on('bookChapterEditorTextarea', 'input', (e) => updateBookChapterMarkdown(e.target.value));
