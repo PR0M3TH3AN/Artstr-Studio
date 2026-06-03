@@ -1542,6 +1542,10 @@
       padding: 3px 8px; font-size: .8rem;
       border: 1px solid var(--line); background: #fff; cursor: pointer;
     }
+    .bookChapterEditorSourceBar button.primary {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .bookChapterEditorSourceBar button:disabled { opacity: .55; cursor: progress; }
     .bookChapterEditorSourceLabel {
       font-size: .76rem; color: var(--muted); padding: 0 4px;
       border: 1px dashed var(--line); border-radius: 4px;
@@ -4360,6 +4364,7 @@
             <span class="bookChapterEditorSourceLabel" id="bookChapterEditorSourceStatus">Local only</span>
             <input type="text" id="bookChapterEditorSourceInput" placeholder="naddr1… / nevent1… / note1… / hex" />
             <button type="button" id="bookChapterEditorImportBtn">Import from Nostr</button>
+            <button type="button" id="bookChapterEditorPublishBtn" class="primary">Publish chapter</button>
             <button type="button" id="bookChapterEditorRefreshBtn" style="display:none">↻ Refresh</button>
             <button type="button" id="bookChapterEditorPinBtn" style="display:none">Pin to current</button>
             <button type="button" id="bookChapterEditorUnlinkBtn" style="display:none">Unlink</button>
@@ -9871,6 +9876,92 @@
         setMsg('Pin failed: ' + (err?.message || 'unknown error'), 'error');
       } finally {
         if (pinBtn) pinBtn.disabled = false;
+      }
+    }
+    // Build a NIP-23 d-tag slug from the chapter title (or entry id).
+    // Kept lowercase alphanumeric + hyphens so it round-trips through
+    // relay query strings cleanly.
+    function _bookChapterDTag(entry) {
+      if (entry?.textRef?.dTag && entry.textRef.pubkey
+          && state.community?.myPubkey
+          && entry.textRef.pubkey === state.community.myPubkey) {
+        // Re-publishing our own article — reuse the d-tag so the new
+        // event supersedes the old one via NIP-33 replaceability.
+        return entry.textRef.dTag;
+      }
+      const slug = String(entry?.chapterTitle || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 64);
+      if (slug) return `chapter:${slug}`;
+      // Fall back to the entry id so we still get a stable d-tag for
+      // untitled chapters.
+      return `chapter:${(entry?.id || 'unknown').replace(/[^a-z0-9:-]/gi, '')}`;
+    }
+    // Publish the current chapter as a kind-30023 NIP-23 article and
+    // update the entry's textRef so subsequent reads pull from the
+    // user's own publish. Replaces existing self-authored articles
+    // in-place (NIP-33) by reusing the prior d-tag.
+    async function publishBookChapterToNostr() {
+      const book = state.book;
+      const id = book?.editingChapterId;
+      if (!id) return;
+      const entry = book.pages.find(p => p.id === id);
+      if (!entry || entry.type !== 'reflow') return;
+      const msg = document.getElementById('bookChapterEditorSourceMsg');
+      const setMsg = (text, kind) => {
+        if (!msg) return;
+        msg.textContent = text || '';
+        msg.className = 'bookChapterEditorSourceMsg' + (kind ? ' ' + kind : '');
+      };
+      if (!window.nostr) { setMsg('Sign in with a Nostr extension first.', 'error'); return; }
+      const md = String(entry.chapterMarkdown || '').trim();
+      if (!md) { setMsg('Chapter is empty — nothing to publish.', 'error'); return; }
+      const title = (entry.chapterTitle || '').trim();
+      if (!title) { setMsg('Give the chapter a title before publishing.', 'error'); return; }
+      // Pull pubkey up-front so we can decide whether to reuse the
+      // existing d-tag (own article) vs mint a fresh one (replacing a
+      // foreign reference with our own copy).
+      let myPubkey = state.community?.myPubkey || '';
+      if (!myPubkey) {
+        try { myPubkey = await window.nostr.getPublicKey(); } catch {}
+      }
+      if (!myPubkey) { setMsg('Could not read pubkey from Nostr extension.', 'error'); return; }
+      // Confirm before overwriting another author's reference with
+      // our own publish — easy to do by accident with an imported
+      // chapter.
+      const ref = entry.textRef;
+      if (ref && ref.pubkey && ref.pubkey !== myPubkey) {
+        const ok = confirm(`This chapter is linked to ${ref.pubkey.slice(0,8)}…'s article. Publishing will replace the link with your own copy under your pubkey. Continue?`);
+        if (!ok) { setMsg('Publish cancelled.', 'error'); return; }
+      }
+      const dTag = _bookChapterDTag(entry);
+      const now = Math.floor(Date.now() / 1000);
+      const tags = [
+        ['d', dTag],
+        ['title', title],
+        ['published_at', String(now)],
+        ['t', 'book-chapter'],
+      ];
+      const evt = { kind: 30023, created_at: now, tags, content: md };
+      const btn = document.getElementById('bookChapterEditorPublishBtn');
+      if (btn) btn.disabled = true;
+      setMsg('Signing + publishing…');
+      try {
+        const signed = await publishCommunityEvent(evt);
+        const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
+        pushHistory('book: chapter publish');
+        entry.textRef = { kind: 30023, pubkey: signed.pubkey, dTag, relays };
+        entry.textPinnedEventId = null; // own publishes default to live
+        setMsg(`Published as ${signed.id.slice(0, 8)}… (${md.length.toLocaleString()} chars).`, 'ok');
+        syncBookChapterEditor();
+        render();
+      } catch (err) {
+        console.warn('chapter publish failed', err);
+        setMsg('Publish failed: ' + (err?.message || 'unknown error'), 'error');
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
     function unlinkBookChapterFromNostr() {
@@ -33189,6 +33280,7 @@
       on('bookChapterEditorTextarea', 'input', (e) => updateBookChapterMarkdown(e.target.value));
       on('bookChapterEditorTitle', 'input', (e) => updateBookChapterTitle(e.target.value));
       on('bookChapterEditorImportBtn', 'click', importBookChapterFromNostr);
+      on('bookChapterEditorPublishBtn', 'click', publishBookChapterToNostr);
       on('bookChapterEditorRefreshBtn', 'click', refreshBookChapterFromNostr);
       on('bookChapterEditorPinBtn', 'click', toggleBookChapterPin);
       on('bookChapterEditorUnlinkBtn', 'click', unlinkBookChapterFromNostr);
