@@ -28238,6 +28238,170 @@
       paintSlide();
     }
 
+    // Embed book mode (Phase G2). Cut-down Reader Mode for the
+    // chromeless iframe — no TOC sidebar, arrows + keyboard + click
+    // flips only. Sidecars resolve through the same disk-cached
+    // resolver the editor uses, so a re-embed paints from cache.
+    async function _paintEmbedBook(root, payload, event, route) {
+      const stage = root.querySelector('.embedStage');
+      const footer = root.querySelector('.embedFooter');
+      if (!stage || !footer) return;
+      // Seed editor-state shape so the canvas renderers can read
+      // book.spec + state.layers + state.meta without the full editor
+      // boot.
+      const incomingSpec = { ...defaultBookSpec(), ...(payload.book.spec || {}) };
+      incomingSpec.textStyles = { ...defaultBookTextStyles(), ...(payload.book.spec?.textStyles || {}) };
+      state.templateMode = 'book';
+      state.meta = { ...(state.meta || {}), ...(payload.meta || {}) };
+      state.book = {
+        spec: incomingSpec,
+        cover: payload.book.cover || null,
+        masters: Array.isArray(payload.book.masters) ? payload.book.masters.map(m => ({ ...m })) : [],
+        pages: Array.isArray(payload.book.pages) ? payload.book.pages.map(p => ({ ...p })) : [],
+        editingEntryId: null,
+        editingMasterId: null,
+        editingChapterId: null,
+      };
+      state.layers = [];
+      _setEmbedStatus(root, 'loading', '⟳ Loading book pages…');
+      // Resolve every page / master / cover / chapter ref. The disk
+      // cache makes re-embeds instant; fresh embeds round-trip relays.
+      try { await resolveBookSidecars(state.book); }
+      catch (err) { console.warn('[embed] book resolver failed', err); }
+      stage.innerHTML = '';
+      footer.innerHTML = '';
+      const wrap = document.createElement('div');
+      wrap.className = 'designObjectFitWrap';
+      wrap.style.cssText = 'position:relative;width:100%;height:100%;overflow:hidden;display:flex;align-items:center;justify-content:center;background:#1a1a1a;cursor:pointer;user-select:none';
+      stage.appendChild(wrap);
+      const pageBox = document.createElement('div');
+      pageBox.style.cssText = 'display:flex;align-items:center;justify-content:center;max-width:92%;max-height:90%';
+      wrap.appendChild(pageBox);
+      const params = route.params || new URLSearchParams();
+      const showControls = params.get('controls') !== '0';
+      const showAttr     = params.get('attr')     !== '0';
+      const showOpen     = params.get('open')     !== '0';
+      const seq = enumerateBookPhysicalPages(state.book);
+      if (!seq.length) {
+        _setEmbedStatus(root, 'error', 'This book has no pages yet.');
+        return;
+      }
+      const requested = Math.max(1, parseInt(params.get('page') || '1', 10)) - 1;
+      let idx = Math.min(seq.length - 1, Math.max(0, requested));
+      const canvasCache = new Map();
+      const renderPage = async (i) => {
+        if (canvasCache.has(i)) return canvasCache.get(i);
+        const slot = seq[i];
+        const entry = state.book.pages.find(p => p.id === slot.entryId);
+        if (!entry) return null;
+        const ctxToken = bookTokenContext(state.book, slot.entryId, slot.indexInEntry);
+        const dpi = 144;
+        let canvas;
+        if (slot.type === 'reflow') {
+          const pag = paginateChapter(entry, state.book);
+          canvas = await renderBookReflowPhysicalPageToCanvas(entry, pag, slot.indexInEntry, dpi, ctxToken);
+        } else {
+          canvas = await renderBookDesignedPageToCanvas(entry, dpi, ctxToken);
+        }
+        canvasCache.set(i, canvas);
+        return canvas;
+      };
+      const showPage = async (i) => {
+        pageBox.innerHTML = '<div style="color:#888;font-size:.8rem">Rendering…</div>';
+        try {
+          const canvas = await renderPage(i);
+          if (!canvas) { pageBox.innerHTML = '<div style="color:#b91c1c">Failed to render.</div>'; return; }
+          const img = canvas.cloneNode(true);
+          img.getContext('2d').drawImage(canvas, 0, 0);
+          img.style.cssText = 'max-width:100%;max-height:100%;background:#fff;box-shadow:0 6px 24px rgba(0,0,0,.6)';
+          pageBox.innerHTML = '';
+          pageBox.appendChild(img);
+        } catch (err) {
+          console.warn('[embed] page render failed', err);
+          pageBox.innerHTML = `<div style="color:#b91c1c">Render error</div>`;
+        }
+        if (counter) counter.textContent = `${i + 1} / ${seq.length}`;
+        // Prefetch the next page in the background.
+        if (i + 1 < seq.length && !canvasCache.has(i + 1)) renderPage(i + 1).catch(() => {});
+      };
+      const go = (newIdx) => {
+        idx = Math.min(seq.length - 1, Math.max(0, newIdx));
+        showPage(idx);
+      };
+      // Click-to-flip: left half back, right half forward.
+      wrap.addEventListener('click', (e) => {
+        const r = wrap.getBoundingClientRect();
+        const x = e.clientX - r.left;
+        if (x < r.width / 2) go(idx - 1);
+        else go(idx + 1);
+      });
+      // Footer chips.
+      const left = document.createElement('div');
+      left.className = 'embedSide';
+      const right = document.createElement('div');
+      right.className = 'embedSide';
+      right.style.justifyContent = 'flex-end';
+      let counter = null;
+      if (showControls && seq.length > 1) {
+        const prevBtn = document.createElement('button');
+        prevBtn.type = 'button'; prevBtn.className = 'embedChip';
+        prevBtn.textContent = '◂'; prevBtn.title = 'Previous page';
+        prevBtn.addEventListener('click', (e) => { e.stopPropagation(); go(idx - 1); });
+        counter = document.createElement('span');
+        counter.className = 'embedChip embedChipCounter';
+        const nextBtn = document.createElement('button');
+        nextBtn.type = 'button'; nextBtn.className = 'embedChip';
+        nextBtn.textContent = '▸'; nextBtn.title = 'Next page';
+        nextBtn.addEventListener('click', (e) => { e.stopPropagation(); go(idx + 1); });
+        left.append(prevBtn, counter, nextBtn);
+      }
+      if (showAttr && event?.pubkey && typeof _makeAuthorChip === 'function') {
+        left.appendChild(_makeAuthorChip(event.pubkey));
+      }
+      if (showControls) {
+        const fsBtn = document.createElement('button');
+        fsBtn.type = 'button'; fsBtn.className = 'embedChip';
+        fsBtn.textContent = '⛶'; fsBtn.title = 'Toggle fullscreen';
+        fsBtn.addEventListener('click', (e) => { e.stopPropagation(); _toggleEmbedFullscreen(root); });
+        right.appendChild(fsBtn);
+      }
+      if (showOpen) {
+        const openLink = document.createElement('a');
+        openLink.className = 'embedChip';
+        openLink.textContent = 'Open in Artstr ↗';
+        openLink.href = `${location.origin}/#/share/${route.id}`;
+        openLink.target = '_top';
+        openLink.rel = 'noopener';
+        right.appendChild(openLink);
+      }
+      footer.appendChild(left);
+      footer.appendChild(right);
+      footer.dataset.hidden = (!showControls && !showAttr && !showOpen) ? 'true' : 'false';
+      // Keyboard nav.
+      if (_paintEmbedBook._kbd) {
+        document.removeEventListener('keydown', _paintEmbedBook._kbd);
+      }
+      const onKey = (e) => {
+        const tag = (e.target?.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+        switch (e.key) {
+          case 'ArrowRight': case 'PageDown': case ' ':
+            e.preventDefault(); go(idx + 1); break;
+          case 'ArrowLeft': case 'PageUp':
+            e.preventDefault(); go(idx - 1); break;
+          case 'Home':
+            e.preventDefault(); go(0); break;
+          case 'End':
+            e.preventDefault(); go(seq.length - 1); break;
+          case 'f': case 'F':
+            e.preventDefault(); _toggleEmbedFullscreen(root); break;
+        }
+      };
+      document.addEventListener('keydown', onKey);
+      _paintEmbedBook._kbd = onKey;
+      await showPage(idx);
+    }
+
     function _toggleEmbedFullscreen(root) {
       const target = root || document.documentElement;
       if (document.fullscreenElement) {
@@ -28257,6 +28421,13 @@
         ? normalizeTemplateMode(payload) : payload?.templateMode;
       if (mode === 'deck' && Array.isArray(payload?.deck?.slides) && payload.deck.slides.length > 1) {
         _paintEmbedDeck(root, payload, event, route);
+        return;
+      }
+      if (mode === 'book' && payload?.book) {
+        _paintEmbedBook(root, payload, event, route).catch(err => {
+          console.warn('[embed] book paint failed', err);
+          _setEmbedStatus(root, 'error', "Couldn't load this book.");
+        });
         return;
       }
       const stage = root.querySelector('.embedStage');
