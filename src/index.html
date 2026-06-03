@@ -9955,6 +9955,53 @@
       });
       return map;
     }
+    // Footnote support (I4 v1). Inline `[^N]` becomes a superscripted
+    // marker (Unicode digits ⁰¹²³…). `[^N]: definition` lines collect
+    // into a chapter-end footnotes section. Full per-page
+    // footnote-frame layout (frame layer on masters with page-aware
+    // definition placement) lands in I4.2.
+    const _BOOK_FN_DEF_RX = /^[ \t]*\[\^([^\]]+)\]:[ \t]+(.+)$/gm;
+    const _BOOK_FN_REF_RX = /\[\^([^\]]+)\]/g;
+    const _BOOK_SUP_DIGITS = ['⁰','¹','²','³','⁴','⁵','⁶','⁷','⁸','⁹'];
+    function _bookSuperscript(s) {
+      return String(s).replace(/[0-9]/g, c => _BOOK_SUP_DIGITS[Number(c)] || c);
+    }
+    function _processBookFootnotes(md) {
+      // Collect definitions (each on its own line). Strip them from
+      // the main body so they don't render inline.
+      const defs = new Map(); // id (string) → text
+      const stripped = String(md || '').replace(_BOOK_FN_DEF_RX, (_, id, text) => {
+        defs.set(String(id).trim(), text.trim());
+        return ''; // drop the def line from body
+      });
+      if (!defs.size) {
+        // No definitions — leave any stray `[^N]` refs as-is.
+        return stripped.replace(/\n{3,}/g, '\n\n');
+      }
+      // Renumber: each defined id gets a sequential 1..N number based
+      // on first encounter of its ref in the body. Refs that don't
+      // resolve to a known def pass through unchanged.
+      const order = []; // canonical order [{ id, num }]
+      const numById = new Map();
+      let nextNum = 1;
+      const body = stripped.replace(_BOOK_FN_REF_RX, (whole, rawId) => {
+        const id = String(rawId).trim();
+        if (!defs.has(id)) return whole;
+        if (!numById.has(id)) {
+          numById.set(id, nextNum);
+          order.push({ id, num: nextNum });
+          nextNum++;
+        }
+        return _bookSuperscript(numById.get(id));
+      });
+      // Footnotes section appended to the body.
+      const lines = ['', '---', '', '### Footnotes', ''];
+      for (const { id, num } of order) {
+        lines.push(`${_bookSuperscript(num)} ${defs.get(id)}`);
+      }
+      return body.replace(/\n{3,}/g, '\n\n') + '\n' + lines.join('\n');
+    }
+
     // Index marker support (I5). `^[term]` inline markers register
     // their term in a book-wide index keyed to the containing
     // chapter's first page. `{index}` expands at render time into
@@ -10064,6 +10111,13 @@
       // substitution so a marker inside a link text doesn't confuse
       // the parser.
       md = _stripBookIndexMarkers(md);
+      // Footnote refs (I4). Replace `[^N]` with a Unicode superscript
+      // and append a "Footnotes" section if any `[^N]: definition`
+      // lines were defined in the chapter source. Refs without a
+      // matching def pass through unchanged.
+      if (/\[\^/.test(md)) {
+        md = _processBookFootnotes(md);
+      }
       // Cross-reference substitution (I6). Markdown links pointing
       // at an in-book anchor (`](#chapter-3)` etc) get their link
       // text augmented with the destination's page number — slug
@@ -11877,6 +11931,7 @@
             md = md.replace(/^[ \t]*\{index\}[ \t]*$/gm, idxMd);
           }
           md = _stripBookIndexMarkers(md);
+          if (/\[\^/.test(md)) md = _processBookFootnotes(md);
           // Cross-reference substitution in the live preview too.
           if (/\]\(#[^)]+\)/.test(md)) {
             try {
