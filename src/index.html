@@ -1800,6 +1800,9 @@
     .bookPageTileNum {
       position: absolute; top: 6px; left: 8px;
       font-size: .72rem; color: var(--muted); font-weight: 600;
+      z-index: 10;
+      background: rgba(255,255,255,.85);
+      padding: 0 4px; border-radius: 2px;
     }
     /* Master layers shown as an underlay while editing a page —
        click-through and slightly faded so the page layers above
@@ -1848,12 +1851,14 @@
       position: absolute; top: 4px; right: 4px;
       display: flex; gap: 4px;
       opacity: 0; transition: opacity .12s;
+      z-index: 20; /* always above the composited preview's text layers */
     }
     .bookPageTile:hover .bookPageTileActions { opacity: 1; }
     .bookPageTileAction {
       width: 22px; height: 22px; padding: 0; border-radius: 0;
       border: 1px solid var(--line); background: #fff;
       cursor: pointer; font-size: .85rem; line-height: 1;
+      position: relative; z-index: 21;
     }
     .bookPageTileAction.danger:hover {
       background: var(--warn, #fee2e2);
@@ -1863,6 +1868,7 @@
       height: 22px; padding: 0 4px; font-size: .72rem;
       border: 1px solid var(--line); background: #fff;
       max-width: 120px;
+      position: relative; z-index: 21;
     }
     .bookPageTile.dragging { opacity: .5; }
     .bookPageTile.dragover {
