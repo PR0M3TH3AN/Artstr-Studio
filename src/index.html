@@ -1770,6 +1770,13 @@
     .bookPageTile.reflowSegment {
       background: linear-gradient(135deg, #f8fafc 25%, transparent 25%, transparent 50%, #f8fafc 50%, #f8fafc 75%, transparent 75%) 0 0/8px 8px;
     }
+    .bookPageTileGateChip {
+      position: absolute; bottom: 4px; left: 4px;
+      padding: 2px 8px; font-size: .7rem;
+      background: #fef3c7; color: #92400e;
+      border: 1px solid #fbbf24; border-radius: 999px;
+      z-index: 5; pointer-events: none;
+    }
     .bookPageTileUpdateChip {
       position: absolute; top: 4px; left: 4px;
       padding: 2px 8px; font-size: .72rem;
@@ -4667,6 +4674,7 @@
           <button type="button" id="bookMasterAddTextFrame" title="Add a reflow text-frame to this master" style="display:none">+ Text frame</button>
           <button type="button" id="bookPageEditPublish" title="Publish this page as a casewrap-page event">Publish</button>
           <button type="button" id="bookPageEditProofPdf" title="Export just this page as a PDF (single-page proof for the printer)">📄 Proof PDF</button>
+          <button type="button" id="bookPageEditGatingBtn" title="Set premium / paywall on this page" style="display:none">⚡ Free</button>
           <span class="hint" id="bookPageEditPublishStatus" style="margin-left:6px;font-size:.74rem"></span>
         </div>
       </div>
@@ -8863,6 +8871,44 @@
     // label. Layers for the master live in state.layers under
     // `book-master:<id>`. The first master created becomes the
     // default automatically.
+    // Per-page paywall / premium gating (Phase H1). Records the
+    // user's intent on the manifest entry — the actual encrypted-
+    // publish wiring (route through _publishPremiumDesign for
+    // premium pages) is a follow-up slice. For v1 we surface the
+    // chip on tiles + the publish-modal note so authors can prep
+    // their pricing.
+    function openBookPageGatingDialog(entryId) {
+      const book = state.book;
+      const entry = book?.pages?.find(p => p.id === entryId);
+      if (!entry) return;
+      const isPremium = entry.gating?.mode === 'premium';
+      const currentPrice = entry.gating?.priceSats || 1000;
+      const choice = prompt(
+        `Gating for "${entry.label || 'this page'}"\n` +
+        `\n` +
+        `Type a price in sats to mark this page premium (readers will see a watermarked preview + an "Unlock with zap" CTA in Reader Mode).\n` +
+        `Type "0" or leave empty to keep it free.\n` +
+        `\n` +
+        `Note: v1 persists the intent on the manifest; full encrypted-publish wiring lands in H1.2.`,
+        isPremium ? String(currentPrice) : ''
+      );
+      if (choice === null) return; // cancelled
+      const trimmed = String(choice).trim();
+      pushHistory('book: page gating');
+      if (!trimmed || trimmed === '0') {
+        entry.gating = null;
+      } else {
+        const n = Math.max(1, Math.floor(Number(trimmed) || 0));
+        if (!Number.isFinite(n) || n <= 0) {
+          toastError && toastError('Invalid price — enter a positive number of sats or 0 for free.');
+          return;
+        }
+        entry.gating = { mode: 'premium', priceSats: n, previewWatermark: true };
+      }
+      render();
+      syncBookPageEditBar();
+    }
+
     // Convert the current deck into a book (Phase F2). Each slide
     // becomes a designed page; layers letterbox-fit into the trim
     // (contain-scaled + centered). Switches templateMode to 'book'.
@@ -9624,6 +9670,15 @@
         });
         actions.appendChild(del);
         tile.appendChild(actions);
+        // Premium chip (Phase H1). Surfaces the gating intent on the
+        // tile so authors can scan paywall coverage at a glance.
+        if (p.gating?.mode === 'premium') {
+          const gateChip = document.createElement('div');
+          gateChip.className = 'bookPageTileGateChip';
+          gateChip.textContent = `⚡ ${p.gating.priceSats || 0}`;
+          gateChip.title = `Premium — ${p.gating.priceSats || 0} sats`;
+          tile.appendChild(gateChip);
+        }
         // Upstream-update chip (D1.7). Shown when the resolver's
         // background probe found a newer version of this entry's
         // ref upstream. Click applies it.
@@ -11503,6 +11558,7 @@
       if (next) next.style.display = '';
       if (tfBtn) tfBtn.style.display = 'none';
       if (back) back.textContent = '← Back to Pages';
+      const gateBtn = document.getElementById('bookPageEditGatingBtn');
       if (pubBtn) {
         const entry = book.pages.find(p => p.id === book.editingEntryId);
         const visTag = state.visibility === 'private' ? ' 🔒' : '';
@@ -11510,6 +11566,22 @@
         pubBtn.title = entry?.ref
           ? `Replace ${entry.ref.dTag} on relays${visTag ? ' (private)' : ''}`
           : `Publish this page as a casewrap-page event${visTag ? ' (private, end-to-end encrypted)' : ''}`;
+        if (gateBtn) {
+          gateBtn.style.display = '';
+          if (entry?.gating?.mode === 'premium') {
+            gateBtn.textContent = `⚡ ${entry.gating.priceSats || 0} sats`;
+            gateBtn.title = `Premium page — readers pay ${entry.gating.priceSats || 0} sats to unlock. Click to change.`;
+            gateBtn.style.background = '#fef3c7';
+            gateBtn.style.color = '#92400e';
+            gateBtn.style.borderColor = '#fbbf24';
+          } else {
+            gateBtn.textContent = '⚡ Free';
+            gateBtn.title = 'Click to add a paywall for this page (premium / zap to unlock)';
+            gateBtn.style.background = '';
+            gateBtn.style.color = '';
+            gateBtn.style.borderColor = '';
+          }
+        }
       }
       const designed = book.pages.filter(p => p.type === 'design');
       const idx = designed.findIndex(p => p.id === book.editingEntryId);
@@ -35921,6 +35993,10 @@
       on('bookPageEditNext', 'click', () => gotoBookPageRelative(1));
       on('bookMasterAddTextFrame', 'click', () => addBookTextFrameToActiveMaster());
       on('bookPageEditPublish', 'click', publishBookSurface);
+      on('bookPageEditGatingBtn', 'click', () => {
+        const id = state.book?.editingEntryId;
+        if (id) openBookPageGatingDialog(id);
+      });
       on('bookPageEditProofPdf', 'click', async () => {
         const book = state.book;
         const entryId = book?.editingEntryId;
