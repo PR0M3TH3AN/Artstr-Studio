@@ -4444,6 +4444,7 @@
                 <button type="button" id="bookAddPageBtn" class="primary">+ Add page</button>
                 <button type="button" id="bookAddTenBtn">+ Add 10 pages</button>
                 <button type="button" id="bookAddChapterBtn">+ Add chapter</button>
+                <button type="button" id="bookImportPageBtn" title="Import a page from another author's book by naddr / nevent">+ Import page</button>
                 <button type="button" id="bookExportPdfBtn" title="Export this book as a PDF (interior pages + cover spread)">Export PDF…</button>
                 <span id="bookExportPdfStatus" class="hint" style="margin-left:6px;font-size:.74rem"></span>
               </div>
@@ -8850,6 +8851,79 @@
         toastSuccess(`Imported ${slides.length} slide${slides.length === 1 ? '' : 's'} as designed pages.`);
       }
       return true;
+    }
+
+    // Import a single page from another book (Phase F3). Accepts a
+    // naddr / nevent / note / hex pointing at a casewrap-page event
+    // and creates a design entry whose `ref` points to it. The
+    // resolver (D1.5) paints the page's layers under the new entry's
+    // target prefix.
+    async function importBookPageFromNostr() {
+      const book = ensureBookState();
+      const raw = (typeof prompt === 'function')
+        ? prompt('Paste an naddr / nevent / note / hex pointing at a casewrap-page event:')
+        : '';
+      if (!raw) return;
+      const decoded = decodeNostrId(raw.trim());
+      if (!decoded) { toastError && toastError('Could not decode that id.'); return; }
+      const decodedForResolver = decoded.type === 'naddr'
+        ? decoded
+        : { type: 'nevent', eventId: decoded.eventId, relays: decoded.relays || [], author: decoded.author || '', kind: decoded.kind || null };
+      try {
+        const ev = await _resolveEmbedEvent(decodedForResolver);
+        if (!ev) { toastError && toastError('No event found on your relays.'); return; }
+        if (ev.kind !== 30078) { toastError && toastError(`Event is kind ${ev.kind}, not a casewrap-page.`); return; }
+        // Validate it's a page event (role tag preferred; templateMode in content as fallback).
+        const roleTag = (ev.tags || []).find(t => t[0] === 'role')?.[1] || '';
+        let payload = null;
+        try {
+          const decrypted = await _decryptBookSidecarEvent(ev);
+          if (decrypted) payload = decrypted;
+        } catch {}
+        if (!payload) {
+          try { payload = JSON.parse(ev.content || ''); } catch {}
+        }
+        const role = roleTag || payload?.page?.role || '';
+        if (role && role !== 'interior') {
+          const ok = confirm(`This event's role is "${role}", not "interior". Add as a page anyway?`);
+          if (!ok) return;
+        }
+        const dTag = (ev.tags || []).find(t => t[0] === 'd' && t[1])?.[1] || (decoded.dTag || '');
+        if (!dTag || !ev.pubkey) { toastError && toastError('Event is missing d-tag / pubkey.'); return; }
+        // Bail if already in this manifest.
+        const already = (book.pages || []).some(p => p.ref?.pubkey === ev.pubkey && p.ref?.dTag === dTag);
+        if (already) { toastError && toastError('That page is already in this book.'); return; }
+        pushHistory('book: import page');
+        const entryId = makeBookEntryId();
+        const newEntry = {
+          id: entryId,
+          type: 'design',
+          ref: {
+            kind: 30078, pubkey: ev.pubkey, dTag,
+            relays: (decoded.relays || []).slice(0, 4),
+            encrypted: (ev.tags || []).some(t => t[0] === 'encrypted') || undefined,
+          },
+          label: (ev.tags || []).find(t => t[0] === 'title' && t[1])?.[1] || '',
+          masterRef: null,
+          masterId: null,
+          skipNumber: false,
+          anchor: null,
+          gating: null,
+        };
+        book.pages.push(newEntry);
+        // Seed the cache + apply the resolved layers immediately so
+        // the tile renders without waiting on a second relay round-trip.
+        _bookCacheWrite(newEntry.ref, ev);
+        if (payload?.page) {
+          _applyResolvedBookPage(entryId, payload);
+        }
+        syncInputs();
+        render();
+        if (typeof toastSuccess === 'function') toastSuccess('Page imported.');
+      } catch (err) {
+        console.warn('book: importBookPageFromNostr failed', err);
+        toastError && toastError('Import failed: ' + (err?.message || 'unknown error'));
+      }
     }
 
     // Starter book templates (Phase F1). Each preset seeds the spec
@@ -35338,6 +35412,7 @@
       on('bookAddPageBtn', 'click', addBookDesignedPage);
       on('bookAddTenBtn',  'click', addBookTenPages);
       on('bookAddChapterBtn', 'click', addBookChapter);
+      on('bookImportPageBtn', 'click', importBookPageFromNostr);
       // Chapter editor panes.
       on('bookChapterEditorBack', 'click', closeBookChapter);
       on('bookChapterEditorTextarea', 'input', (e) => updateBookChapterMarkdown(e.target.value));
