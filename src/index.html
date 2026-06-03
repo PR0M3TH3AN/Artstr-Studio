@@ -25112,7 +25112,63 @@
     // Slide / Custom Art / Pixel Art standalone: one flat rectangle of
     // layers on a background colour. Slides share the customart payload
     // shape under `state.customArt`.
-    // ---- Book PDF export (Phase E1) -------------------------------------
+    // ---- Book PDF export (Phase E1 → E3) --------------------------------
+    // Embeddable-font allowlist. pdf-lib ships 14 built-in PDF
+    // "standard fonts" — none of them are embedded in the output
+    // file, so a paragraph in Times Roman costs ~30 bytes regardless
+    // of length. Map common designer-facing family names onto those
+    // four families so reflowed prose can emit as real PDF text
+    // (vector, searchable, copyable) instead of rasterised glyphs.
+    function _resolveStandardFontKey(family, bold, italic) {
+      const f = String(family || '').toLowerCase();
+      const isMono = /mono|courier|consolas|menlo|sf mono|monaco/.test(f);
+      const isSans = /helvetica|arial|sans-?serif|verdana|tahoma|trebuchet|segoe|inter|roboto|open sans|noto sans/.test(f);
+      const isSerif = /georgia|times|garamond|baskerville|caslon|cambria|charter|book antiqua|noto serif|serif/.test(f);
+      if (isMono) return bold && italic ? 'CourierBoldOblique' : bold ? 'CourierBold' : italic ? 'CourierOblique' : 'Courier';
+      if (isSans) return bold && italic ? 'HelveticaBoldOblique' : bold ? 'HelveticaBold' : italic ? 'HelveticaOblique' : 'Helvetica';
+      if (isSerif) return bold && italic ? 'TimesRomanBoldItalic' : bold ? 'TimesRomanBold' : italic ? 'TimesRomanItalic' : 'TimesRoman';
+      return null;
+    }
+    // Lazy font cache per pdf-lib document. We embed at most 12
+    // standard fonts (4 families × 4 styles minus the missing
+    // serif/sans BoldItalic forms which use TimesRomanBoldItalic).
+    async function _getEmbeddedStandardFont(pdfDoc, fontKey, cache) {
+      if (cache.has(fontKey)) return cache.get(fontKey);
+      const PDFLib = window.PDFLib;
+      const std = PDFLib?.StandardFonts;
+      const enumKey = std?.[fontKey] || fontKey;
+      const font = await pdfDoc.embedFont(enumKey);
+      cache.set(fontKey, font);
+      return font;
+    }
+    // Map a CSS color string ("#hex", "rgb(r,g,b)", named) → pdf-lib's
+    // rgb(r,g,b) (0..1 floats). Falls back to black on parse failure.
+    function _pdfRgbFromColor(value) {
+      const PDFLib = window.PDFLib;
+      const black = PDFLib.rgb(0, 0, 0);
+      if (!value) return black;
+      const s = String(value).trim();
+      const hexMatch = /^#?([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(s);
+      if (hexMatch) {
+        let h = hexMatch[1];
+        if (h.length === 3) h = h.split('').map(c => c + c).join('');
+        const r = parseInt(h.slice(0, 2), 16) / 255;
+        const g = parseInt(h.slice(2, 4), 16) / 255;
+        const b = parseInt(h.slice(4, 6), 16) / 255;
+        return PDFLib.rgb(r, g, b);
+      }
+      const rgbMatch = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(s);
+      if (rgbMatch) {
+        return PDFLib.rgb(
+          Math.max(0, Math.min(255, +rgbMatch[1])) / 255,
+          Math.max(0, Math.min(255, +rgbMatch[2])) / 255,
+          Math.max(0, Math.min(255, +rgbMatch[3])) / 255,
+        );
+      }
+      return black;
+    }
+
+
     // pdf-lib lazy-load. Vendored as ~513 KB so we don't pay the
     // cost on every page-load; the export modal triggers this.
     let _pdfLibPromise = null;
@@ -25172,7 +25228,7 @@
     // Render one physical page of a reflow segment: master underlay
     // (with the text-frame outline stripped) + paginated text blocks
     // drawn via fillText at the frame's coordinates.
-    async function renderBookReflowPhysicalPageToCanvas(entry, paginated, indexInEntry, dpi, ctxToken) {
+    async function renderBookReflowPhysicalPageToCanvas(entry, paginated, indexInEntry, dpi, ctxToken, textOps = null, fontWarnings = null) {
       const book = state.book || {};
       const spec = book.spec || {};
       const trimW = Number(spec.trimW) || 6;
@@ -25205,34 +25261,59 @@
       const padding = Number(frame.padding) || 0;
       const innerX = (frame.x + padding) - bleed; // trim-relative inches
       const innerY = (frame.y + padding) - bleed;
+      const collect = Array.isArray(textOps);
       for (const block of (page.blocks || [])) {
         const style = block.style || {};
         const fontSizePt = Number(style.fontSize) || 11;
         const fontPx = fontSizePt * (dpi / 72);
         const family = style.fontFamily || 'Georgia, serif';
-        const weight = style.fontWeight || 400;
+        const weight = Number(style.fontWeight) || 400;
         const styleAttr = style.fontStyle || 'normal';
-        ctx.font = `${styleAttr} ${weight} ${fontPx}px ${family}`;
-        ctx.fillStyle = style.color || '#111';
-        ctx.textBaseline = 'top';
-        const align = style.alignment || 'left';
-        ctx.textAlign = align === 'center' ? 'center' : align === 'right' ? 'right' : 'left';
-        const blockYPx = (innerY * dpi) + (Number(block.y) || 0) * dpi;
+        const isBold = weight >= 600;
+        const isItalic = styleAttr === 'italic';
         const marginLeftIn = Number(style.marginLeft) || 0;
         const marginRightIn = Number(style.marginRight) || 0;
+        const innerW = (frame.w - 2 * padding) - marginLeftIn - marginRightIn;
         const xStartIn = innerX + marginLeftIn;
+        const lineHIn = fontSizePt * (Number(style.lineHeight) || 1.5) / 72;
+        const align = style.alignment || 'left';
+        const color = style.color || '#111';
+        const fontKey = collect ? _resolveStandardFontKey(family, isBold, isItalic) : null;
+        if (collect && fontKey) {
+          // Emit as real PDF text — push positioned line ops, skip
+          // the canvas raster for this block. PDF y is the baseline,
+          // pdf-lib expects bottom-up coords; the orchestrator
+          // converts when stamping.
+          const topInchesFromTrim = innerY + (Number(block.y) || 0);
+          for (let i = 0; i < (block.lines || []).length; i++) {
+            const lineTopIn = topInchesFromTrim + i * lineHIn;
+            textOps.push({
+              text: block.lines[i],
+              fontKey,
+              sizePt: fontSizePt,
+              color,
+              align,
+              leftIn: xStartIn,
+              widthIn: innerW,
+              topInchesFromTrim: lineTopIn,
+            });
+          }
+          continue;
+        }
+        if (collect && fontWarnings) {
+          fontWarnings.add(family);
+        }
+        ctx.font = `${styleAttr} ${weight} ${fontPx}px ${family}`;
+        ctx.fillStyle = color;
+        ctx.textBaseline = 'top';
+        ctx.textAlign = align === 'center' ? 'center' : align === 'right' ? 'right' : 'left';
+        const blockYPx = (innerY * dpi) + (Number(block.y) || 0) * dpi;
         const lineH = fontPx * (Number(style.lineHeight) || 1.5);
         for (let i = 0; i < (block.lines || []).length; i++) {
           let xPx;
-          if (align === 'center') {
-            const widthIn = (frame.w - 2 * padding) - marginLeftIn - marginRightIn;
-            xPx = (xStartIn + widthIn / 2) * dpi;
-          } else if (align === 'right') {
-            const rightIn = innerX + (frame.w - 2 * padding) - marginRightIn;
-            xPx = rightIn * dpi;
-          } else {
-            xPx = xStartIn * dpi;
-          }
+          if (align === 'center') xPx = (xStartIn + innerW / 2) * dpi;
+          else if (align === 'right') xPx = (xStartIn + innerW) * dpi;
+          else xPx = xStartIn * dpi;
           ctx.fillText(block.lines[i], xPx, blockYPx + i * lineH);
         }
       }
@@ -25343,16 +25424,20 @@
       // Build interior PDF.
       const interiorDoc = await PDFLib.PDFDocument.create();
       const reflowCache = new Map();
+      const interiorFontCache = new Map();
+      const fallbackFontFamilies = new Set();
       for (const slot of seq) {
         const entry = book.pages.find(p => p.id === slot.entryId);
         if (!entry) continue;
         const ctxToken = bookTokenContext(book, slot.entryId, slot.indexInEntry);
         let canvas;
+        let textOps = null;
         try {
           if (slot.type === 'reflow') {
             let pag = reflowCache.get(slot.entryId);
             if (!pag) { pag = paginateChapter(entry, book); reflowCache.set(slot.entryId, pag); }
-            canvas = await renderBookReflowPhysicalPageToCanvas(entry, pag, slot.indexInEntry, dpi, ctxToken);
+            textOps = [];
+            canvas = await renderBookReflowPhysicalPageToCanvas(entry, pag, slot.indexInEntry, dpi, ctxToken, textOps, fallbackFontFamilies);
           } else {
             canvas = await renderBookDesignedPageToCanvas(entry, dpi, ctxToken);
           }
@@ -25375,6 +25460,31 @@
             trimX: trimOffsetPt, trimY: trimOffsetPt,
             trimW: trimWpt, trimH: trimHpt,
           });
+        }
+        // Emit reflowed-prose text as real PDF text on top. Coords
+        // convert from inches-from-trim-top to pdf-lib's bottom-up
+        // point grid; baseline ≈ 0.8 × size descends from line top.
+        if (textOps && textOps.length) {
+          for (const op of textOps) {
+            try {
+              const font = await _getEmbeddedStandardFont(interiorDoc, op.fontKey, interiorFontCache);
+              const sizePt = op.sizePt;
+              const widthOfText = font.widthOfTextAtSize(op.text, sizePt);
+              const innerLeftPt = trimOffsetPt + op.leftIn * 72;
+              const innerWidthPt = op.widthIn * 72;
+              let xPt;
+              if (op.align === 'center') xPt = innerLeftPt + (innerWidthPt - widthOfText) / 2;
+              else if (op.align === 'right') xPt = innerLeftPt + innerWidthPt - widthOfText;
+              else xPt = innerLeftPt;
+              const topPt = trimOffsetPt + op.topInchesFromTrim * 72;
+              // PDF y for baseline: page height − top − ascent.
+              const baselinePt = pageHpt - topPt - sizePt * 0.8;
+              const c = _pdfRgbFromColor(op.color);
+              pdfPage.drawText(op.text, { x: xPt, y: baselinePt, size: sizePt, font, color: c });
+            } catch (drawErr) {
+              warnings.push(`Text emit failed (${op.fontKey}): ${drawErr.message || drawErr}`);
+            }
+          }
         }
       }
       // Cover lives in its own doc when split, otherwise appended to interior.
@@ -25417,6 +25527,9 @@
       }
       if (_exportFailedImages.size) {
         warnings.push(`${_exportFailedImages.size} image${_exportFailedImages.size === 1 ? '' : 's'} could not be embedded (CORS / missing).`);
+      }
+      if (fallbackFontFamilies.size) {
+        warnings.push(`${fallbackFontFamilies.size} font famil${fallbackFontFamilies.size === 1 ? 'y is' : 'ies are'} not on the embeddable allowlist (Times / Helvetica / Courier); those blocks fell back to vector raster: ${[...fallbackFontFamilies].slice(0, 4).join(', ')}.`);
       }
       const interiorBytes = await interiorDoc.save();
       const interior = new Blob([interiorBytes], { type: 'application/pdf' });
