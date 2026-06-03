@@ -10013,6 +10013,90 @@
         if (btn) btn.disabled = false;
       }
     }
+    // Build the casewrap-book manifest payload. Lean — references
+    // sibling page / master / cover / chapter events via {kind, pubkey,
+    // dTag} coords instead of inlining their layers. Phase D1 hands
+    // (page / master / chapter publish) populate those refs.
+    function bookManifestPayload() {
+      const book = ensureBookState();
+      const cleanRef = (r) => (r && r.pubkey && r.dTag)
+        ? { kind: r.kind || 30078, pubkey: r.pubkey, dTag: r.dTag, relays: (r.relays || []).slice(0, 4) }
+        : null;
+      const cleanPages = (book.pages || []).map(p => {
+        if (p.type === 'reflow') {
+          return {
+            id: p.id,
+            type: 'reflow',
+            textRef: cleanRef(p.textRef),
+            textPinnedEventId: p.textPinnedEventId || null,
+            masterRef: cleanRef(p.masterRef),
+            masterId: p.masterId || null,
+            chapterTitle: p.chapterTitle || '',
+            chapterNumber: (p.chapterNumber != null) ? p.chapterNumber : null,
+            startsOnPage: p.startsOnPage || 'any',
+            skipNumberOnFirstPage: !!p.skipNumberOnFirstPage,
+            skipNumber: !!p.skipNumber,
+            styleOverrides: p.styleOverrides || null,
+            anchor: p.anchor || null,
+            gating: p.gating || null,
+          };
+        }
+        return {
+          id: p.id,
+          type: 'design',
+          ref: cleanRef(p.ref),
+          label: p.label || '',
+          masterRef: cleanRef(p.masterRef),
+          masterId: (typeof p.masterId === 'undefined') ? undefined : p.masterId,
+          skipNumber: !!p.skipNumber,
+          anchor: p.anchor || null,
+          gating: p.gating || null,
+        };
+      });
+      const cleanMasters = (book.masters || []).map(m => ({
+        id: m.id,
+        label: m.label || '',
+        ref: cleanRef(m.ref),
+      }));
+      return {
+        version: typeof SCHEMA_VERSION === 'number' ? SCHEMA_VERSION : 5,
+        templateMode: 'book',
+        templateType: 'book',
+        meta: state.meta,
+        book: {
+          spec: book.spec,
+          cover: book.cover ? { ref: cleanRef(book.cover.ref) } : null,
+          pages: cleanPages,
+          masters: cleanMasters,
+        },
+      };
+    }
+    // p-tags every author referenced by the manifest (cover / page /
+    // master / chapter refs) and emits matching link tags so external
+    // clients can resolve the sidecar events. Skips the user's own
+    // pubkey so they don't self-tag.
+    function _buildBookAttributionTags(book, myPubkey) {
+      const contributors = new Set();
+      const refs = new Set();
+      const addRef = (r) => {
+        if (!r || !r.pubkey || !r.dTag) return;
+        if (r.pubkey !== myPubkey) contributors.add(r.pubkey);
+        refs.add(`${r.kind || 30078}:${r.pubkey}:${r.dTag}`);
+      };
+      if (book?.cover?.ref) addRef(book.cover.ref);
+      for (const p of (book?.pages || [])) {
+        if (p.ref) addRef(p.ref);
+        if (p.textRef) addRef(p.textRef);
+        if (p.masterRef) addRef(p.masterRef);
+      }
+      for (const m of (book?.masters || [])) {
+        if (m.ref) addRef(m.ref);
+      }
+      const relayHint = (splitRelayList(state.community?.relays || '')[0]) || '';
+      const contributorTags = Array.from(contributors).map(pk => ['p', pk, relayHint, 'book-contributor']);
+      const linkTags = Array.from(refs).map(r => ['link', r, relayHint]);
+      return { contributorTags, linkTags };
+    }
     // Dispatch the Publish button to the right helper based on which
     // book-mode view is active (page edit vs master edit).
     function publishBookSurface() {
@@ -20734,6 +20818,22 @@
         if (!(payload.deck?.slides || []).length) {
           throw new Error('Add at least one slide before publishing the deck.');
         }
+      } else if (state.templateMode === 'book') {
+        payload = bookManifestPayload();
+        typeTag = 'casewrap-book';
+        const totalEntries = (payload.book?.pages || []).length;
+        if (!totalEntries) {
+          throw new Error('Add at least one page or chapter before publishing the book.');
+        }
+        // Refuse to publish the manifest if a designed page has no
+        // ref yet — the manifest would point at nothing. Reflow
+        // entries are allowed to be unpublished (chapterMarkdown is
+        // a local fallback), but warn.
+        const missingPageRefs = (payload.book.pages || [])
+          .filter(p => p.type === 'design' && !p.ref).length;
+        if (missingPageRefs) {
+          throw new Error(`${missingPageRefs} designed page${missingPageRefs === 1 ? '' : 's'} not yet published — open each one and click Publish first.`);
+        }
       } else if (state.templateMode === 'pixelart') {
         payload = pixelArtPayload();
         typeTag = 'casewrap-pixelart';
@@ -20768,8 +20868,16 @@
       const myPubkey = state.community?.myPubkey || '';
       let attributionTags = [];
       if (state.visibility !== 'private') {
-        const built = await _buildLinkedAttributionTags(payload, myPubkey);
-        attributionTags = [...built.contributorTags, ...built.linkTags];
+        if (state.templateMode === 'book') {
+          // Book manifests p-tag the authors of referenced page /
+          // master / cover / chapter events and emit `link` tags so
+          // external clients can resolve the sidecars.
+          const built = _buildBookAttributionTags(payload.book, myPubkey);
+          attributionTags = [...built.contributorTags, ...built.linkTags];
+        } else {
+          const built = await _buildLinkedAttributionTags(payload, myPubkey);
+          attributionTags = [...built.contributorTags, ...built.linkTags];
+        }
       }
       // Private: encrypt and publish a feed-invisible event instead of the
       // normal public, tagged one.
@@ -24775,7 +24883,8 @@
       customart: 'Custom art',
       slide: 'Slide',
       deck: 'Slide deck',
-      pixelart: 'Pixel art'
+      pixelart: 'Pixel art',
+      book: 'Book manifest'
     };
 
     let _publishConfirmTarget = null; // { onConfirm }
@@ -24817,6 +24926,23 @@
           else if (mode === 'customart' || mode === 'slide') renderCustomArtPreviewDOM(previewEl, payload, { compact: true });
           else if (mode === 'deck') renderDeckPreviewDOM(previewEl, payload, { compact: true });
           else if (mode === 'pixelart') renderPixelArtPreviewDOM(previewEl, payload, { compact: true });
+          else if (mode === 'book') {
+            // Lightweight stand-in until the cover view ships its
+            // composited preview. Card shows trim + entry counts so
+            // the publish modal has *something* to show.
+            const spec = payload.book?.spec || {};
+            const pages = payload.book?.pages || [];
+            const designed = pages.filter(p => p.type === 'design').length;
+            const reflow = pages.filter(p => p.type === 'reflow').length;
+            const masters = (payload.book?.masters || []).length;
+            previewEl.innerHTML = `
+              <div style="padding:16px;border:1px solid var(--line);background:#fff;text-align:center;font-family:Georgia,serif">
+                <div style="font-size:1.2rem;font-weight:700;margin-bottom:6px">${escapeHtml(payload.meta?.title || 'Untitled book')}</div>
+                <div style="font-size:.82rem;color:var(--muted)">${escapeHtml(spec.bookSize || `${spec.trimW || 6} × ${spec.trimH || 9} in`)}</div>
+                <div style="font-size:.82rem;color:var(--muted);margin-top:8px">${designed} designed · ${reflow} chapter${reflow === 1 ? '' : 's'} · ${masters} master${masters === 1 ? '' : 's'}</div>
+              </div>
+            `;
+          }
           else renderTemplatePreviewDOM(previewEl, payload, { compact: true });
           fitMiniPreview(previewEl);
         } catch (err) {
@@ -32445,6 +32571,13 @@
             payload = deckPayload();
             mode = 'deck';
             if (!(payload.deck?.slides || []).length) throw new Error('Add at least one slide before publishing the deck.');
+          } else if (state.templateMode === 'book') {
+            payload = bookManifestPayload();
+            mode = 'book';
+            const totalEntries = (payload.book?.pages || []).length;
+            if (!totalEntries) throw new Error('Add at least one page or chapter before publishing the book.');
+            const missingPageRefs = (payload.book.pages || []).filter(p => p.type === 'design' && !p.ref).length;
+            if (missingPageRefs) throw new Error(`${missingPageRefs} designed page${missingPageRefs === 1 ? '' : 's'} not yet published — open each one and click Publish first.`);
           } else if (state.templateMode === 'pixelart') {
             payload = pixelArtPayload();
             mode = 'pixelart';
