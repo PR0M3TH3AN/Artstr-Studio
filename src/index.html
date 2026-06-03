@@ -9897,7 +9897,7 @@
         padding,
       };
 
-      const tokens = window.marked.lexer(md);
+      const tokens = window.marked.lexer(md, { gfm: true, breaks: false });
 
       // One shared Canvas2D context for text-width measurement.
       // Sized at 96 px/inch so widths come out in pixels and we
@@ -9989,16 +9989,38 @@
           // no wrapping (the user controls line lengths).
           lines = String(token.text || '').split('\n');
         } else if (token.type === 'list') {
-          // Flatten list items into "• text" lines. Each item
-          // wraps using the list style.
-          const items = Array.isArray(token.items) ? token.items : [];
-          const ordered = !!token.ordered;
-          items.forEach((item, i) => {
-            const marker = ordered ? `${i + 1}. ` : '• ';
-            const text = String(item.text || '');
-            const itemLines = wrapTextIntoLines(marker + text, availW);
-            lines = lines.concat(itemLines);
-          });
+          // Flatten list items into prefixed lines. Task items get
+          // ☐ / ☑ instead of the bullet; nested lists recurse with
+          // a 3-space-per-level indent. Cap at 6 levels so a
+          // pathological input can't blow the stack.
+          const renderList = (listToken, depth) => {
+            const items = Array.isArray(listToken.items) ? listToken.items : [];
+            const ordered = !!listToken.ordered;
+            items.forEach((item, i) => {
+              const indent = '   '.repeat(Math.min(depth, 6));
+              const marker = item.task
+                ? (item.checked ? '☑ ' : '☐ ')
+                : (ordered ? `${i + 1}. ` : '• ');
+              const text = String(item.text || '');
+              const itemLines = wrapTextIntoLines(indent + marker + text, availW);
+              lines = lines.concat(itemLines);
+              if (depth < 6) {
+                for (const inner of (item.tokens || [])) {
+                  if (inner?.type === 'list') renderList(inner, depth + 1);
+                }
+              }
+            });
+          };
+          renderList(token, 0);
+        } else if (token.type === 'table') {
+          // Tables get a placeholder row in v1 — proper column
+          // layout lands in I2.2.
+          const headerLabels = (token.header || [])
+            .map(c => (c?.text || c?.tokens?.[0]?.text || c?.raw || '')).filter(Boolean);
+          const rowCount = Array.isArray(token.rows) ? token.rows.length : 0;
+          const summary = `[Table — ${headerLabels.length} cols × ${rowCount} rows: ${headerLabels.join(' · ')}]`;
+          lines = wrapTextIntoLines(summary, availW);
+          result.warnings.push(`Tables render as a placeholder in v1 — full layout in I2.2.`);
         } else if (token.type === 'blockquote') {
           // marked emits blockquote with inner tokens; concatenate
           // their plain text + wrap.
@@ -11529,7 +11551,7 @@
           mangle: false,
           headerIds: false,
           breaks: false,
-          gfm: false,
+          gfm: true,
         });
         // Belt-and-braces: drop any embedded <script> just in case.
         return String(html).replace(/<script[\s\S]*?<\/script>/gi, '');
