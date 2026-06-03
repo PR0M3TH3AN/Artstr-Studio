@@ -9955,6 +9955,68 @@
       });
       return map;
     }
+    // Index marker support (I5). `^[term]` inline markers register
+    // their term in a book-wide index keyed to the containing
+    // chapter's first page. `{index}` expands at render time into
+    // a sorted list. In the rendered body, `^[term]` strips to
+    // just "term" so the marker stays invisible to readers.
+    const _BOOK_INDEX_MARKER_RX = /\^\[([^\]]+)\]/g;
+    function _computeBookIndexEntries(book) {
+      if (!book) return [];
+      // Page-1 of each reflow chapter, from the same numbering walk
+      // the TOC uses. Designed pages register on their own page
+      // number too (in case the user marks a term on a title page).
+      const map = new Map(); // termLower → { term, pages: Set<number> }
+      const numbering = book.spec?.pageNumbering || {};
+      const enabled = numbering.enabled !== false;
+      const startAt = Number.isFinite(numbering.startAt) ? numbering.startAt : 1;
+      const firstNumberedIdx = (Number.isFinite(numbering.firstNumberedPage) ? numbering.firstNumberedPage : 1) - 1;
+      let printedNum = startAt;
+      (book.pages || []).forEach((p, manifestIdx) => {
+        const baseNumbered = enabled && !p.skipNumber && manifestIdx >= firstNumberedIdx;
+        if (p.type === 'reflow') {
+          const md = String(p.chapterMarkdown || '');
+          let pageNumber = baseNumbered ? printedNum : null;
+          if (pageNumber != null && baseNumbered && p.skipNumberOnFirstPage) pageNumber++;
+          const terms = [];
+          let m;
+          _BOOK_INDEX_MARKER_RX.lastIndex = 0;
+          while ((m = _BOOK_INDEX_MARKER_RX.exec(md)) !== null) {
+            const term = m[1].trim();
+            if (term) terms.push(term);
+          }
+          for (const term of terms) {
+            const key = term.toLowerCase();
+            let entry = map.get(key);
+            if (!entry) { entry = { term, pages: new Set() }; map.set(key, entry); }
+            if (pageNumber != null) entry.pages.add(pageNumber);
+          }
+          // Advance the counter by the chapter's physical page count.
+          let physical = 1;
+          try {
+            const pag = paginateChapter(p, book, { _skipToc: true, _skipXref: true });
+            if (pag.pages.length) physical = pag.pages.length;
+          } catch {}
+          if (baseNumbered) printedNum += physical;
+        } else {
+          if (baseNumbered) printedNum++;
+        }
+      });
+      return Array.from(map.values()).sort((a, b) => a.term.localeCompare(b.term));
+    }
+    function _formatBookIndexMarkdown(entries) {
+      if (!entries.length) return '*No index entries — add `^[term]` markers to your chapters to populate the index.*';
+      const lines = ['## Index', ''];
+      for (const e of entries) {
+        const pageStr = [...e.pages].sort((a, b) => a - b).join(', ');
+        lines.push(`- ${e.term} — ${pageStr || '?'}`);
+      }
+      return lines.join('\n');
+    }
+    function _stripBookIndexMarkers(md) {
+      return String(md || '').replace(_BOOK_INDEX_MARKER_RX, (_, t) => t);
+    }
+
     function _formatBookTocMarkdown(entries) {
       if (!entries.length) return '*No headings yet — add `# Heading` lines to your chapters and the TOC will fill in.*';
       const lines = ['## Table of Contents', ''];
@@ -9987,6 +10049,21 @@
         // distort the headings' page numbers via a "{toc}" paragraph.
         md = md.replace(/^[ \t]*\{toc\}[ \t]*\n?/gm, '');
       }
+      // {index} expansion (I5). Same two-pass pattern as {toc} —
+      // the inner build also uses _skipToc:true so we don't recurse
+      // through paginateChapter from inside index computation.
+      if (!opts._skipIndex && /^[ \t]*\{index\}[ \t]*$/m.test(md)) {
+        const idxEntries = _computeBookIndexEntries(book);
+        const idxMd = _formatBookIndexMarkdown(idxEntries);
+        md = md.replace(/^[ \t]*\{index\}[ \t]*$/gm, idxMd);
+      } else if (opts._skipIndex) {
+        md = md.replace(/^[ \t]*\{index\}[ \t]*\n?/gm, '');
+      }
+      // Strip the inline `^[term]` index markers — they're invisible
+      // to readers; only the term text remains. Done before xref
+      // substitution so a marker inside a link text doesn't confuse
+      // the parser.
+      md = _stripBookIndexMarkers(md);
       // Cross-reference substitution (I6). Markdown links pointing
       // at an in-book anchor (`](#chapter-3)` etc) get their link
       // text augmented with the destination's page number — slug
@@ -11795,6 +11872,11 @@
             const tocMd = _formatBookTocMarkdown(_computeBookTocEntries(state.book));
             md = md.replace(/^[ \t]*\{toc\}[ \t]*$/gm, tocMd);
           }
+          if (/^[ \t]*\{index\}[ \t]*$/m.test(md)) {
+            const idxMd = _formatBookIndexMarkdown(_computeBookIndexEntries(state.book));
+            md = md.replace(/^[ \t]*\{index\}[ \t]*$/gm, idxMd);
+          }
+          md = _stripBookIndexMarkers(md);
           // Cross-reference substitution in the live preview too.
           if (/\]\(#[^)]+\)/.test(md)) {
             try {
