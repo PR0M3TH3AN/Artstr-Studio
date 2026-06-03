@@ -1527,6 +1527,31 @@
     .bookChapterEditorPages {
       font-size: .78rem; color: var(--muted); white-space: nowrap;
     }
+    .bookChapterEditorSourceBar {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding: 6px 0; border-bottom: 1px solid var(--line);
+      font-size: .82rem;
+    }
+    .bookChapterEditorSourceBar input[type="text"] {
+      flex: 1; min-width: 200px;
+      padding: 4px 8px; border: 1px solid var(--line);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .76rem;
+    }
+    .bookChapterEditorSourceBar button {
+      padding: 3px 8px; font-size: .8rem;
+      border: 1px solid var(--line); background: #fff; cursor: pointer;
+    }
+    .bookChapterEditorSourceLabel {
+      font-size: .76rem; color: var(--muted); padding: 0 4px;
+      border: 1px dashed var(--line); border-radius: 4px;
+      white-space: nowrap;
+    }
+    .bookChapterEditorSourceLabel.linked   { color: var(--accent); border-color: var(--accent); border-style: solid; }
+    .bookChapterEditorSourceLabel.pinned   { color: #6b21a8; border-color: #c084fc; border-style: solid; }
+    .bookChapterEditorSourceMsg { font-size: .74rem; color: var(--muted); }
+    .bookChapterEditorSourceMsg.error { color: #b91c1c; }
+    .bookChapterEditorSourceMsg.ok    { color: #15803d; }
     .bookChapterEditorBody {
       flex: 1;
       display: grid;
@@ -4330,6 +4355,15 @@
             <span class="bookChapterEditorPages" id="bookChapterEditorPages"></span>
             <span class="bookViewSpacer"></span>
             <span class="hint" id="bookChapterEditorHint">Markdown autosaves to this book. Phase D1 publishes as a NIP-23 article.</span>
+          </div>
+          <div class="bookChapterEditorSourceBar">
+            <span class="bookChapterEditorSourceLabel" id="bookChapterEditorSourceStatus">Local only</span>
+            <input type="text" id="bookChapterEditorSourceInput" placeholder="naddr1… / nevent1… / note1… / hex" />
+            <button type="button" id="bookChapterEditorImportBtn">Import from Nostr</button>
+            <button type="button" id="bookChapterEditorRefreshBtn" style="display:none">↻ Refresh</button>
+            <button type="button" id="bookChapterEditorPinBtn" style="display:none">Pin to current</button>
+            <button type="button" id="bookChapterEditorUnlinkBtn" style="display:none">Unlink</button>
+            <span class="bookChapterEditorSourceMsg" id="bookChapterEditorSourceMsg"></span>
           </div>
           <div class="bookChapterEditorBody">
             <textarea id="bookChapterEditorTextarea" placeholder="# Chapter 1&#10;&#10;Write your chapter here…"></textarea>
@@ -9647,6 +9681,212 @@
         pagesEl.textContent = `${wordCount} word${wordCount === 1 ? '' : 's'} · ${n} page${n === 1 ? '' : 's'}${warn}`;
         pagesEl.title = pag.warnings.join('\n');
       }
+      syncBookChapterSourceBar(entry);
+    }
+    // Paint the source bar — status chip + button visibility based on
+    // textRef / textPinnedEventId. Idempotent so callers can run it
+    // after any state change.
+    function syncBookChapterSourceBar(entry) {
+      const status = document.getElementById('bookChapterEditorSourceStatus');
+      const refreshBtn = document.getElementById('bookChapterEditorRefreshBtn');
+      const pinBtn = document.getElementById('bookChapterEditorPinBtn');
+      const unlinkBtn = document.getElementById('bookChapterEditorUnlinkBtn');
+      const input = document.getElementById('bookChapterEditorSourceInput');
+      if (!status || !entry) return;
+      const ref = entry.textRef || null;
+      const pinned = !!entry.textPinnedEventId;
+      if (!ref) {
+        status.textContent = 'Local only';
+        status.className = 'bookChapterEditorSourceLabel';
+        if (refreshBtn) refreshBtn.style.display = 'none';
+        if (pinBtn) pinBtn.style.display = 'none';
+        if (unlinkBtn) unlinkBtn.style.display = 'none';
+        if (input) input.disabled = false;
+        return;
+      }
+      // Linked. Label shows pin state + a short id.
+      const shortId = (s) => (typeof s === 'string' && s.length > 14) ? s.slice(0, 8) + '…' + s.slice(-4) : (s || '');
+      const refLabel = ref.dTag
+        ? `d:${shortId(ref.dTag)} by ${shortId(ref.pubkey || '')}`
+        : (ref.eventId ? `event ${shortId(ref.eventId)}` : 'linked');
+      status.textContent = pinned ? `Pinned · ${refLabel}` : `Live · ${refLabel}`;
+      status.className = 'bookChapterEditorSourceLabel ' + (pinned ? 'pinned' : 'linked');
+      if (refreshBtn) refreshBtn.style.display = '';
+      if (pinBtn) {
+        pinBtn.style.display = '';
+        pinBtn.textContent = pinned ? 'Set to live' : 'Pin to current';
+      }
+      if (unlinkBtn) unlinkBtn.style.display = '';
+      if (input) input.disabled = true;
+    }
+    // Import a NIP-23 article (or any markdown-bearing event) by
+    // naddr / nevent / note / hex id. Resolves via the shared embed
+    // event resolver, then drops .content into chapterMarkdown +
+    // records textRef / textPinnedEventId on the entry.
+    async function importBookChapterFromNostr() {
+      const book = state.book;
+      const id = book?.editingChapterId;
+      if (!id) return;
+      const entry = book.pages.find(p => p.id === id);
+      if (!entry) return;
+      const input = document.getElementById('bookChapterEditorSourceInput');
+      const msg = document.getElementById('bookChapterEditorSourceMsg');
+      const btn = document.getElementById('bookChapterEditorImportBtn');
+      const setMsg = (text, kind) => {
+        if (!msg) return;
+        msg.textContent = text || '';
+        msg.className = 'bookChapterEditorSourceMsg' + (kind ? ' ' + kind : '');
+      };
+      const raw = (input?.value || '').trim();
+      if (!raw) { setMsg('Paste an naddr / nevent / note id first.', 'error'); return; }
+      const decoded = decodeNostrId(raw);
+      if (!decoded) { setMsg('Could not decode that id.', 'error'); return; }
+      // Normalize hex / note into nevent shape for the resolver.
+      const decodedForResolver = decoded.type === 'naddr'
+        ? decoded
+        : { type: 'nevent', eventId: decoded.eventId, relays: decoded.relays || [], author: decoded.author || '', kind: decoded.kind || null };
+      if (btn) btn.disabled = true;
+      setMsg('Fetching…');
+      try {
+        const ev = await _resolveEmbedEvent(decodedForResolver);
+        if (!ev) { setMsg('No event found on user relays.', 'error'); return; }
+        pushHistory('book: chapter import');
+        entry.chapterMarkdown = String(ev.content || '');
+        entry.textRef = decoded.type === 'naddr'
+          ? { kind: decoded.kind, pubkey: decoded.pubkey, dTag: decoded.dTag, relays: decoded.relays || [] }
+          : { eventId: ev.id, pubkey: ev.pubkey, kind: ev.kind || decoded.kind || null, relays: decoded.relays || [] };
+        // nevent imports are inherently pinned (a specific event id);
+        // naddr imports default to live (follow d-tag).
+        entry.textPinnedEventId = decoded.type === 'naddr' ? null : ev.id;
+        // Pick up the article's NIP-23 title tag if our chapter is
+        // unnamed — saves a step.
+        if (!entry.chapterTitle) {
+          const title = (ev.tags || []).find(t => t[0] === 'title' && t[1])?.[1];
+          if (title) entry.chapterTitle = String(title);
+        }
+        if (input) input.value = '';
+        setMsg(`Imported ${String(ev.content || '').length.toLocaleString()} chars.`, 'ok');
+        syncBookChapterEditor();
+        render();
+      } catch (err) {
+        console.warn('chapter import failed', err);
+        setMsg('Import failed: ' + (err?.message || 'unknown error'), 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+    // Re-fetch a linked chapter. For naddr-linked entries this picks
+    // up new versions; for pinned/nevent entries it just refreshes
+    // the same event from relays.
+    async function refreshBookChapterFromNostr() {
+      const book = state.book;
+      const id = book?.editingChapterId;
+      if (!id) return;
+      const entry = book.pages.find(p => p.id === id);
+      if (!entry || !entry.textRef) return;
+      const msg = document.getElementById('bookChapterEditorSourceMsg');
+      const setMsg = (text, kind) => {
+        if (!msg) return;
+        msg.textContent = text || '';
+        msg.className = 'bookChapterEditorSourceMsg' + (kind ? ' ' + kind : '');
+      };
+      const ref = entry.textRef;
+      const pinned = entry.textPinnedEventId;
+      // Pinned → resolve by event id. Live → resolve by d-tag coord.
+      const decoded = pinned
+        ? { type: 'nevent', eventId: pinned, relays: ref.relays || [], author: ref.pubkey || '', kind: ref.kind || null }
+        : { type: 'naddr', kind: ref.kind, pubkey: ref.pubkey, dTag: ref.dTag, relays: ref.relays || [] };
+      const btn = document.getElementById('bookChapterEditorRefreshBtn');
+      if (btn) btn.disabled = true;
+      setMsg('Refreshing…');
+      try {
+        const ev = await _resolveEmbedEvent(decoded);
+        if (!ev) { setMsg('No event found.', 'error'); return; }
+        if (String(entry.chapterMarkdown || '') === String(ev.content || '')) {
+          setMsg('Already up to date.', 'ok');
+          return;
+        }
+        pushHistory('book: chapter refresh');
+        entry.chapterMarkdown = String(ev.content || '');
+        if (pinned) entry.textPinnedEventId = ev.id;
+        setMsg(`Updated to ${String(ev.content || '').length.toLocaleString()} chars.`, 'ok');
+        syncBookChapterEditor();
+        render();
+      } catch (err) {
+        console.warn('chapter refresh failed', err);
+        setMsg('Refresh failed: ' + (err?.message || 'unknown error'), 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+    // Flip pin/live on a linked chapter. Pinning grabs the current
+    // event id (re-resolving so we capture the latest version
+    // explicitly). Setting to live just clears textPinnedEventId.
+    async function toggleBookChapterPin() {
+      const book = state.book;
+      const id = book?.editingChapterId;
+      if (!id) return;
+      const entry = book.pages.find(p => p.id === id);
+      if (!entry || !entry.textRef) return;
+      const msg = document.getElementById('bookChapterEditorSourceMsg');
+      const setMsg = (text, kind) => {
+        if (!msg) return;
+        msg.textContent = text || '';
+        msg.className = 'bookChapterEditorSourceMsg' + (kind ? ' ' + kind : '');
+      };
+      if (entry.textPinnedEventId) {
+        pushHistory('book: chapter set live');
+        entry.textPinnedEventId = null;
+        setMsg('Following live d-tag.', 'ok');
+        syncBookChapterEditor();
+        return;
+      }
+      // Pinning: resolve current event id so we can pin to it.
+      const ref = entry.textRef;
+      if (!ref.dTag || !ref.pubkey) {
+        // nevent imports already carry their own id; pin without resolving.
+        if (ref.eventId) {
+          pushHistory('book: chapter pin');
+          entry.textPinnedEventId = ref.eventId;
+          setMsg('Pinned.', 'ok');
+          syncBookChapterEditor();
+          return;
+        }
+        setMsg('Nothing to pin — link lacks a usable id.', 'error');
+        return;
+      }
+      const decoded = { type: 'naddr', kind: ref.kind, pubkey: ref.pubkey, dTag: ref.dTag, relays: ref.relays || [] };
+      const pinBtn = document.getElementById('bookChapterEditorPinBtn');
+      if (pinBtn) pinBtn.disabled = true;
+      setMsg('Resolving current version…');
+      try {
+        const ev = await _resolveEmbedEvent(decoded);
+        if (!ev) { setMsg('Could not resolve current version.', 'error'); return; }
+        pushHistory('book: chapter pin');
+        entry.textPinnedEventId = ev.id;
+        setMsg(`Pinned to ${ev.id.slice(0, 8)}…`, 'ok');
+        syncBookChapterEditor();
+      } catch (err) {
+        console.warn('chapter pin failed', err);
+        setMsg('Pin failed: ' + (err?.message || 'unknown error'), 'error');
+      } finally {
+        if (pinBtn) pinBtn.disabled = false;
+      }
+    }
+    function unlinkBookChapterFromNostr() {
+      const book = state.book;
+      const id = book?.editingChapterId;
+      if (!id) return;
+      const entry = book.pages.find(p => p.id === id);
+      if (!entry || !entry.textRef) return;
+      if (!confirm('Disconnect this chapter from its Nostr source? The markdown stays here; future edits on Nostr won\'t flow in.')) return;
+      pushHistory('book: chapter unlink');
+      entry.textRef = null;
+      entry.textPinnedEventId = null;
+      const msg = document.getElementById('bookChapterEditorSourceMsg');
+      if (msg) { msg.textContent = 'Unlinked.'; msg.className = 'bookChapterEditorSourceMsg ok'; }
+      syncBookChapterEditor();
+      render();
     }
     // Minimal HTML escape + marked render. Sanitizes by routing
     // through marked.parse with `mangle:false, headerIds:false`
@@ -32948,6 +33188,14 @@
       on('bookChapterEditorBack', 'click', closeBookChapter);
       on('bookChapterEditorTextarea', 'input', (e) => updateBookChapterMarkdown(e.target.value));
       on('bookChapterEditorTitle', 'input', (e) => updateBookChapterTitle(e.target.value));
+      on('bookChapterEditorImportBtn', 'click', importBookChapterFromNostr);
+      on('bookChapterEditorRefreshBtn', 'click', refreshBookChapterFromNostr);
+      on('bookChapterEditorPinBtn', 'click', toggleBookChapterPin);
+      on('bookChapterEditorUnlinkBtn', 'click', unlinkBookChapterFromNostr);
+      // Enter in the import input submits.
+      on('bookChapterEditorSourceInput', 'keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); importBookChapterFromNostr(); }
+      });
       on('bookViewTogglePages', 'click', () => setBookSubView('pages'));
       on('bookViewToggleCover', 'click', () => setBookSubView('cover'));
       on('bookPageEditBack', 'click', () => {
