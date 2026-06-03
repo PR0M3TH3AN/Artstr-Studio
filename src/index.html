@@ -1574,6 +1574,17 @@
       border: 1px solid var(--line); background: #fff;
       resize: none;
     }
+    /* Force the CodeMirror instance to fill the editor pane so it
+       doesn't render at its 300 px default. .CodeMirror is the
+       library's outer element, .CodeMirror-scroll the scrollable
+       inner; both need an explicit height of 100% to match the
+       grid cell. */
+    .bookChapterEditorBody .CodeMirror {
+      width: 100%; height: 100%;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px; line-height: 1.55;
+    }
+    .bookChapterEditorBody .CodeMirror-scroll { padding: 8px 4px; }
     .bookChapterEditorPreviewWrap {
       border: 1px solid var(--line); background: #fff;
       overflow: auto;
@@ -10243,6 +10254,88 @@
       });
     }
 
+    // Lazy-load CodeMirror 5 + markdown mode (Phase I1). ~188 KB
+    // total; we only pay the download when the chapter editor opens.
+    let _codeMirrorPromise = null;
+    function loadCodeMirrorOnce() {
+      if (window.CodeMirror) return Promise.resolve(window.CodeMirror);
+      if (_codeMirrorPromise) return _codeMirrorPromise;
+      _codeMirrorPromise = (async () => {
+        if (!document.querySelector('link[data-cm-css]')) {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = 'vendor/codemirror.min.css';
+          link.dataset.cmCss = '1';
+          document.head.appendChild(link);
+        }
+        await loadScriptOnce('vendor/codemirror.min.js');
+        await loadScriptOnce('vendor/codemirror-markdown.min.js');
+        if (!window.CodeMirror) throw new Error('CodeMirror failed to expose globally');
+        return window.CodeMirror;
+      })().catch(err => { _codeMirrorPromise = null; throw err; });
+      return _codeMirrorPromise;
+    }
+    async function _upgradeChapterEditorToCodeMirror() {
+      const ta = document.getElementById('bookChapterEditorTextarea');
+      if (!ta || ta.dataset.cmInited === '1') return;
+      let CM;
+      try { CM = await loadCodeMirrorOnce(); }
+      catch (err) {
+        console.warn('CodeMirror unavailable — falling back to plain textarea', err);
+        return;
+      }
+      const editor = CM.fromTextArea(ta, {
+        mode: 'markdown',
+        lineNumbers: false,
+        lineWrapping: true,
+        indentUnit: 2,
+        tabSize: 2,
+        smartIndent: false,
+        viewportMargin: Infinity,
+        extraKeys: {
+          // List-continuation: pressing Enter on a list line auto-
+          // continues the bullet / number marker. Strips the marker
+          // on an empty list item to break out of the list.
+          Enter: (cmInst) => {
+            const cursor = cmInst.getCursor();
+            const line = cmInst.getLine(cursor.line);
+            const ul = /^(\s*)([-*+])\s+(.*)$/.exec(line);
+            const ol = /^(\s*)(\d+)\.\s+(.*)$/.exec(line);
+            if (ul) {
+              const [, indent, marker, rest] = ul;
+              if (!rest) {
+                cmInst.replaceRange('', { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length });
+                cmInst.replaceSelection('\n');
+                return;
+              }
+              cmInst.replaceSelection(`\n${indent}${marker} `);
+              return;
+            }
+            if (ol) {
+              const [, indent, num, rest] = ol;
+              if (!rest) {
+                cmInst.replaceRange('', { line: cursor.line, ch: 0 }, { line: cursor.line, ch: line.length });
+                cmInst.replaceSelection('\n');
+                return;
+              }
+              cmInst.replaceSelection(`\n${indent}${Number(num) + 1}. `);
+              return;
+            }
+            cmInst.replaceSelection('\n');
+          },
+        },
+      });
+      // Match the editor's visual style with the surrounding pane.
+      editor.getWrapperElement().style.cssText = 'width:100%;height:100%;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;border:1px solid var(--line);background:#fff';
+      editor.on('change', () => {
+        // Debounce-pushed through updateBookChapterMarkdown which
+        // re-renders the preview + page-count readout.
+        updateBookChapterMarkdown(editor.getValue());
+      });
+      ta.dataset.cmInited = '1';
+      ta._cmEditor = editor;
+    }
+
     // Chapter editor (Phase C.5). Reflow entries open a two-pane
     // textarea + live preview instead of the canvas. The book stays
     // in 'book' template mode; an `editingChapterId` field tracks
@@ -10258,6 +10351,15 @@
       syncBookChapterEditor();
       syncInputs();
       render();
+      // Upgrade the textarea to CodeMirror on first open. After the
+      // upgrade, syncBookChapterEditor handles the editor's content
+      // via the _cmEditor handle on the textarea node.
+      _upgradeChapterEditorToCodeMirror().then(() => {
+        const ta = document.getElementById('bookChapterEditorTextarea');
+        if (ta?._cmEditor && ta._cmEditor.getValue() !== (entry.chapterMarkdown || '')) {
+          ta._cmEditor.setValue(entry.chapterMarkdown || '');
+        }
+      });
     }
     function closeBookChapter() {
       const book = state.book;
@@ -10280,7 +10382,18 @@
       const preview = document.getElementById('bookChapterEditorPreview');
       const pagesEl = document.getElementById('bookChapterEditorPages');
       if (titleEl && titleEl !== document.activeElement) titleEl.value = entry.chapterTitle || '';
-      if (ta && ta !== document.activeElement) ta.value = entry.chapterMarkdown || '';
+      if (ta) {
+        if (ta._cmEditor) {
+          // CodeMirror instance: only push when value differs AND the
+          // editor doesn't currently have focus, so live typing isn't
+          // clobbered by a re-sync.
+          const live = ta._cmEditor.getValue();
+          const next = entry.chapterMarkdown || '';
+          if (live !== next && !ta._cmEditor.hasFocus()) ta._cmEditor.setValue(next);
+        } else if (ta !== document.activeElement) {
+          ta.value = entry.chapterMarkdown || '';
+        }
+      }
       if (preview) preview.innerHTML = markdownToSafeHtml(entry.chapterMarkdown || '');
       if (pagesEl) {
         const pag = paginateChapter(entry, book);
