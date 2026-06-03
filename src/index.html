@@ -9903,6 +9903,58 @@
       });
       return entries;
     }
+    // Slugify a heading / title into a lowercase-hyphen anchor —
+    // matches the GitHub-style #my-heading convention authors
+    // expect when writing cross-references.
+    function _bookSlugify(s) {
+      return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    }
+    // Build a slug → page-number map for cross-reference resolution
+    // (I6). Chapter titles, "chapter-N" aliases, and every H1-H6
+    // heading register. Uses _skipXref:true on inner pagination so
+    // the map computation can't recurse.
+    function _computeBookSlugToPageMap(book) {
+      if (!book) return new Map();
+      const map = new Map();
+      const numbering = book.spec?.pageNumbering || {};
+      const enabled = numbering.enabled !== false;
+      const startAt = Number.isFinite(numbering.startAt) ? numbering.startAt : 1;
+      const firstNumberedIdx = (Number.isFinite(numbering.firstNumberedPage) ? numbering.firstNumberedPage : 1) - 1;
+      let printedNum = startAt;
+      (book.pages || []).forEach((p, manifestIdx) => {
+        const baseNumbered = enabled && !p.skipNumber && manifestIdx >= firstNumberedIdx;
+        if (p.type === 'reflow') {
+          let pag;
+          try { pag = paginateChapter(p, book, { _skipXref: true }); }
+          catch { pag = { pages: [] }; }
+          (pag.pages || []).forEach((page, idxInChapter) => {
+            const skipThis = baseNumbered && p.skipNumberOnFirstPage && idxInChapter === 0;
+            const numbered = baseNumbered && !skipThis;
+            const pageNumber = numbered ? printedNum : null;
+            if (idxInChapter === 0 && pageNumber != null) {
+              if (p.chapterTitle) {
+                const slug = _bookSlugify(p.chapterTitle);
+                if (slug) map.set(slug, pageNumber);
+              }
+              if (p.chapterNumber != null) {
+                map.set(`chapter-${p.chapterNumber}`, pageNumber);
+              }
+            }
+            if (pageNumber != null) {
+              for (const block of (page.blocks || [])) {
+                if (!/^h[1-6]$/.test(String(block.kind || ''))) continue;
+                const slug = _bookSlugify((block.lines || []).join(' '));
+                if (slug && !map.has(slug)) map.set(slug, pageNumber);
+              }
+            }
+            if (numbered) printedNum++;
+          });
+        } else if (baseNumbered) {
+          printedNum++;
+        }
+      });
+      return map;
+    }
     function _formatBookTocMarkdown(entries) {
       if (!entries.length) return '*No headings yet — add `# Heading` lines to your chapters and the TOC will fill in.*';
       const lines = ['## Table of Contents', ''];
@@ -9934,6 +9986,27 @@
         // Pass 1: strip the placeholder line entirely so it doesn't
         // distort the headings' page numbers via a "{toc}" paragraph.
         md = md.replace(/^[ \t]*\{toc\}[ \t]*\n?/gm, '');
+      }
+      // Cross-reference substitution (I6). Markdown links pointing
+      // at an in-book anchor (`](#chapter-3)` etc) get their link
+      // text augmented with the destination's page number — slug
+      // matched against the same slugifier the build-time map uses.
+      // _skipXref:true short-circuits recursion from the map builder.
+      if (!opts._skipXref && /\]\(#[^)]+\)/.test(md)) {
+        try {
+          const xrefMap = _computeBookSlugToPageMap(book);
+          if (xrefMap.size) {
+            md = md.replace(/\[([^\]]*)\]\(#([^)]+)\)/g, (whole, text, href) => {
+              const slug = _bookSlugify(href);
+              const page = xrefMap.get(slug);
+              if (page != null && text) return `[${text} (p. ${page})](#${href})`;
+              if (page != null) return `[p. ${page}](#${href})`;
+              return whole;
+            });
+          }
+        } catch (err) {
+          console.warn('xref substitution failed', err);
+        }
       }
       const styles = (book?.spec?.textStyles) || defaultBookTextStyles();
       const masterId = (typeof effectiveMasterIdForPage === 'function')
@@ -11717,9 +11790,25 @@
         // the rendered chapter will look like with the auto-generated
         // table of contents in place.
         let md = String(src || '');
-        if (state.templateMode === 'book' && state.book && /^[ \t]*\{toc\}[ \t]*$/m.test(md)) {
-          const tocMd = _formatBookTocMarkdown(_computeBookTocEntries(state.book));
-          md = md.replace(/^[ \t]*\{toc\}[ \t]*$/gm, tocMd);
+        if (state.templateMode === 'book' && state.book) {
+          if (/^[ \t]*\{toc\}[ \t]*$/m.test(md)) {
+            const tocMd = _formatBookTocMarkdown(_computeBookTocEntries(state.book));
+            md = md.replace(/^[ \t]*\{toc\}[ \t]*$/gm, tocMd);
+          }
+          // Cross-reference substitution in the live preview too.
+          if (/\]\(#[^)]+\)/.test(md)) {
+            try {
+              const xrefMap = _computeBookSlugToPageMap(state.book);
+              if (xrefMap.size) {
+                md = md.replace(/\[([^\]]*)\]\(#([^)]+)\)/g, (whole, text, href) => {
+                  const page = xrefMap.get(_bookSlugify(href));
+                  if (page != null && text) return `[${text} (p. ${page})](#${href})`;
+                  if (page != null) return `[p. ${page}](#${href})`;
+                  return whole;
+                });
+              }
+            } catch {}
+          }
         }
         const html = window.marked.parse(md, {
           mangle: false,
