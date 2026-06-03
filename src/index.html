@@ -8302,11 +8302,17 @@
       if (!state.book) state.book = defaultBookState();
       return state.book;
     }
-    // Page count + derived spine width readouts for the sidebar.
-    // Page count is the manifest entry count for Phase A — once reflow
-    // segments land in C.5 this counts physical pages after pagination.
+    // Physical page count — manifest entries except reflow segments,
+    // which expand into however many pages their text paginates to.
+    // Drives spine width + `{physical-page-count}` substitution.
     function bookPageCount() {
-      return (state.book?.pages || []).length;
+      const book = state.book;
+      if (!book) return 0;
+      try {
+        const seq = enumerateBookPhysicalPages(book);
+        if (seq && seq.length) return seq.length;
+      } catch {}
+      return (book.pages || []).length;
     }
     function bookSpineWidthInches() {
       const spec = state.book?.spec;
@@ -8793,13 +8799,17 @@
         if (p.type === 'design') {
           // Designed page thumb: master layers underneath, then the
           // page's own. Both remapped to 'canvas' so the preview
-          // helper's flat-canvas filter accepts them.
+          // helper's flat-canvas filter accepts them. Master text
+          // layers run through token substitution so `{page-number}`
+          // et al resolve against this page's place in the manifest.
           const pageTarget = `book-page:${p.id}`;
           const masterId = effectiveMasterIdForPage(p);
           const masterTarget = masterId ? `book-master:${masterId}` : null;
-          const masterLayers = masterTarget
+          const masterLayersRaw = masterTarget
             ? (state.layers || []).filter(l => l.target === masterTarget && !l.hidden)
             : [];
+          const ctx = bookTokenContext(book, p.id, 0);
+          const masterLayers = applyBookTokensToLayers(masterLayersRaw, ctx);
           const pageLayers = (state.layers || []).filter(l => l.target === pageTarget && !l.hidden);
           const composed = [
             ...masterLayers.map((l, i) => ({ ...l, target: 'canvas', z: -1e6 + i })),
@@ -8820,15 +8830,19 @@
         } else if (p.type === 'reflow') {
           // Reflow tile: same master underlay as designed pages,
           // then the first paginated page of the chapter rendered
-          // as positioned text blocks on top.
+          // as positioned text blocks on top. Tokens in master text
+          // layers resolve to the first physical page of this
+          // chapter segment.
           const masterId = p.masterId || book.spec?.defaultMasterId || null;
           const masterTarget = masterId ? `book-master:${masterId}` : null;
-          const masterLayers = masterTarget
+          const masterLayersRaw = masterTarget
             ? (state.layers || []).filter(l => l.target === masterTarget && !l.hidden
                 // Don't render the text-frame outline in the thumb —
                 // the reflowed prose takes its place visually.
                 && !(l.type === 'shape' && l.shape?.kind === 'text-frame'))
             : [];
+          const ctx = bookTokenContext(book, p.id, 0);
+          const masterLayers = applyBookTokensToLayers(masterLayersRaw, ctx);
           const composed = masterLayers.map((l, i) => ({ ...l, target: 'canvas', z: -1e6 + i }));
           try {
             renderCustomArtPreviewDOM(thumb, {
@@ -9286,6 +9300,124 @@
         overlay.appendChild(blk);
       }
       parent.appendChild(overlay);
+    }
+
+    // Walk the manifest into a flat physical-page sequence, paginating
+    // reflow segments so each chapter contributes one entry per page.
+    // Used for token substitution + total-page-count readouts.
+    function enumerateBookPhysicalPages(book) {
+      const out = [];
+      if (!book) return out;
+      const numbering = book.spec?.pageNumbering || {};
+      const enabled = numbering.enabled !== false;
+      const startAt = Number.isFinite(numbering.startAt) ? numbering.startAt : 1;
+      const firstNumberedIdx = (Number.isFinite(numbering.firstNumberedPage) ? numbering.firstNumberedPage : 1) - 1;
+      let printedNum = startAt;
+      let currentChapter = { title: null, number: null };
+      (book.pages || []).forEach((p, manifestIdx) => {
+        const baseNumbered = enabled && !p.skipNumber && manifestIdx >= firstNumberedIdx;
+        if (p.type === 'reflow') {
+          currentChapter = {
+            title: p.chapterTitle || null,
+            number: p.chapterNumber != null ? p.chapterNumber : null,
+          };
+          let physicalCount = 1;
+          try {
+            const pag = paginateChapter(p, book);
+            if (pag.pages.length) physicalCount = pag.pages.length;
+          } catch {}
+          for (let i = 0; i < physicalCount; i++) {
+            const skipThisOne = baseNumbered && p.skipNumberOnFirstPage && i === 0;
+            const numberedHere = baseNumbered && !skipThisOne;
+            out.push({
+              entryId: p.id,
+              manifestIdx,
+              indexInEntry: i,
+              type: 'reflow',
+              masterId: p.masterId || book.spec?.defaultMasterId || null,
+              pageNumber: numberedHere ? printedNum : null,
+              chapterTitle: currentChapter.title,
+              chapterNumber: currentChapter.number,
+            });
+            if (numberedHere) printedNum++;
+          }
+        } else {
+          out.push({
+            entryId: p.id,
+            manifestIdx,
+            indexInEntry: 0,
+            type: p.type,
+            masterId: effectiveMasterIdForPage(p),
+            pageNumber: baseNumbered ? printedNum : null,
+            chapterTitle: currentChapter.title,
+            chapterNumber: currentChapter.number,
+          });
+          if (baseNumbered) printedNum++;
+        }
+      });
+      return out;
+    }
+
+    // Build the substitution context for a given physical page within
+    // a manifest entry. `indexInEntry` is 0 for designed pages and the
+    // physical offset (0-based) within a reflow segment.
+    function bookTokenContext(book, entryId, indexInEntry = 0) {
+      const seq = enumerateBookPhysicalPages(book);
+      const totalPhysical = seq.length;
+      let totalNumbered = 0;
+      for (const s of seq) if (s.pageNumber != null) totalNumbered++;
+      const match = seq.find(s => s.entryId === entryId && s.indexInEntry === indexInEntry) || null;
+      let bookAuthor = '';
+      try {
+        const pk = state.community?.myPubkey || '';
+        if (pk) {
+          const cached = (typeof _profilePages !== 'undefined' && _profilePages && _profilePages.get)
+            ? _profilePages.get(pk)?.profile : null;
+          bookAuthor = cached
+            ? bestDisplayName(cached, pk)
+            : (typeof shortNpub === 'function' ? shortNpub(pk) : '');
+        }
+      } catch {}
+      return {
+        pageNumber: match?.pageNumber ?? null,
+        pageCount: totalNumbered,
+        physicalPageCount: totalPhysical,
+        bookTitle: state.meta?.title || '',
+        bookAuthor,
+        chapterTitle: match?.chapterTitle || '',
+        chapterNumber: match?.chapterNumber ?? null,
+      };
+    }
+    // Token substitution for master-layer HTML. Tokens are
+    // case-sensitive and escaped before insertion so a chapter
+    // title with `<` or `&` can't break the layer's HTML.
+    function substituteBookTokens(html, ctx) {
+      if (!html || !ctx || typeof html !== 'string') return html;
+      if (html.indexOf('{') === -1) return html;
+      const esc = (v) => (typeof escapeHtml === 'function' ? escapeHtml(String(v)) : String(v));
+      return html.replace(/\{(page-number|page-count|physical-page-count|book-title|book-author|chapter-title|chapter-number)\}/g, (whole, key) => {
+        switch (key) {
+          case 'page-number':         return ctx.pageNumber != null ? esc(ctx.pageNumber) : '';
+          case 'page-count':          return esc(ctx.pageCount);
+          case 'physical-page-count': return esc(ctx.physicalPageCount);
+          case 'book-title':          return esc(ctx.bookTitle || '');
+          case 'book-author':         return esc(ctx.bookAuthor || '');
+          case 'chapter-title':       return esc(ctx.chapterTitle || '');
+          case 'chapter-number':      return ctx.chapterNumber != null ? esc(ctx.chapterNumber) : '';
+          default: return whole;
+        }
+      });
+    }
+    // Map a list of master layers into preview-ready clones, replacing
+    // tokens in any text layer's `html` field. Other layer types pass
+    // through unchanged.
+    function applyBookTokensToLayers(layers, ctx) {
+      if (!layers || !layers.length || !ctx) return layers || [];
+      return layers.map(l => {
+        if (!l || typeof l.html !== 'string') return l;
+        if (l.html.indexOf('{') === -1) return l;
+        return { ...l, html: substituteBookTokens(l.html, ctx) };
+      });
     }
 
     // Chapter editor (Phase C.5). Reflow entries open a two-pane
@@ -18854,7 +18986,25 @@
           text.className = 'textLayer';
           text.contentEditable = 'true';
           text.spellcheck = false;
-          text.innerHTML = layer.html || '';
+          // When a master text layer renders as the underlay on a
+          // book page we're editing, resolve `{page-number}` etc.
+          // against this page's manifest context. Master-edit mode
+          // leaves tokens literal so the author can type them.
+          let renderedHtml = layer.html || '';
+          const _bookMasterUnderlay = state.templateMode === 'book'
+            && !!state.book?.editingEntryId
+            && !state.book?.editingMasterId
+            && String(layer.target || '').startsWith('book-master:');
+          if (_bookMasterUnderlay) {
+            try {
+              const _ctx = bookTokenContext(state.book, state.book.editingEntryId, 0);
+              renderedHtml = substituteBookTokens(renderedHtml, _ctx);
+            } catch (err) {
+              console.warn('book token substitution failed', err);
+            }
+            text.contentEditable = 'false';
+          }
+          text.innerHTML = renderedHtml;
           // Same scrub as applyPreviewLayerTextStyle: strip / unwrap any
           // <a> with an unsafe href so a forked design can't carry an
           // active javascript: link into the editor.
