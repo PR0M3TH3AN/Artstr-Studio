@@ -4416,6 +4416,7 @@
           <button type="button" id="bookPageEditPrev" title="Previous page">←</button>
           <button type="button" id="bookPageEditNext" title="Next page">→</button>
           <span id="bookPageEditLabel"></span>
+          <button type="button" id="bookMasterAddTextFrame" title="Add a reflow text-frame to this master" style="display:none">+ Text frame</button>
         </div>
       </div>
 
@@ -8409,6 +8410,41 @@
       syncInputs();
       render();
     }
+    // Add a text-frame layer (Phase C4 structural placeholder) to
+    // the master currently open in the editor. Sized to fill the
+    // trim with a small inset so it reads as a "type area" out of
+    // the box; the user can resize / move like any other shape.
+    function addBookTextFrameToActiveMaster() {
+      const book = state.book;
+      if (!book || !book.editingMasterId) return;
+      const target = `book-master:${book.editingMasterId}`;
+      const s = book.spec;
+      const trimW = Number(s.trimW) || 6;
+      const trimH = Number(s.trimH) || 9;
+      const bleed = Number(s.bleed) || 0;
+      // Type area = trim minus a 0.75 in margin all around (a
+      // reasonable book-page default; the user can drag it tighter
+      // or wider). Coordinates are inches in the canvas space; the
+      // canvas covers (trim + 2 × bleed) in each axis.
+      const margin = 0.75;
+      const x = bleed + margin;
+      const y = bleed + margin;
+      const w = Math.max(0.5, trimW - margin * 2);
+      const h = Math.max(0.5, trimH - margin * 2);
+      pushHistory('book: add text frame');
+      addLayer({
+        id: makeLayerId(),
+        type: 'shape',
+        name: 'Text frame',
+        target,
+        x, y, w, h,
+        rotate: 0, opacity: 1, z: nextLayerZ(),
+        shape: defaultShapeData('text-frame'),
+        fill: { type: 'none' },
+        stroke: { type: 'none', color: '#60a5fa', width: 0, dash: 'solid' },
+      });
+    }
+
     function setBookDefaultMaster(id) {
       const book = state.book;
       if (!book) return;
@@ -8861,17 +8897,20 @@
       const editingMaster = inBook && !!book?.editingMasterId;
       bar.style.display = (editingPage || editingMaster) ? '' : 'none';
       if (!editingPage && !editingMaster) return;
+      const tfBtn = document.getElementById('bookMasterAddTextFrame');
       if (editingMaster) {
         const m = book.masters.find(x => x.id === book.editingMasterId);
         if (label) label.textContent = `Master: ${m?.label || 'Untitled'}`;
         if (back)  back.textContent = '← Back to masters';
         if (prev) prev.style.display = 'none';
         if (next) next.style.display = 'none';
+        if (tfBtn) tfBtn.style.display = '';
         return;
       }
       // editingPage path
       if (prev) prev.style.display = '';
       if (next) next.style.display = '';
+      if (tfBtn) tfBtn.style.display = 'none';
       if (back) back.textContent = '← Back to Pages';
       const designed = book.pages.filter(p => p.type === 'design');
       const idx = designed.findIndex(p => p.id === book.editingEntryId);
@@ -17082,9 +17121,18 @@
       if (kind === 'star') { out.points = 5; out.innerRadiusRatio = 0.45; }
       if (kind === 'line') { out.x1 = 0; out.y1 = 50; out.x2 = 100; out.y2 = 50; out.strokeWidth = 6; }
       if (kind === 'path') {
-        // Default heart shape so a fresh path layer is immediately useful.
         out.d = 'M 50 90 C 0 60 0 20 30 10 C 40 5 50 20 50 30 C 50 20 60 5 70 10 C 100 20 100 60 50 90 Z';
         out.viewBox = { x: 0, y: 0, w: 100, h: 100 };
+      }
+      if (kind === 'text-frame') {
+        // Phase C4 — structural layer only. The pagination engine
+        // in C.5 pours markdown into this frame; until then it
+        // renders as a labelled dashed rectangle on the master so
+        // users can position + size it like any other shape.
+        out.padding = 0.05;
+        out.verticalAlign = 'top';
+        out.columns = 1;
+        out.styleOverrides = null;
       }
       return out;
     }
@@ -17531,6 +17579,15 @@
       let body = '';
       if (kind === 'rect') {
         body = `<rect x="0" y="0" width="100" height="${H}" fill="${fillAttr}"${strokeAttr}/>`;
+      } else if (kind === 'text-frame') {
+        // Phase C4 structural rectangle. Dashed accent outline +
+        // centered "Text frame" label; transparent fill. The
+        // pagination engine in C.5 will replace this render path
+        // for frames that have markdown poured into them — at that
+        // point the dashed outline only renders in the editor.
+        const dash = Math.max(0.8, Math.min(4, 100 / 40));
+        body = `<rect x="0" y="0" width="100" height="${H}" fill="transparent" stroke="#60a5fa" stroke-width="0.5" stroke-dasharray="${dash} ${dash}"/>`
+             + `<text x="50" y="${(H / 2).toFixed(2)}" text-anchor="middle" dominant-baseline="middle" font-family="ui-sans-serif, system-ui, sans-serif" font-size="${Math.min(6, H / 8).toFixed(2)}" fill="#60a5fa" opacity="0.7">Text frame</text>`;
       } else if (kind === 'rounded-rect') {
         const r = Math.max(0, Math.min(50, Number(shape.cornerRadius) || 0));
         body = `<rect x="0" y="0" width="100" height="${H}" rx="${r}" ry="${r}" fill="${fillAttr}"${strokeAttr}/>`;
@@ -32011,6 +32068,7 @@
       });
       on('bookPageEditPrev', 'click', () => gotoBookPageRelative(-1));
       on('bookPageEditNext', 'click', () => gotoBookPageRelative(1));
+      on('bookMasterAddTextFrame', 'click', () => addBookTextFrameToActiveMaster());
 
       // Book Designer — Masters modal.
       on('bookManageMastersBtn', 'click', openBookMastersModal);
