@@ -5221,6 +5221,15 @@
         </div>
       </fieldset>
 
+      <details id="bookSettingsTypographyDetails" style="margin-top:14px">
+        <summary style="cursor:pointer;font-size:.85rem;font-weight:600">Typography (chapter text styles)</summary>
+        <p class="hint" style="margin:6px 0 8px">Overrides the v1 markdown stylesheet for reflow chapters. Empty fields fall back to defaults.</p>
+        <div id="bookSettingsTypographyBody"></div>
+        <div class="buttonRow" style="margin-top:8px;justify-content:flex-end;gap:8px">
+          <button type="button" id="bookSettingsTypographyResetBtn">Reset to defaults</button>
+        </div>
+      </details>
+
       <div class="buttonRow" style="margin-top:16px;justify-content:flex-end;gap:8px">
         <button type="button" id="bookSettingsCancelBtn">Cancel</button>
         <button type="button" id="bookSettingsApplyBtn" class="primary">Apply</button>
@@ -8360,6 +8369,7 @@
       if (numDetails) numDetails.style.display = spec.pageNumbering?.enabled ? '' : 'none';
       _syncBookSettingsSpineNote();
       _syncBookSettingsPresetLock();
+      renderBookTypographyEditor(spec.textStyles);
       modal.style.display = 'flex';
       modal.setAttribute('aria-hidden', 'false');
       if (typeof bringModalToFront === 'function') bringModalToFront(modal);
@@ -8398,6 +8408,121 @@
         trimH.disabled = false;
       }
     }
+    // Schema for the Typography editor. Each group lists the fields
+    // we surface in the UI; defaults come from defaultBookTextStyles().
+    // Add a field here and it auto-renders + persists with the spec.
+    const BOOK_TEXT_STYLE_GROUPS = [
+      { key: 'body',       label: 'Body' },
+      { key: 'h1',         label: 'Heading 1' },
+      { key: 'h2',         label: 'Heading 2' },
+      { key: 'h3',         label: 'Heading 3' },
+      { key: 'h4',         label: 'Heading 4' },
+      { key: 'h5',         label: 'Heading 5' },
+      { key: 'h6',         label: 'Heading 6' },
+      { key: 'blockquote', label: 'Blockquote' },
+      { key: 'codeBlock',  label: 'Code block' },
+      { key: 'inlineCode', label: 'Inline code' },
+      { key: 'link',       label: 'Link' },
+      { key: 'list',       label: 'List' },
+      { key: 'hr',         label: 'Horizontal rule' },
+    ];
+    const BOOK_TEXT_STYLE_FIELDS = {
+      body:       [ ['fontFamily','Font','text'], ['fontSize','Size (pt)','number',0.5,4,72], ['lineHeight','Line height','number',0.05,0.5,3], ['color','Color','color'], ['alignment','Align','select',['left','right','center','justify']], ['marginAfter','Margin after (in)','number',0.01,0,2] ],
+      h1:         [ ['fontFamily','Font','text'], ['fontSize','Size (pt)','number',0.5,4,96], ['fontWeight','Weight','select',[400,500,600,700,800]], ['alignment','Align','select',['left','right','center','justify']], ['marginBefore','Margin before (in)','number',0.01,0,2], ['marginAfter','Margin after (in)','number',0.01,0,2] ],
+      h2:         [ ['fontFamily','Font','text'], ['fontSize','Size (pt)','number',0.5,4,72], ['fontWeight','Weight','select',[400,500,600,700,800]], ['marginBefore','Margin before (in)','number',0.01,0,2], ['marginAfter','Margin after (in)','number',0.01,0,2] ],
+      h3:         [ ['fontFamily','Font','text'], ['fontSize','Size (pt)','number',0.5,4,72], ['fontWeight','Weight','select',[400,500,600,700,800]], ['marginBefore','Margin before (in)','number',0.01,0,2], ['marginAfter','Margin after (in)','number',0.01,0,2] ],
+      h4:         [ ['fontFamily','Font','text'], ['fontSize','Size (pt)','number',0.5,4,72], ['fontWeight','Weight','select',[400,500,600,700,800]] ],
+      h5:         [ ['fontFamily','Font','text'], ['fontSize','Size (pt)','number',0.5,4,72], ['fontWeight','Weight','select',[400,500,600,700,800]] ],
+      h6:         [ ['fontFamily','Font','text'], ['fontSize','Size (pt)','number',0.5,4,72], ['fontWeight','Weight','select',[400,500,600,700,800]], ['fontStyle','Style','select',['normal','italic']] ],
+      blockquote: [ ['fontStyle','Style','select',['normal','italic']], ['marginLeft','Indent left (in)','number',0.01,0,2], ['marginRight','Indent right (in)','number',0.01,0,2] ],
+      codeBlock:  [ ['fontFamily','Font','text'], ['fontSize','Size (pt)','number',0.5,4,72], ['background','Background','color'], ['padding','Padding (in)','number',0.01,0,1] ],
+      inlineCode: [ ['fontFamily','Font','text'], ['fontSize','Size (pt)','number',0.5,4,72], ['background','Background','color'] ],
+      link:       [ ['color','Color','color'], ['underline','Underline','bool'] ],
+      list:       [ ['indent','Indent (in)','number',0.01,0,1], ['marginAfter','Margin after (in)','number',0.01,0,2] ],
+      hr:         [ ['color','Color','color'], ['thickness','Thickness (pt)','number',0.1,0,8], ['marginBefore','Margin before (in)','number',0.01,0,2], ['marginAfter','Margin after (in)','number',0.01,0,2] ],
+    };
+
+    // Render the typography editor body into bookSettingsTypographyBody
+    // from a textStyles object (defaults to live spec when null).
+    function renderBookTypographyEditor(textStyles) {
+      const host = document.getElementById('bookSettingsTypographyBody');
+      if (!host) return;
+      // Show the effective styles by merging defaults under user
+      // overrides — otherwise selects would render wrong (e.g. a
+      // fontWeight of 700 from defaults would show as 400 if the
+      // user hasn't customized it yet).
+      const defaults = defaultBookTextStyles();
+      const base = textStyles || state.book?.spec?.textStyles || {};
+      const styles = {};
+      const allKeys = new Set([...Object.keys(defaults), ...Object.keys(base)]);
+      for (const k of allKeys) styles[k] = { ...(defaults[k] || {}), ...(base[k] || {}) };
+      const html = BOOK_TEXT_STYLE_GROUPS.map(group => {
+        const fields = BOOK_TEXT_STYLE_FIELDS[group.key] || [];
+        const style = styles[group.key] || {};
+        const inputs = fields.map(([name, label, type, step, min, max]) => {
+          const id = `bookSettingsTypo-${group.key}-${name}`;
+          const v = style[name];
+          if (type === 'select') {
+            const options = step; // 4th slot for select holds the options array
+            const opts = options.map(o => `<option value="${escapeHtml(String(o))}"${String(v) === String(o) ? ' selected' : ''}>${escapeHtml(String(o))}</option>`).join('');
+            return `<div style="display:flex;flex-direction:column;gap:2px;min-width:120px"><label style="font-size:.72rem;color:var(--muted)" for="${id}">${escapeHtml(label)}</label><select id="${id}">${opts}</select></div>`;
+          }
+          if (type === 'bool') {
+            return `<label style="display:flex;align-items:center;gap:6px;font-size:.78rem;min-width:120px"><input type="checkbox" id="${id}"${v ? ' checked' : ''} /> ${escapeHtml(label)}</label>`;
+          }
+          if (type === 'color') {
+            const val = (typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v)) ? v : '#000000';
+            return `<div style="display:flex;flex-direction:column;gap:2px;min-width:80px"><label style="font-size:.72rem;color:var(--muted)" for="${id}">${escapeHtml(label)}</label><input type="color" id="${id}" value="${val}" /></div>`;
+          }
+          if (type === 'number') {
+            const stepAttr = step != null ? ` step="${step}"` : '';
+            const minAttr = min != null ? ` min="${min}"` : '';
+            const maxAttr = max != null ? ` max="${max}"` : '';
+            const val = (typeof v === 'number' && Number.isFinite(v)) ? v : '';
+            return `<div style="display:flex;flex-direction:column;gap:2px;min-width:90px"><label style="font-size:.72rem;color:var(--muted)" for="${id}">${escapeHtml(label)}</label><input type="number" id="${id}"${stepAttr}${minAttr}${maxAttr} value="${val}" /></div>`;
+          }
+          // default text
+          const val = (typeof v === 'string') ? v : '';
+          return `<div style="display:flex;flex-direction:column;gap:2px;min-width:140px"><label style="font-size:.72rem;color:var(--muted)" for="${id}">${escapeHtml(label)}</label><input type="text" id="${id}" value="${escapeHtml(val)}" /></div>`;
+        }).join('');
+        return `<fieldset style="margin:6px 0;padding:6px 10px;border:1px solid var(--line);border-radius:6px"><legend style="font-size:.78rem;padding:0 4px">${escapeHtml(group.label)}</legend><div style="display:flex;flex-wrap:wrap;gap:8px">${inputs}</div></fieldset>`;
+      }).join('');
+      host.innerHTML = html;
+    }
+    // Read the editor inputs back into a textStyles object. Empty
+    // inputs leave the field unset, so the engine's defaults apply.
+    function readBookTypographyEditor() {
+      const out = {};
+      for (const group of BOOK_TEXT_STYLE_GROUPS) {
+        const fields = BOOK_TEXT_STYLE_FIELDS[group.key] || [];
+        const obj = {};
+        for (const [name, , type, , , , ] of fields) {
+          const id = `bookSettingsTypo-${group.key}-${name}`;
+          const el = document.getElementById(id);
+          if (!el) continue;
+          if (type === 'select') {
+            const raw = el.value;
+            if (raw === '') continue;
+            const asNum = Number(raw);
+            obj[name] = (raw !== '' && !isNaN(asNum) && String(asNum) === raw) ? asNum : raw;
+          } else if (type === 'bool') {
+            obj[name] = !!el.checked;
+          } else if (type === 'color') {
+            obj[name] = el.value;
+          } else if (type === 'number') {
+            if (el.value === '') continue;
+            const v = Number(el.value);
+            if (Number.isFinite(v)) obj[name] = v;
+          } else {
+            const v = (el.value || '').trim();
+            if (v) obj[name] = v;
+          }
+        }
+        if (Object.keys(obj).length) out[group.key] = obj;
+      }
+      return out;
+    }
+
     function applyBookDocumentSettings() {
       const book = ensureBookState();
       pushHistory('book: document settings');
@@ -8423,9 +8548,33 @@
         firstNumberedPage: Math.max(1, Math.round(num('bookSettingsNumberingFirst', 1))),
         format: ($('bookSettingsNumberingFormat')?.value || '{n}'),
       };
+      // Merge the typography editor onto the live textStyles so any
+      // un-edited groups (or fields outside the schema) survive.
+      try {
+        const edited = readBookTypographyEditor();
+        const defaults = defaultBookTextStyles();
+        const existing = book.spec.textStyles || {};
+        const merged = {};
+        const keys = new Set([
+          ...Object.keys(defaults),
+          ...Object.keys(existing),
+          ...Object.keys(edited),
+        ]);
+        for (const k of keys) {
+          merged[k] = { ...(defaults[k] || {}), ...(existing[k] || {}), ...(edited[k] || {}) };
+        }
+        book.spec.textStyles = merged;
+      } catch (err) {
+        console.warn('typography apply failed', err);
+      }
       closeBookDocumentSettings();
       syncInputs();
       render();
+      // Repaint chapter-editor readouts if a chapter is open — the
+      // typography change can move the page break.
+      if (state.book?.editingChapterId && typeof syncBookChapterEditor === 'function') {
+        try { syncBookChapterEditor(); } catch {}
+      }
     }
 
     // Resolve a page's effective master — its own `masterId`
@@ -32794,6 +32943,7 @@
       on('bookDocumentSettingsCloseBtn', 'click', closeBookDocumentSettings);
       on('bookSettingsCancelBtn', 'click', closeBookDocumentSettings);
       on('bookSettingsApplyBtn', 'click', applyBookDocumentSettings);
+      on('bookSettingsTypographyResetBtn', 'click', () => renderBookTypographyEditor(defaultBookTextStyles()));
       const _bookDocModal = $('bookDocumentSettingsModal');
       if (_bookDocModal) _bookDocModal.addEventListener('click', (e) => { if (e.target === _bookDocModal) closeBookDocumentSettings(); });
       on('bookSettingsPreset', 'change', _syncBookSettingsPresetLock);
