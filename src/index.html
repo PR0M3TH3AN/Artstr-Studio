@@ -1652,6 +1652,14 @@
     .bookCountReadout {
       font-size: .82rem; color: var(--muted); white-space: nowrap;
     }
+    .bookVisibilityChip {
+      font-size: .76rem; padding: 2px 10px;
+      border: 1px solid var(--line); background: #fff;
+      border-radius: 999px; cursor: pointer;
+    }
+    .bookVisibilityChip.public  { color: #15803d; border-color: #86efac; }
+    .bookVisibilityChip.private { color: #6b21a8; border-color: #c084fc; background: #faf5ff; }
+    .bookVisibilityChip:disabled { opacity: .5; cursor: not-allowed; }
     .bookPageTile {
       position: relative;
       border: 1px solid var(--line); background: #fff;
@@ -3560,6 +3568,11 @@
         <div class="buttonRow" style="margin-top:8px">
           <button type="button" id="bookDocumentSettingsBtn">Document settings…</button>
           <button type="button" id="bookManageMastersBtn">Manage masters…</button>
+        </div>
+        <div id="bookVisibilityRow" style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:.78rem;color:var(--muted)">Publish visibility:</span>
+          <button type="button" id="bookVisibilityChip" class="bookVisibilityChip" title="Toggle public / private (private = end-to-end encrypted to your own key)">Public</button>
+          <span class="hint" id="bookVisibilityNote" style="font-size:.72rem"></span>
         </div>
         <p class="hint" style="margin-top:8px">Document settings, Pages overview, Cover view, and PDF export ship in subsequent phases. This entry is the Phase A2 skeleton.</p>
       </fieldset>
@@ -9698,7 +9711,15 @@
       const refreshBtn = document.getElementById('bookChapterEditorRefreshBtn');
       const pinBtn = document.getElementById('bookChapterEditorPinBtn');
       const unlinkBtn = document.getElementById('bookChapterEditorUnlinkBtn');
+      const publishBtn = document.getElementById('bookChapterEditorPublishBtn');
       const input = document.getElementById('bookChapterEditorSourceInput');
+      if (publishBtn) {
+        const priv = state.visibility === 'private';
+        publishBtn.textContent = priv ? 'Publish chapter 🔒' : 'Publish chapter';
+        publishBtn.title = priv
+          ? 'Publish as an encrypted casewrap-page event (private — only your pubkey can decrypt)'
+          : 'Publish as a kind-30023 NIP-23 article';
+      }
       if (!status || !entry) return;
       const ref = entry.textRef || null;
       const pinned = !!entry.textPinnedEventId;
@@ -9757,22 +9778,45 @@
       try {
         const ev = await _resolveEmbedEvent(decodedForResolver);
         if (!ev) { setMsg('No event found on user relays.', 'error'); return; }
+        let markdown = String(ev.content || '');
+        let importedTitle = '';
+        let isEncrypted = false;
+        // Detect a private (encrypted) book sidecar and decrypt
+        // before storing the markdown. Returns null for non-envelope
+        // content, so the public NIP-23 path falls through.
+        try {
+          const decrypted = await _decryptBookSidecarEvent(ev);
+          if (decrypted) {
+            isEncrypted = true;
+            markdown = String(decrypted?.chapter?.markdown ?? '');
+            importedTitle = String(decrypted?.chapter?.title ?? '');
+          }
+        } catch (decErr) {
+          if ((ev.tags || []).some(t => t[0] === 'encrypted')) {
+            setMsg('Event is encrypted but could not be decrypted: ' + (decErr?.message || 'unknown'), 'error');
+            return;
+          }
+        }
         pushHistory('book: chapter import');
-        entry.chapterMarkdown = String(ev.content || '');
+        entry.chapterMarkdown = markdown;
         entry.textRef = decoded.type === 'naddr'
-          ? { kind: decoded.kind, pubkey: decoded.pubkey, dTag: decoded.dTag, relays: decoded.relays || [] }
-          : { eventId: ev.id, pubkey: ev.pubkey, kind: ev.kind || decoded.kind || null, relays: decoded.relays || [] };
+          ? { kind: decoded.kind, pubkey: decoded.pubkey, dTag: decoded.dTag, relays: decoded.relays || [], encrypted: isEncrypted || undefined }
+          : { eventId: ev.id, pubkey: ev.pubkey, kind: ev.kind || decoded.kind || null, relays: decoded.relays || [], encrypted: isEncrypted || undefined };
         // nevent imports are inherently pinned (a specific event id);
         // naddr imports default to live (follow d-tag).
         entry.textPinnedEventId = decoded.type === 'naddr' ? null : ev.id;
-        // Pick up the article's NIP-23 title tag if our chapter is
-        // unnamed — saves a step.
+        // Pick up the article's NIP-23 title tag (public) or
+        // decrypted envelope title (private) if our chapter is unnamed.
         if (!entry.chapterTitle) {
-          const title = (ev.tags || []).find(t => t[0] === 'title' && t[1])?.[1];
-          if (title) entry.chapterTitle = String(title);
+          if (importedTitle) {
+            entry.chapterTitle = importedTitle;
+          } else {
+            const title = (ev.tags || []).find(t => t[0] === 'title' && t[1])?.[1];
+            if (title) entry.chapterTitle = String(title);
+          }
         }
         if (input) input.value = '';
-        setMsg(`Imported ${String(ev.content || '').length.toLocaleString()} chars.`, 'ok');
+        setMsg(`${isEncrypted ? 'Imported (decrypted)' : 'Imported'} ${markdown.length.toLocaleString()} chars.`, 'ok');
         syncBookChapterEditor();
         render();
       } catch (err) {
@@ -9809,14 +9853,25 @@
       try {
         const ev = await _resolveEmbedEvent(decoded);
         if (!ev) { setMsg('No event found.', 'error'); return; }
-        if (String(entry.chapterMarkdown || '') === String(ev.content || '')) {
+        let markdown = String(ev.content || '');
+        // Encrypted sidecar? Unwrap before comparing / storing.
+        try {
+          const decrypted = await _decryptBookSidecarEvent(ev);
+          if (decrypted) markdown = String(decrypted?.chapter?.markdown ?? '');
+        } catch (decErr) {
+          if ((ev.tags || []).some(t => t[0] === 'encrypted')) {
+            setMsg('Source is encrypted but could not be decrypted: ' + (decErr?.message || 'unknown'), 'error');
+            return;
+          }
+        }
+        if (String(entry.chapterMarkdown || '') === markdown) {
           setMsg('Already up to date.', 'ok');
           return;
         }
         pushHistory('book: chapter refresh');
-        entry.chapterMarkdown = String(ev.content || '');
+        entry.chapterMarkdown = markdown;
         if (pinned) entry.textPinnedEventId = ev.id;
-        setMsg(`Updated to ${String(ev.content || '').length.toLocaleString()} chars.`, 'ok');
+        setMsg(`Updated to ${markdown.length.toLocaleString()} chars.`, 'ok');
         syncBookChapterEditor();
         render();
       } catch (err) {
@@ -9936,25 +9991,32 @@
       }
       const payload = bookPagePayload(entry, 'interior');
       const dTag = `book-page:${entry.id}`;
-      const now = Math.floor(Date.now() / 1000);
-      const tags = [
-        ['d', dTag],
-        ['t', 'casewrap'],
-        ['t', 'casewrap-page'],
-        ['title', payload.meta?.title || 'Page'],
-        ['client', 'Artstr Studio'],
-        ['role', 'interior'],
-      ];
-      const evt = { kind: 30078, created_at: now, tags, content: JSON.stringify(payload) };
+      const isPrivate = state.visibility === 'private';
       const btn = document.getElementById('bookPageEditPublish');
       if (btn) btn.disabled = true;
-      setMsg('Signing + publishing…');
+      setMsg(isPrivate ? 'Encrypting + publishing…' : 'Signing + publishing…');
       try {
-        const signed = await publishCommunityEvent(evt);
+        let signed;
+        if (isPrivate) {
+          if (!nostrEncryptCapability()) throw new Error('Your Nostr extension lacks NIP-44/NIP-04 encryption.');
+          signed = await _publishEncryptedBookSidecar(payload, dTag, [['role', 'interior']]);
+        } else {
+          const now = Math.floor(Date.now() / 1000);
+          const tags = [
+            ['d', dTag],
+            ['t', 'casewrap'],
+            ['t', 'casewrap-page'],
+            ['title', payload.meta?.title || 'Page'],
+            ['client', 'Artstr Studio'],
+            ['role', 'interior'],
+          ];
+          const evt = { kind: 30078, created_at: now, tags, content: JSON.stringify(payload) };
+          signed = await publishCommunityEvent(evt);
+        }
         const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
         pushHistory('book: page publish');
-        entry.ref = { kind: 30078, pubkey: signed.pubkey, dTag, relays };
-        setMsg(`Published ${signed.id.slice(0, 8)}…`, 'ok');
+        entry.ref = { kind: 30078, pubkey: signed.pubkey, dTag, relays, encrypted: isPrivate || undefined };
+        setMsg(`${isPrivate ? 'Privately published' : 'Published'} ${signed.id.slice(0, 8)}…`, 'ok');
         render();
       } catch (err) {
         console.warn('page publish failed', err);
@@ -9986,25 +10048,32 @@
       if (!hasLayers) { setMsg('Master has no layers — nothing to publish.', 'error'); return; }
       const payload = bookPagePayload(m, 'master');
       const dTag = `book-master:${m.id}`;
-      const now = Math.floor(Date.now() / 1000);
-      const tags = [
-        ['d', dTag],
-        ['t', 'casewrap'],
-        ['t', 'casewrap-page'],
-        ['title', m.label || 'Master'],
-        ['client', 'Artstr Studio'],
-        ['role', 'master'],
-      ];
-      const evt = { kind: 30078, created_at: now, tags, content: JSON.stringify(payload) };
+      const isPrivate = state.visibility === 'private';
       const btn = document.getElementById('bookPageEditPublish');
       if (btn) btn.disabled = true;
-      setMsg('Signing + publishing…');
+      setMsg(isPrivate ? 'Encrypting + publishing…' : 'Signing + publishing…');
       try {
-        const signed = await publishCommunityEvent(evt);
+        let signed;
+        if (isPrivate) {
+          if (!nostrEncryptCapability()) throw new Error('Your Nostr extension lacks NIP-44/NIP-04 encryption.');
+          signed = await _publishEncryptedBookSidecar(payload, dTag, [['role', 'master']]);
+        } else {
+          const now = Math.floor(Date.now() / 1000);
+          const tags = [
+            ['d', dTag],
+            ['t', 'casewrap'],
+            ['t', 'casewrap-page'],
+            ['title', m.label || 'Master'],
+            ['client', 'Artstr Studio'],
+            ['role', 'master'],
+          ];
+          const evt = { kind: 30078, created_at: now, tags, content: JSON.stringify(payload) };
+          signed = await publishCommunityEvent(evt);
+        }
         const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
         pushHistory('book: master publish');
-        m.ref = { kind: 30078, pubkey: signed.pubkey, dTag, relays };
-        setMsg(`Published ${signed.id.slice(0, 8)}…`, 'ok');
+        m.ref = { kind: 30078, pubkey: signed.pubkey, dTag, relays, encrypted: isPrivate || undefined };
+        setMsg(`${isPrivate ? 'Privately published' : 'Published'} ${signed.id.slice(0, 8)}…`, 'ok');
         render();
       } catch (err) {
         console.warn('master publish failed', err);
@@ -10013,6 +10082,38 @@
         if (btn) btn.disabled = false;
       }
     }
+    // Publish a book sidecar (page / master / chapter) as an
+    // encrypted kind-30078 event under an explicit, stable d-tag —
+    // unlike publishEncryptedDesign (which key-wraps to the project's
+    // private d-tag), sidecars need entry-id-stable d-tags so
+    // re-publishes replace in place via NIP-33.
+    //
+    //   payload    — the same shape we'd publish publicly
+    //   dTag       — the stable identifier (e.g. `book-page:<id>`)
+    //   extraTags  — extra discovery tags (role, etc.); kept minimal
+    //                so the encrypted event doesn't leak structure.
+    async function _publishEncryptedBookSidecar(payload, dTag, extraTags = []) {
+      const envelope = await encryptProjectEnvelope(payload);
+      const tags = [
+        ['d', dTag],
+        ['alt', 'Encrypted Artstr book sidecar'],
+        ['encrypted', envelope.enc.keywrap],
+        ...extraTags,
+      ];
+      const evt = { kind: 30078, created_at: Math.floor(Date.now() / 1000), tags, content: JSON.stringify(envelope) };
+      return await publishCommunityEvent(evt);
+    }
+    // Decrypt a book sidecar event content. Returns the payload (page
+    // or chapter envelope's inner JSON) or null when the event isn't
+    // an encrypted envelope addressed to us.
+    async function _decryptBookSidecarEvent(ev) {
+      if (!ev) return null;
+      let parsed;
+      try { parsed = JSON.parse(ev.content || ''); } catch { return null; }
+      if (!isEncryptedEnvelope(parsed)) return null;
+      return await decryptProjectEnvelope(parsed);
+    }
+
     // Build the casewrap-book manifest payload. Lean — references
     // sibling page / master / cover / chapter events via {kind, pubkey,
     // dTag} coords instead of inlining their layers. Phase D1 hands
@@ -10163,25 +10264,55 @@
         const ok = confirm(`This chapter is linked to ${ref.pubkey.slice(0,8)}…'s article. Publishing will replace the link with your own copy under your pubkey. Continue?`);
         if (!ok) { setMsg('Publish cancelled.', 'error'); return; }
       }
-      const dTag = _bookChapterDTag(entry);
-      const now = Math.floor(Date.now() / 1000);
-      const tags = [
-        ['d', dTag],
-        ['title', title],
-        ['published_at', String(now)],
-        ['t', 'book-chapter'],
-      ];
-      const evt = { kind: 30023, created_at: now, tags, content: md };
+      const isPrivate = state.visibility === 'private';
+      // Public publish: kind-30023 (vanilla NIP-23) with title-slug
+      // d-tag so external clients render readable URLs.
+      // Private publish: kind-30078 with an encrypted envelope under
+      // an entry-id-stable d-tag — the slug would leak the chapter
+      // title even though the content is encrypted.
+      let dTag;
+      if (isPrivate) {
+        dTag = (entry.textRef?.dTag && entry.textRef?.pubkey === (state.community?.myPubkey || ''))
+          ? entry.textRef.dTag
+          : `book-chapter:${entry.id}`;
+      } else {
+        dTag = _bookChapterDTag(entry);
+      }
       const btn = document.getElementById('bookChapterEditorPublishBtn');
       if (btn) btn.disabled = true;
-      setMsg('Signing + publishing…');
+      setMsg(isPrivate ? 'Encrypting + publishing…' : 'Signing + publishing…');
       try {
-        const signed = await publishCommunityEvent(evt);
-        const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
-        pushHistory('book: chapter publish');
-        entry.textRef = { kind: 30023, pubkey: signed.pubkey, dTag, relays };
+        let signed;
+        if (isPrivate) {
+          if (!nostrEncryptCapability()) throw new Error('Your Nostr extension lacks NIP-44/NIP-04 encryption.');
+          // Envelope payload carries the markdown + title inside the
+          // encrypted blob so a relay snapshot reveals neither.
+          const payload = {
+            version: typeof SCHEMA_VERSION === 'number' ? SCHEMA_VERSION : 5,
+            templateMode: 'book-chapter',
+            templateType: 'book-chapter',
+            chapter: { title, markdown: md },
+          };
+          signed = await _publishEncryptedBookSidecar(payload, dTag, [['role', 'chapter']]);
+          const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
+          pushHistory('book: chapter publish (private)');
+          entry.textRef = { kind: 30078, pubkey: signed.pubkey, dTag, relays, encrypted: true };
+        } else {
+          const now = Math.floor(Date.now() / 1000);
+          const tags = [
+            ['d', dTag],
+            ['title', title],
+            ['published_at', String(now)],
+            ['t', 'book-chapter'],
+          ];
+          const evt = { kind: 30023, created_at: now, tags, content: md };
+          signed = await publishCommunityEvent(evt);
+          const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
+          pushHistory('book: chapter publish');
+          entry.textRef = { kind: 30023, pubkey: signed.pubkey, dTag, relays };
+        }
         entry.textPinnedEventId = null; // own publishes default to live
-        setMsg(`Published as ${signed.id.slice(0, 8)}… (${md.length.toLocaleString()} chars).`, 'ok');
+        setMsg(`${isPrivate ? 'Privately published' : 'Published'} as ${signed.id.slice(0, 8)}… (${md.length.toLocaleString()} chars).`, 'ok');
         syncBookChapterEditor();
         render();
       } catch (err) {
@@ -10330,10 +10461,11 @@
         if (next) next.style.display = 'none';
         if (tfBtn) tfBtn.style.display = '';
         if (pubBtn) {
-          pubBtn.textContent = m?.ref ? 'Re-publish master' : 'Publish master';
+          const visTag = state.visibility === 'private' ? ' 🔒' : '';
+          pubBtn.textContent = (m?.ref ? 'Re-publish master' : 'Publish master') + visTag;
           pubBtn.title = m?.ref
-            ? `Replace ${m.ref.dTag} on relays`
-            : 'Publish this master as a casewrap-page event (role:"master")';
+            ? `Replace ${m.ref.dTag} on relays${visTag ? ' (private)' : ''}`
+            : `Publish this master as a casewrap-page event${visTag ? ' (private, end-to-end encrypted)' : ' (role:"master")'}`;
         }
         return;
       }
@@ -10344,10 +10476,11 @@
       if (back) back.textContent = '← Back to Pages';
       if (pubBtn) {
         const entry = book.pages.find(p => p.id === book.editingEntryId);
-        pubBtn.textContent = entry?.ref ? 'Re-publish page' : 'Publish page';
+        const visTag = state.visibility === 'private' ? ' 🔒' : '';
+        pubBtn.textContent = (entry?.ref ? 'Re-publish page' : 'Publish page') + visTag;
         pubBtn.title = entry?.ref
-          ? `Replace ${entry.ref.dTag} on relays`
-          : 'Publish this page as a casewrap-page event';
+          ? `Replace ${entry.ref.dTag} on relays${visTag ? ' (private)' : ''}`
+          : `Publish this page as a casewrap-page event${visTag ? ' (private, end-to-end encrypted)' : ''}`;
       }
       const designed = book.pages.filter(p => p.type === 'design');
       const idx = designed.findIndex(p => p.id === book.editingEntryId);
@@ -10470,6 +10603,49 @@
         + `<br>Bleed ${fmt(s.bleed)} in · Paper ${fmt(s.paperThickness)} in/page`
         + `<br>Spine ${fmt(spineW)} in <span class="hint">(${spineNote})</span>`
         + `<br>${pageCount} page${pageCount === 1 ? '' : 's'} · ${(state.book.masters || []).length} master${(state.book.masters || []).length === 1 ? '' : 's'}`;
+      syncBookVisibilityChip();
+    }
+    // Sync the Public/Private chip in the book sidebar from
+    // state.visibility. Disabled when the user's Nostr extension
+    // lacks NIP-44/NIP-04 encryption, since private mode would fail.
+    function syncBookVisibilityChip() {
+      const chip = document.getElementById('bookVisibilityChip');
+      const note = document.getElementById('bookVisibilityNote');
+      if (!chip) return;
+      const cap = (typeof nostrEncryptCapability === 'function') ? nostrEncryptCapability() : null;
+      const vis = state.visibility === 'private' ? 'private' : 'public';
+      chip.textContent = vis === 'private' ? '🔒 Private' : 'Public';
+      chip.classList.toggle('private', vis === 'private');
+      chip.classList.toggle('public', vis !== 'private');
+      chip.disabled = !cap && vis !== 'private';
+      if (note) {
+        if (!cap) {
+          note.textContent = 'Your Nostr extension lacks NIP-44/NIP-04 encryption — private publish disabled.';
+        } else if (vis === 'private') {
+          note.textContent = 'Manifest + every sidecar will be encrypted to your own pubkey.';
+        } else {
+          note.textContent = 'Anyone with the naddr can read every page + chapter.';
+        }
+      }
+    }
+    function toggleBookVisibility() {
+      const cap = (typeof nostrEncryptCapability === 'function') ? nostrEncryptCapability() : null;
+      const next = state.visibility === 'private' ? 'public' : 'private';
+      if (next === 'private' && !cap) {
+        toastError && toastError('Your Nostr extension does not support encryption (NIP-44 / NIP-04).');
+        return;
+      }
+      state.visibility = next;
+      syncBookVisibilityChip();
+      // Refresh Publish-button labels everywhere the user might be
+      // about to click (page editor + open chapter editor) so the
+      // 🔒 indicator appears without a separate render cycle.
+      if (typeof syncBookPageEditBar === 'function') {
+        try { syncBookPageEditBar(); } catch {}
+      }
+      if (state.book?.editingChapterId && typeof syncBookChapterEditor === 'function') {
+        try { syncBookChapterEditor(); } catch {}
+      }
     }
 
     function isLayerForCurrentMode(layer) {
@@ -33604,6 +33780,7 @@
 
       // Book Designer — Document settings modal.
       on('bookDocumentSettingsBtn', 'click', openBookDocumentSettings);
+      on('bookVisibilityChip', 'click', toggleBookVisibility);
       on('bookDocumentSettingsCloseBtn', 'click', closeBookDocumentSettings);
       on('bookSettingsCancelBtn', 'click', closeBookDocumentSettings);
       on('bookSettingsApplyBtn', 'click', applyBookDocumentSettings);
@@ -33627,6 +33804,7 @@
             state.visibility = e.target.value === 'private' ? 'private' : 'public';
             updatePublishConfirmVisibilityNote();
             updatePublishConfirmZapGate();
+            if (typeof syncBookVisibilityChip === 'function') syncBookVisibilityChip();
           }
         });
       });
