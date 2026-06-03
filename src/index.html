@@ -4417,10 +4417,12 @@
                 <button type="button" id="bookAddPageBtn" class="primary">+ Add page</button>
                 <button type="button" id="bookAddTenBtn">+ Add 10 pages</button>
                 <button type="button" id="bookAddChapterBtn">+ Add chapter</button>
+                <button type="button" id="bookExportPdfBtn" title="Export this book as a PDF (interior pages + cover spread)">Export PDF…</button>
+                <span id="bookExportPdfStatus" class="hint" style="margin-left:6px;font-size:.74rem"></span>
               </div>
             </div>
             <div class="deckSlideGrid" id="bookPagesGrid"></div>
-            <p class="hint" id="bookPagesHint" style="margin:8px 0 0">Click a designed-page tile to edit it on the canvas. Click a chapter tile to edit its markdown. Per-page Nostr publish (per-event sidecars + manifest) lands in Phase D1.</p>
+            <p class="hint" id="bookPagesHint" style="margin:8px 0 0">Click a designed-page tile to edit it on the canvas. Click a chapter tile to edit its markdown. PDF export is raster-only in v1 (real-text mode for embeddable fonts lands in a follow-up slice).</p>
           </div>
           <div id="bookCoverView" style="display:none">
             <div class="bookCoverSummary" id="bookCoverSummary"></div>
@@ -25047,6 +25049,279 @@
     // Slide / Custom Art / Pixel Art standalone: one flat rectangle of
     // layers on a background colour. Slides share the customart payload
     // shape under `state.customArt`.
+    // ---- Book PDF export (Phase E1) -------------------------------------
+    // pdf-lib lazy-load. Vendored as ~513 KB so we don't pay the
+    // cost on every page-load; the export modal triggers this.
+    let _pdfLibPromise = null;
+    function loadPdfLibOnce() {
+      if (window.PDFLib) return Promise.resolve(window.PDFLib);
+      if (_pdfLibPromise) return _pdfLibPromise;
+      _pdfLibPromise = loadScriptOnce('vendor/pdf-lib.min.js').then(() => {
+        if (!window.PDFLib) throw new Error('pdf-lib loaded but PDFLib global is missing');
+        return window.PDFLib;
+      }).catch(err => {
+        _pdfLibPromise = null;
+        throw err;
+      });
+      return _pdfLibPromise;
+    }
+    // Render one designed page (master underlay + page layers) to a
+    // print-DPI canvas. Token substitution is applied to master text
+    // layers so `{page-number}` etc resolve correctly per page.
+    async function renderBookDesignedPageToCanvas(entry, dpi, ctxToken) {
+      const book = state.book || {};
+      const spec = book.spec || {};
+      const trimW = Number(spec.trimW) || 6;
+      const trimH = Number(spec.trimH) || 9;
+      const canvas = document.createElement('canvas');
+      const ctx = setupExportCanvas(canvas, trimW, trimH, dpi);
+      const bg = entry.background || spec.background || '#ffffff';
+      if (bg && bg.toLowerCase() !== '#ffffff' && bg.toLowerCase() !== '#fff') {
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      // Page coords on the editor have x/y relative to the bleed-
+      // inclusive artboard origin; for PDF export at trim-only size
+      // we offset by -bleed so the page renders at (0,0).
+      const bleed = Number(spec.bleed) || 0;
+      const offX = -bleed * dpi;
+      const offY = -bleed * dpi;
+      // Master underlay first.
+      const masterId = effectiveMasterIdForPage(entry);
+      const masterTarget = masterId ? `book-master:${masterId}` : null;
+      const masterLayers = masterTarget
+        ? (state.layers || [])
+            .filter(l => l.target === masterTarget && !l.hidden
+              && !(l.type === 'shape' && l.shape?.kind === 'text-frame'))
+            .slice().sort((a, b) => (a.z || 0) - (b.z || 0))
+        : [];
+      const subMaster = applyBookTokensToLayers(masterLayers, ctxToken);
+      for (const l of subMaster) await drawLayerToCanvas(ctx, l, dpi, offX, offY);
+      // Page layers on top.
+      const pageTarget = `book-page:${entry.id}`;
+      const pageLayers = (state.layers || [])
+        .filter(l => l.target === pageTarget && !l.hidden)
+        .slice().sort((a, b) => (a.z || 0) - (b.z || 0));
+      const subPage = applyBookTokensToLayers(pageLayers, ctxToken);
+      for (const l of subPage) await drawLayerToCanvas(ctx, l, dpi, offX, offY);
+      return canvas;
+    }
+    // Render one physical page of a reflow segment: master underlay
+    // (with the text-frame outline stripped) + paginated text blocks
+    // drawn via fillText at the frame's coordinates.
+    async function renderBookReflowPhysicalPageToCanvas(entry, paginated, indexInEntry, dpi, ctxToken) {
+      const book = state.book || {};
+      const spec = book.spec || {};
+      const trimW = Number(spec.trimW) || 6;
+      const trimH = Number(spec.trimH) || 9;
+      const bleed = Number(spec.bleed) || 0;
+      const canvas = document.createElement('canvas');
+      const ctx = setupExportCanvas(canvas, trimW, trimH, dpi);
+      const bg = spec.background || '#ffffff';
+      if (bg && bg.toLowerCase() !== '#ffffff' && bg.toLowerCase() !== '#fff') {
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      // Master layers (no text-frame outline).
+      const masterId = effectiveMasterIdForPage(entry);
+      if (masterId) {
+        const masterTarget = `book-master:${masterId}`;
+        const masterLayers = (state.layers || [])
+          .filter(l => l.target === masterTarget && !l.hidden
+            && !(l.type === 'shape' && l.shape?.kind === 'text-frame'))
+          .slice().sort((a, b) => (a.z || 0) - (b.z || 0));
+        const subMaster = applyBookTokensToLayers(masterLayers, ctxToken);
+        const offX = -bleed * dpi;
+        const offY = -bleed * dpi;
+        for (const l of subMaster) await drawLayerToCanvas(ctx, l, dpi, offX, offY);
+      }
+      // Paint the paginated text blocks for this physical page.
+      const page = paginated.pages[indexInEntry];
+      const frame = paginated.frame;
+      if (!page || !frame) return canvas;
+      const padding = Number(frame.padding) || 0;
+      const innerX = (frame.x + padding) - bleed; // trim-relative inches
+      const innerY = (frame.y + padding) - bleed;
+      for (const block of (page.blocks || [])) {
+        const style = block.style || {};
+        const fontSizePt = Number(style.fontSize) || 11;
+        const fontPx = fontSizePt * (dpi / 72);
+        const family = style.fontFamily || 'Georgia, serif';
+        const weight = style.fontWeight || 400;
+        const styleAttr = style.fontStyle || 'normal';
+        ctx.font = `${styleAttr} ${weight} ${fontPx}px ${family}`;
+        ctx.fillStyle = style.color || '#111';
+        ctx.textBaseline = 'top';
+        const align = style.alignment || 'left';
+        ctx.textAlign = align === 'center' ? 'center' : align === 'right' ? 'right' : 'left';
+        const blockYPx = (innerY * dpi) + (Number(block.y) || 0) * dpi;
+        const marginLeftIn = Number(style.marginLeft) || 0;
+        const marginRightIn = Number(style.marginRight) || 0;
+        const xStartIn = innerX + marginLeftIn;
+        const lineH = fontPx * (Number(style.lineHeight) || 1.5);
+        for (let i = 0; i < (block.lines || []).length; i++) {
+          let xPx;
+          if (align === 'center') {
+            const widthIn = (frame.w - 2 * padding) - marginLeftIn - marginRightIn;
+            xPx = (xStartIn + widthIn / 2) * dpi;
+          } else if (align === 'right') {
+            const rightIn = innerX + (frame.w - 2 * padding) - marginRightIn;
+            xPx = rightIn * dpi;
+          } else {
+            xPx = xStartIn * dpi;
+          }
+          ctx.fillText(block.lines[i], xPx, blockYPx + i * lineH);
+        }
+      }
+      return canvas;
+    }
+    // Render the cover spread to one wide canvas. Layers carry their
+    // own book-cover-front / book-cover-back / book-spine targets
+    // already positioned in inch-space across the full spread.
+    async function renderBookCoverToCanvas(dpi) {
+      const spec = state.book?.spec || {};
+      const trimW = Number(spec.trimW) || 6;
+      const trimH = Number(spec.trimH) || 9;
+      const bleed = Number(spec.bleed) || 0;
+      const hasBack = !!spec.coverHasBack;
+      const hasSpine = !!spec.coverHasSpine;
+      const spineW = hasSpine ? bookSpineWidthInches() : 0;
+      const spreadW = (hasBack ? trimW : 0) + spineW + trimW + bleed * 2;
+      const spreadH = trimH + bleed * 2;
+      const canvas = document.createElement('canvas');
+      const ctx = setupExportCanvas(canvas, spreadW, spreadH, dpi);
+      const bg = spec.coverBackground || '#ffffff';
+      if (bg && bg.toLowerCase() !== '#ffffff' && bg.toLowerCase() !== '#fff') {
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+      const coverLayers = (state.layers || [])
+        .filter(l => /^book-cover-|^book-spine$/.test(String(l.target || '')) && !l.hidden)
+        .slice().sort((a, b) => (a.z || 0) - (b.z || 0));
+      for (const l of coverLayers) await drawLayerToCanvas(ctx, l, dpi);
+      return canvas;
+    }
+    // Helper: canvas → PNG Uint8Array (pdf-lib's embedPng wants raw bytes).
+    function _canvasToPngBytes(canvas) {
+      return new Promise((resolve, reject) => {
+        canvas.toBlob(async (blob) => {
+          if (!blob) return reject(new Error('Canvas toBlob returned null'));
+          try {
+            const buf = await blob.arrayBuffer();
+            resolve(new Uint8Array(buf));
+          } catch (err) { reject(err); }
+        }, 'image/png');
+      });
+    }
+    // Phase E1 orchestrator. Walks the physical-page sequence, renders
+    // each to canvas, embeds as PDF pages. Returns { blob, warnings }.
+    async function exportBookToPdf(opts = {}) {
+      const PDFLib = await loadPdfLibOnce();
+      const book = state.book;
+      if (!book) throw new Error('No book to export.');
+      const dpi = Math.max(72, Math.min(450, Number(opts.dpi) || 200));
+      const includeCover = opts.includeCover !== false;
+      const seq = enumerateBookPhysicalPages(book);
+      if (!seq.length && !(includeCover && book.cover)) {
+        throw new Error('Nothing to export — add at least one page or chapter first.');
+      }
+      const pdfDoc = await PDFLib.PDFDocument.create();
+      const warnings = [];
+      _exportFailedImages.clear();
+      // Per physical page.
+      const reflowCache = new Map(); // entryId → paginateChapter result
+      const spec = book.spec || {};
+      const trimWpt = (Number(spec.trimW) || 6) * 72;
+      const trimHpt = (Number(spec.trimH) || 9) * 72;
+      for (const slot of seq) {
+        const entry = book.pages.find(p => p.id === slot.entryId);
+        if (!entry) continue;
+        const ctxToken = bookTokenContext(book, slot.entryId, slot.indexInEntry);
+        let canvas;
+        try {
+          if (slot.type === 'reflow') {
+            let pag = reflowCache.get(slot.entryId);
+            if (!pag) { pag = paginateChapter(entry, book); reflowCache.set(slot.entryId, pag); }
+            canvas = await renderBookReflowPhysicalPageToCanvas(entry, pag, slot.indexInEntry, dpi, ctxToken);
+          } else {
+            canvas = await renderBookDesignedPageToCanvas(entry, dpi, ctxToken);
+          }
+        } catch (err) {
+          warnings.push(`Page ${(slot.pageNumber != null) ? slot.pageNumber : '?'}: ${err.message || err}`);
+          continue;
+        }
+        const png = await _canvasToPngBytes(canvas);
+        const embedded = await pdfDoc.embedPng(png);
+        const page = pdfDoc.addPage([trimWpt, trimHpt]);
+        page.drawImage(embedded, { x: 0, y: 0, width: trimWpt, height: trimHpt });
+      }
+      // Cover spread on its own landscape page at the end.
+      if (includeCover && book.cover) {
+        try {
+          const coverCanvas = await renderBookCoverToCanvas(dpi);
+          const png = await _canvasToPngBytes(coverCanvas);
+          const embedded = await pdfDoc.embedPng(png);
+          const spec2 = book.spec || {};
+          const trimW = Number(spec2.trimW) || 6;
+          const trimH = Number(spec2.trimH) || 9;
+          const bleed = Number(spec2.bleed) || 0;
+          const hasBack = !!spec2.coverHasBack;
+          const hasSpine = !!spec2.coverHasSpine;
+          const spineW = hasSpine ? bookSpineWidthInches() : 0;
+          const spreadW = (hasBack ? trimW : 0) + spineW + trimW + bleed * 2;
+          const spreadH = trimH + bleed * 2;
+          const page = pdfDoc.addPage([spreadW * 72, spreadH * 72]);
+          page.drawImage(embedded, { x: 0, y: 0, width: spreadW * 72, height: spreadH * 72 });
+        } catch (err) {
+          warnings.push(`Cover: ${err.message || err}`);
+        }
+      }
+      if (_exportFailedImages.size) {
+        warnings.push(`${_exportFailedImages.size} image${_exportFailedImages.size === 1 ? '' : 's'} could not be embedded (CORS / missing).`);
+      }
+      const bytes = await pdfDoc.save();
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      return { blob, warnings };
+    }
+    async function downloadBookPdf() {
+      const book = state.book;
+      if (!book) return;
+      const btn = document.getElementById('bookExportPdfBtn');
+      const status = document.getElementById('bookExportPdfStatus');
+      const setStatus = (text, kind) => {
+        if (!status) return;
+        status.textContent = text || '';
+        status.style.color = kind === 'error' ? '#b91c1c'
+          : kind === 'ok' ? '#15803d' : 'var(--muted)';
+      };
+      if (btn) btn.disabled = true;
+      setStatus('Rendering PDF…');
+      try {
+        const { blob, warnings } = await exportBookToPdf();
+        const a = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        const slug = (state.meta?.title || 'book')
+          .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64);
+        a.href = url;
+        a.download = `${slug || 'book'}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        if (warnings.length) {
+          setStatus(`Exported with ${warnings.length} warning${warnings.length === 1 ? '' : 's'}: ${warnings[0]}`, 'error');
+        } else {
+          setStatus(`Exported ${(blob.size / 1024).toFixed(0)} KB.`, 'ok');
+        }
+      } catch (err) {
+        console.warn('PDF export failed', err);
+        setStatus('Export failed: ' + (err?.message || 'unknown'), 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+    // ---- end Book PDF export --------------------------------------------
+
     async function renderCustomArtToExportCanvas(dpi) {
       const ca = state.customArt || { width: 1920, height: 1080, background: '#ffffff' };
       const wIn = (Number(ca.width) || 1920) / 96;
@@ -34461,6 +34736,7 @@
       on('bookViewTogglePages', 'click', () => setBookSubView('pages'));
       on('bookViewToggleCover', 'click', () => setBookSubView('cover'));
       on('bookCoverEditBtn', 'click', openBookCover);
+      on('bookExportPdfBtn', 'click', downloadBookPdf);
       on('bookPageEditBack', 'click', () => {
         // Same back-button serves per-page, per-master, and cover modes.
         if (state.book?.editingMasterId) closeBookMaster();
