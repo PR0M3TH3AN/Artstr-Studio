@@ -4392,6 +4392,7 @@
             <input type="text" id="bookChapterEditorSourceInput" placeholder="naddr1… / nevent1… / note1… / hex" />
             <button type="button" id="bookChapterEditorImportBtn">Import from Nostr</button>
             <button type="button" id="bookChapterEditorPublishBtn" class="primary">Publish chapter</button>
+            <button type="button" id="bookChapterEditorProofPdfBtn" title="Export just this chapter's paginated pages as a PDF (proof for the printer)">📄 Proof PDF</button>
             <button type="button" id="bookChapterEditorRefreshBtn" style="display:none">↻ Refresh</button>
             <button type="button" id="bookChapterEditorPinBtn" style="display:none">Pin to current</button>
             <button type="button" id="bookChapterEditorUnlinkBtn" style="display:none">Unlink</button>
@@ -4568,6 +4569,7 @@
           <span id="bookPageEditLabel"></span>
           <button type="button" id="bookMasterAddTextFrame" title="Add a reflow text-frame to this master" style="display:none">+ Text frame</button>
           <button type="button" id="bookPageEditPublish" title="Publish this page as a casewrap-page event">Publish</button>
+          <button type="button" id="bookPageEditProofPdf" title="Export just this page as a PDF (single-page proof for the printer)">📄 Proof PDF</button>
           <span class="hint" id="bookPageEditPublishStatus" style="margin-left:6px;font-size:.74rem"></span>
         </div>
       </div>
@@ -9195,6 +9197,23 @@
           render();
         });
         actions.appendChild(masterSel);
+        const proof = document.createElement('button');
+        proof.type = 'button';
+        proof.className = 'bookPageTileAction';
+        proof.title = p.type === 'reflow' ? 'Proof chapter as PDF' : 'Proof page as PDF';
+        proof.textContent = '📄';
+        proof.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          proof.disabled = true;
+          proof.textContent = '…';
+          try {
+            await proofBookEntryPdf(p.id);
+          } finally {
+            proof.disabled = false;
+            proof.textContent = '📄';
+          }
+        });
+        actions.appendChild(proof);
         const dup = document.createElement('button');
         dup.type = 'button';
         dup.className = 'bookPageTileAction';
@@ -25540,6 +25559,61 @@
       }
       return { blob: interior, warnings };
     }
+    // "Proof one page" / "Proof one chapter" quick export (E4).
+    // Skips the modal — one click → PDF download scoped to a single
+    // manifest entry. Useful for sending a single page to a printer
+    // for colour / paper proofing before committing to a full run.
+    function _bookProofRangeForEntry(entryId) {
+      const seq = enumerateBookPhysicalPages(state.book);
+      let from = -1, to = -1;
+      for (let i = 0; i < seq.length; i++) {
+        if (seq[i].entryId !== entryId) continue;
+        if (from < 0) from = i;
+        to = i;
+      }
+      if (from < 0) return null;
+      return { from: from + 1, to: to + 1 };
+    }
+    async function proofBookEntryPdf(entryId, opts = {}) {
+      const book = state.book;
+      if (!book) return;
+      const entry = book.pages.find(p => p.id === entryId);
+      if (!entry) return;
+      const range = _bookProofRangeForEntry(entryId);
+      if (!range) { toastError && toastError('Nothing to proof — entry has no physical pages.'); return; }
+      const slug = _bookExportDefaultSlug();
+      const suffix = entry.type === 'reflow'
+        ? (entry.chapterTitle || 'chapter').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'chapter'
+        : (entry.label || `page-${range.from}`).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || `page-${range.from}`;
+      const filename = `${slug}-proof-${suffix}.pdf`;
+      const setStatus = opts.onStatus || (() => {});
+      setStatus('Rendering proof…');
+      try {
+        const result = await exportBookToPdf({
+          range,
+          includeCover: false,
+          includeBleed: !!opts.includeBleed,
+          cropMarks: !!opts.cropMarks,
+          split: false,
+        });
+        const a = document.createElement('a');
+        const url = URL.createObjectURL(result.blob);
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        const sizeKB = (result.blob.size / 1024).toFixed(0);
+        const w = result.warnings || [];
+        if (w.length) {
+          setStatus(`Proof exported (${sizeKB} KB) with ${w.length} warning${w.length === 1 ? '' : 's'}: ${w[0]}`, 'error');
+        } else {
+          setStatus(`Proof exported (${sizeKB} KB).`, 'ok');
+        }
+      } catch (err) {
+        console.warn('proof export failed', err);
+        setStatus('Proof export failed: ' + (err?.message || 'unknown'), 'error');
+      }
+    }
+
     function _bookExportDefaultSlug() {
       return (state.meta?.title || 'book')
         .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'book';
@@ -35047,6 +35121,21 @@
       on('bookChapterEditorTitle', 'input', (e) => updateBookChapterTitle(e.target.value));
       on('bookChapterEditorImportBtn', 'click', importBookChapterFromNostr);
       on('bookChapterEditorPublishBtn', 'click', publishBookChapterToNostr);
+      on('bookChapterEditorProofPdfBtn', 'click', async () => {
+        const book = state.book;
+        const id = book?.editingChapterId;
+        if (!id) return;
+        const msg = document.getElementById('bookChapterEditorSourceMsg');
+        const setStatus = (text, kind) => {
+          if (!msg) return;
+          msg.textContent = text || '';
+          msg.className = 'bookChapterEditorSourceMsg' + (kind ? ' ' + kind : '');
+        };
+        const btn = document.getElementById('bookChapterEditorProofPdfBtn');
+        if (btn) btn.disabled = true;
+        try { await proofBookEntryPdf(id, { onStatus: setStatus }); }
+        finally { if (btn) btn.disabled = false; }
+      });
       on('bookChapterEditorRefreshBtn', 'click', refreshBookChapterFromNostr);
       on('bookChapterEditorPinBtn', 'click', toggleBookChapterPin);
       on('bookChapterEditorUnlinkBtn', 'click', unlinkBookChapterFromNostr);
@@ -35084,6 +35173,21 @@
       on('bookPageEditNext', 'click', () => gotoBookPageRelative(1));
       on('bookMasterAddTextFrame', 'click', () => addBookTextFrameToActiveMaster());
       on('bookPageEditPublish', 'click', publishBookSurface);
+      on('bookPageEditProofPdf', 'click', async () => {
+        const book = state.book;
+        const entryId = book?.editingEntryId;
+        if (!entryId) return;
+        const status = document.getElementById('bookPageEditPublishStatus');
+        const setStatus = (text, kind) => {
+          if (!status) return;
+          status.textContent = text || '';
+          status.style.color = kind === 'error' ? '#b91c1c' : kind === 'ok' ? '#15803d' : 'var(--muted)';
+        };
+        const btn = document.getElementById('bookPageEditProofPdf');
+        if (btn) btn.disabled = true;
+        try { await proofBookEntryPdf(entryId, { onStatus: setStatus }); }
+        finally { if (btn) btn.disabled = false; }
+      });
 
       // Book Designer — Masters modal.
       on('bookManageMastersBtn', 'click', openBookMastersModal);
