@@ -9860,14 +9860,81 @@
     // list + hr layout with greedy line breaking. Inline runs
     // (bold / italic / inline-code) collapse to plain text using
     // the block's base style; Phase I gives them per-run styles.
-    function paginateChapter(entry, book) {
+    // Walk every reflow chapter, paginate without TOC, collect every
+    // H1/H2/H3 heading + its physical page number. Used to expand
+    // the `{toc}` magic token (I3) — two-pass so the TOC chapter's
+    // own pagination doesn't recurse.
+    function _computeBookTocEntries(book) {
+      if (!book) return [];
+      const numbering = book.spec?.pageNumbering || {};
+      const enabled = numbering.enabled !== false;
+      const startAt = Number.isFinite(numbering.startAt) ? numbering.startAt : 1;
+      const firstNumberedIdx = (Number.isFinite(numbering.firstNumberedPage) ? numbering.firstNumberedPage : 1) - 1;
+      let printedNum = startAt;
+      const entries = [];
+      (book.pages || []).forEach((p, manifestIdx) => {
+        const baseNumbered = enabled && !p.skipNumber && manifestIdx >= firstNumberedIdx;
+        if (p.type === 'reflow') {
+          let pag;
+          try { pag = paginateChapter(p, book, { _skipToc: true }); }
+          catch { pag = { pages: [] }; }
+          (pag.pages || []).forEach((page, idxInChapter) => {
+            const skipThis = baseNumbered && p.skipNumberOnFirstPage && idxInChapter === 0;
+            const numbered = baseNumbered && !skipThis;
+            const pageNumber = numbered ? printedNum : null;
+            for (const block of (page.blocks || [])) {
+              const depthMatch = /^h([1-3])$/.exec(String(block.kind || ''));
+              if (!depthMatch) continue;
+              const text = (block.lines || []).join(' ').trim();
+              if (!text) continue;
+              entries.push({
+                depth: Number(depthMatch[1]),
+                text,
+                pageNumber,
+                entryId: p.id,
+                chapterTitle: p.chapterTitle || '',
+              });
+            }
+            if (numbered) printedNum++;
+          });
+        } else if (baseNumbered) {
+          printedNum++;
+        }
+      });
+      return entries;
+    }
+    function _formatBookTocMarkdown(entries) {
+      if (!entries.length) return '*No headings yet — add `# Heading` lines to your chapters and the TOC will fill in.*';
+      const lines = ['## Table of Contents', ''];
+      for (const e of entries) {
+        const indent = '  '.repeat(Math.max(0, (e.depth || 1) - 1));
+        const page = (e.pageNumber != null) ? ` — Page ${e.pageNumber}` : '';
+        lines.push(`${indent}- ${e.text}${page}`);
+      }
+      return lines.join('\n');
+    }
+
+    function paginateChapter(entry, book, opts = {}) {
       const result = { pages: [], overflow: [], warnings: [], masterId: null, frame: null };
       if (!entry || entry.type !== 'reflow') return result;
       if (typeof window.marked === 'undefined' || !window.marked.lexer) {
         result.warnings.push('marked library failed to load');
         return result;
       }
-      const md = String(entry.chapterMarkdown || '');
+      let md = String(entry.chapterMarkdown || '');
+      // {toc} expansion (I3). Lines that are exactly `{toc}` (possibly
+      // with whitespace) get replaced by an auto-generated TOC of every
+      // H1/H2/H3 in the book + their page numbers. The recursive
+      // call uses _skipToc:true so the inner pagination treats the
+      // token as a placeholder.
+      if (!opts._skipToc && /^[ \t]*\{toc\}[ \t]*$/m.test(md)) {
+        const tocMd = _formatBookTocMarkdown(_computeBookTocEntries(book));
+        md = md.replace(/^[ \t]*\{toc\}[ \t]*$/gm, tocMd);
+      } else if (opts._skipToc) {
+        // Pass 1: strip the placeholder line entirely so it doesn't
+        // distort the headings' page numbers via a "{toc}" paragraph.
+        md = md.replace(/^[ \t]*\{toc\}[ \t]*\n?/gm, '');
+      }
       const styles = (book?.spec?.textStyles) || defaultBookTextStyles();
       const masterId = (typeof effectiveMasterIdForPage === 'function')
         ? effectiveMasterIdForPage(entry)
@@ -11553,7 +11620,15 @@
         return '<p>(marked library failed to load)</p>';
       }
       try {
-        const html = window.marked.parse(String(src || ''), {
+        // Expand {toc} so the chapter-editor preview pane shows what
+        // the rendered chapter will look like with the auto-generated
+        // table of contents in place.
+        let md = String(src || '');
+        if (state.templateMode === 'book' && state.book && /^[ \t]*\{toc\}[ \t]*$/m.test(md)) {
+          const tocMd = _formatBookTocMarkdown(_computeBookTocEntries(state.book));
+          md = md.replace(/^[ \t]*\{toc\}[ \t]*$/gm, tocMd);
+        }
+        const html = window.marked.parse(md, {
           mangle: false,
           headerIds: false,
           breaks: false,
