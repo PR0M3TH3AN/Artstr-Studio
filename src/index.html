@@ -1698,6 +1698,11 @@
       background: var(--warn, #fee2e2);
       border-color: var(--warn, #fca5a5);
     }
+    .bookPageTileMasterSel {
+      height: 22px; padding: 0 4px; font-size: .72rem;
+      border: 1px solid var(--line); background: #fff;
+      max-width: 120px;
+    }
     .bookPageTile.dragging { opacity: .5; }
     .bookPageTile.dragover {
       outline: 2px solid var(--accent);
@@ -8982,7 +8987,7 @@
           // as positioned text blocks on top. Tokens in master text
           // layers resolve to the first physical page of this
           // chapter segment.
-          const masterId = p.masterId || book.spec?.defaultMasterId || null;
+          const masterId = effectiveMasterIdForPage(p);
           const masterTarget = masterId ? `book-master:${masterId}` : null;
           const masterLayersRaw = masterTarget
             ? (state.layers || []).filter(l => l.target === masterTarget && !l.hidden
@@ -9031,6 +9036,30 @@
         // chrome stays out of the way until you point at them".
         const actions = document.createElement('div');
         actions.className = 'bookPageTileActions';
+        // Master picker — overrides effectiveMasterIdForPage(p) for
+        // this single entry. Empty value means "use default".
+        const masterSel = document.createElement('select');
+        masterSel.className = 'bookPageTileMasterSel';
+        masterSel.title = 'Master for this page';
+        const defaultMaster = book.masters.find(m => m.id === book.spec?.defaultMasterId);
+        const defaultLabel = defaultMaster ? `Default (${defaultMaster.label || 'Untitled'})` : 'Default (none)';
+        const opts = [`<option value="">${escapeHtml(defaultLabel)}</option>`];
+        opts.push(`<option value="__none__"${p.masterId === null ? ' selected' : ''}>No master</option>`);
+        for (const m of book.masters) {
+          opts.push(`<option value="${escapeHtml(m.id)}"${p.masterId === m.id ? ' selected' : ''}>${escapeHtml(m.label || 'Untitled')}</option>`);
+        }
+        masterSel.innerHTML = opts.join('');
+        masterSel.addEventListener('click', (e) => e.stopPropagation());
+        masterSel.addEventListener('change', (e) => {
+          e.stopPropagation();
+          pushHistory('book: page master override');
+          const v = masterSel.value;
+          if (v === '') delete p.masterId;
+          else if (v === '__none__') p.masterId = null;
+          else p.masterId = v;
+          render();
+        });
+        actions.appendChild(masterSel);
         const dup = document.createElement('button');
         dup.type = 'button';
         dup.className = 'bookPageTileAction';
@@ -9180,7 +9209,9 @@
       }
       const md = String(entry.chapterMarkdown || '');
       const styles = (book?.spec?.textStyles) || defaultBookTextStyles();
-      const masterId = entry.masterId || book?.spec?.defaultMasterId || null;
+      const masterId = (typeof effectiveMasterIdForPage === 'function')
+        ? effectiveMasterIdForPage(entry)
+        : (entry.masterId || book?.spec?.defaultMasterId || null);
       result.masterId = masterId;
 
       // Locate the text-frame layer on the master.
@@ -9483,7 +9514,7 @@
               manifestIdx,
               indexInEntry: i,
               type: 'reflow',
-              masterId: p.masterId || book.spec?.defaultMasterId || null,
+              masterId: effectiveMasterIdForPage(p),
               pageNumber: numberedHere ? printedNum : null,
               chapterTitle: currentChapter.title,
               chapterNumber: currentChapter.number,
