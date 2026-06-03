@@ -1676,6 +1676,15 @@
     .bookPageTile.reflowSegment {
       background: linear-gradient(135deg, #f8fafc 25%, transparent 25%, transparent 50%, #f8fafc 50%, #f8fafc 75%, transparent 75%) 0 0/8px 8px;
     }
+    .bookPageTileUpdateChip {
+      position: absolute; top: 4px; left: 4px;
+      padding: 2px 8px; font-size: .72rem;
+      background: #fef3c7; color: #92400e;
+      border: 1px solid #fbbf24; border-radius: 999px;
+      cursor: pointer; z-index: 5;
+    }
+    .bookPageTileUpdateChip:hover { background: #fde68a; }
+    .bookPageTileUpdateChip:disabled { opacity: .6; cursor: progress; }
     .bookPageTileNum {
       position: absolute; top: 6px; left: 8px;
       font-size: .72rem; color: var(--muted); font-weight: 600;
@@ -9142,6 +9151,24 @@
         });
         actions.appendChild(del);
         tile.appendChild(actions);
+        // Upstream-update chip (D1.7). Shown when the resolver's
+        // background probe found a newer version of this entry's
+        // ref upstream. Click applies it.
+        const tileRef = p.type === 'reflow' ? p.textRef : p.ref;
+        if (tileRef && hasBookUpdate(tileRef)) {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'bookPageTileUpdateChip';
+          chip.textContent = '↑ Update';
+          chip.title = 'A newer version of this event is on Nostr — click to apply.';
+          chip.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            chip.disabled = true;
+            chip.textContent = '…';
+            await applyBookUpdate(tileRef);
+          });
+          tile.appendChild(chip);
+        }
         const label = document.createElement('div');
         label.className = 'bookPageTileLabel';
         if (p.type === 'reflow') {
@@ -10053,6 +10080,7 @@
         pushHistory('book: page publish');
         entry.ref = { kind: 30078, pubkey: signed.pubkey, dTag, relays, encrypted: isPrivate || undefined };
         _bookCacheWrite(entry.ref, signed);
+        clearBookUpdate(entry.ref);
         setMsg(`${isPrivate ? 'Privately published' : 'Published'} ${signed.id.slice(0, 8)}…`, 'ok');
         render();
       } catch (err) {
@@ -10111,6 +10139,7 @@
         pushHistory('book: master publish');
         m.ref = { kind: 30078, pubkey: signed.pubkey, dTag, relays, encrypted: isPrivate || undefined };
         _bookCacheWrite(m.ref, signed);
+        clearBookUpdate(m.ref);
         setMsg(`${isPrivate ? 'Privately published' : 'Published'} ${signed.id.slice(0, 8)}…`, 'ok');
         render();
       } catch (err) {
@@ -10120,6 +10149,133 @@
         if (btn) btn.disabled = false;
       }
     }
+    // Upstream-update tracking. After the initial cache-warm resolve,
+    // we probe relays in one batched round-trip for the latest event
+    // matching each naddr ref. If a newer created_at comes back, the
+    // ref is staged in `_bookUpdates` and tiles render an "↑" chip
+    // that applies the update on click. Pinned (eventId) refs can't
+    // have newer versions, so we skip them.
+    const _bookUpdates = new Map(); // refKey → { ev, oldCreatedAt }
+
+    function _bookUpdateKey(ref) {
+      return _bookCacheRefKey(ref);
+    }
+    function hasBookUpdate(ref) {
+      const k = _bookUpdateKey(ref);
+      return k ? _bookUpdates.has(k) : false;
+    }
+    function clearBookUpdate(ref) {
+      const k = _bookUpdateKey(ref);
+      if (k) _bookUpdates.delete(k);
+    }
+    async function checkBookSidecarUpdates(book = state.book) {
+      if (!book) return { newer: 0 };
+      // Gather every live naddr ref + its cached created_at.
+      const candidates = [];
+      const seenKeys = new Set();
+      const collect = (ref, ctx) => {
+        if (!ref || !ref.dTag || !ref.pubkey || ref.eventId) return;
+        const key = _bookUpdateKey(ref);
+        if (!key || seenKeys.has(key)) return;
+        seenKeys.add(key);
+        const cached = _bookCacheRead(ref);
+        const oldCreatedAt = cached?.created_at || 0;
+        candidates.push({ key, ref, oldCreatedAt, ctx });
+      };
+      if (book.cover?.ref) collect(book.cover.ref, { kind: 'cover' });
+      for (const m of (book.masters || [])) if (m.ref) collect(m.ref, { kind: 'master', masterId: m.id });
+      for (const p of (book.pages || [])) {
+        if (p.type === 'design' && p.ref) collect(p.ref, { kind: 'page', entryId: p.id });
+        if (p.type === 'reflow' && p.textRef && !p.textPinnedEventId) collect(p.textRef, { kind: 'chapter', entryId: p.id });
+      }
+      if (!candidates.length) return { newer: 0 };
+      // Batch by kind:pubkey so each group needs one filter.
+      const byAuthorKind = new Map();
+      for (const c of candidates) {
+        const k = `${c.ref.kind || 30078}:${c.ref.pubkey}`;
+        let group = byAuthorKind.get(k);
+        if (!group) { group = []; byAuthorKind.set(k, group); }
+        group.push(c);
+      }
+      const filters = [];
+      for (const [k, group] of byAuthorKind) {
+        const [kindStr, pubkey] = k.split(':');
+        const dTags = [...new Set(group.map(g => g.ref.dTag))];
+        filters.push({ kinds: [Number(kindStr)], authors: [pubkey], '#d': dTags, limit: dTags.length * 2 });
+      }
+      const relays = splitRelayList(state.community?.relays || '');
+      let events;
+      try {
+        events = await queryRelays(relays, filters, { timeoutMs: 4000 });
+      } catch (err) {
+        console.warn('[book] upstream-update probe failed', err);
+        return { newer: 0 };
+      }
+      // Bucket events by addressable coord, keeping the latest.
+      const byAddr = new Map();
+      for (const ev of (events || [])) {
+        const dTag = (ev.tags || []).find(t => t[0] === 'd' && t[1] != null)?.[1] || '';
+        const addr = `${ev.kind}:${ev.pubkey}:${dTag}`;
+        const prev = byAddr.get(addr);
+        if (!prev || (ev.created_at || 0) > (prev.created_at || 0)) byAddr.set(addr, ev);
+      }
+      let newer = 0;
+      for (const c of candidates) {
+        const addr = `${c.ref.kind || 30078}:${c.ref.pubkey}:${c.ref.dTag}`;
+        const ev = byAddr.get(addr);
+        if (!ev) continue;
+        if ((ev.created_at || 0) > (c.oldCreatedAt || 0)) {
+          _bookUpdates.set(c.key, { ev, oldCreatedAt: c.oldCreatedAt, ctx: c.ctx });
+          newer++;
+        }
+      }
+      if (newer) render();
+      return { newer };
+    }
+    // Apply a staged upstream update to its target surface (page /
+    // master / cover / chapter). Decrypts when needed, writes the
+    // new event to the disk cache, and clears the staged flag.
+    async function applyBookUpdate(ref) {
+      const key = _bookUpdateKey(ref);
+      const update = key ? _bookUpdates.get(key) : null;
+      if (!update) return false;
+      const ev = update.ev;
+      const ctx = update.ctx;
+      try {
+        let payload = null;
+        try {
+          const decrypted = await _decryptBookSidecarEvent(ev);
+          if (decrypted) payload = decrypted;
+        } catch {}
+        if (!payload) {
+          if (ctx.kind === 'chapter' && ev.kind === 30023) {
+            _applyResolvedBookChapter(ctx.entryId, ev.content || '');
+            _bookCacheWrite(ref, ev);
+            _bookUpdates.delete(key);
+            render();
+            return true;
+          }
+          try { payload = JSON.parse(ev.content || ''); } catch { payload = null; }
+        }
+        if (!payload) return false;
+        pushHistory('book: apply upstream update');
+        if (ctx.kind === 'page')        _applyResolvedBookPage(ctx.entryId, payload);
+        else if (ctx.kind === 'master') _applyResolvedBookMaster(ctx.masterId, payload);
+        else if (ctx.kind === 'cover')  _applyResolvedBookCover(payload);
+        else if (ctx.kind === 'chapter') {
+          const md = payload?.chapter?.markdown ?? payload?.content ?? '';
+          _applyResolvedBookChapter(ctx.entryId, md);
+        }
+        _bookCacheWrite(ref, ev);
+        _bookUpdates.delete(key);
+        render();
+        return true;
+      } catch (err) {
+        console.warn('book: applyBookUpdate failed', err);
+        return false;
+      }
+    }
+
     // Publish a book sidecar (page / master / chapter) as an
     // encrypted kind-30078 event under an explicit, stable d-tag —
     // unlike publishEncryptedDesign (which key-wraps to the project's
@@ -10362,6 +10518,16 @@
       })().finally(() => { _bookResolveInFlight = null; });
       await _bookResolveInFlight;
       render();
+      // Kick off the upstream-update probe after the initial paint
+      // so the user sees the warm cache immediately, then a chip
+      // appears on tiles whose ref has a newer version upstream.
+      // Force-refreshes (which already fetched the latest) don't
+      // re-probe — they wrote the cache through.
+      if (!opts.force) {
+        setTimeout(() => {
+          checkBookSidecarUpdates(book).catch(err => console.warn('book update probe failed', err));
+        }, 600);
+      }
       return summary;
     }
 
@@ -10527,6 +10693,7 @@
         pushHistory('book: cover publish');
         book.cover = { ref: { kind: 30078, pubkey: signed.pubkey, dTag, relays, encrypted: isPrivate || undefined } };
         _bookCacheWrite(book.cover.ref, signed);
+        clearBookUpdate(book.cover.ref);
         setMsg(`${isPrivate ? 'Privately published' : 'Published'} ${signed.id.slice(0, 8)}…`, 'ok');
         render();
       } catch (err) {
@@ -10652,6 +10819,7 @@
           entry.textRef = { kind: 30023, pubkey: signed.pubkey, dTag, relays };
         }
         _bookCacheWrite(entry.textRef, signed);
+        clearBookUpdate(entry.textRef);
         entry.textPinnedEventId = null; // own publishes default to live
         setMsg(`${isPrivate ? 'Privately published' : 'Published'} as ${signed.id.slice(0, 8)}… (${md.length.toLocaleString()} chars).`, 'ok');
         syncBookChapterEditor();
@@ -10946,10 +11114,25 @@
       if (refHint) {
         const ref = book.cover?.ref;
         const coverLayerCount = (state.layers || []).filter(l => /^book-cover-|^book-spine$/.test(String(l.target || ''))).length;
+        refHint.innerHTML = '';
         if (ref) {
           const enc = ref.encrypted ? ' 🔒' : '';
-          refHint.textContent = `Published${enc} as ${ref.dTag} (${coverLayerCount} layer${coverLayerCount === 1 ? '' : 's'}).`;
+          const base = document.createElement('span');
+          base.textContent = `Published${enc} as ${ref.dTag} (${coverLayerCount} layer${coverLayerCount === 1 ? '' : 's'}).`;
+          refHint.appendChild(base);
           refHint.style.color = '#15803d';
+          if (hasBookUpdate(ref)) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = '↑ Apply update';
+            btn.style.cssText = 'margin-left:8px;padding:2px 8px;font-size:.72rem;background:#fef3c7;color:#92400e;border:1px solid #fbbf24;border-radius:999px;cursor:pointer';
+            btn.title = 'A newer version of this cover is on Nostr — click to apply.';
+            btn.addEventListener('click', async () => {
+              btn.disabled = true; btn.textContent = '…';
+              await applyBookUpdate(ref);
+            });
+            refHint.appendChild(btn);
+          }
         } else if (coverLayerCount) {
           refHint.textContent = `${coverLayerCount} layer${coverLayerCount === 1 ? '' : 's'} ready — Edit cover then Publish to mint a casewrap-page event.`;
           refHint.style.color = 'var(--muted)';
