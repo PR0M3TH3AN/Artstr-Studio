@@ -8951,6 +8951,240 @@
       syncInputs();
       render();
     }
+    // Pagination engine. Pure function shape so it's testable in
+    // isolation. Takes a reflow entry + the book state, returns
+    // `{ pages, overflow, warnings, masterId, frame }`.
+    //
+    //   pages: array of `{ blocks }` where each block is one
+    //     markdown token already laid out:
+    //       { kind, lines: string[], style, lineHeightIn, y, blockH }
+    //   overflow: blocks that wouldn't fit on any page (e.g. a frame
+    //     too small to hold a single line)
+    //   warnings: human-readable hints (long words, missing frame…)
+    //   masterId: the master used (may be null)
+    //   frame: the text-frame's geometry in canvas-inch space
+    //     (x, y, w, h, padding) — null when no master / no frame.
+    //
+    // Phase C.5.2 ships paragraph + heading + blockquote + code +
+    // list + hr layout with greedy line breaking. Inline runs
+    // (bold / italic / inline-code) collapse to plain text using
+    // the block's base style; Phase I gives them per-run styles.
+    function paginateChapter(entry, book) {
+      const result = { pages: [], overflow: [], warnings: [], masterId: null, frame: null };
+      if (!entry || entry.type !== 'reflow') return result;
+      if (typeof window.marked === 'undefined' || !window.marked.lexer) {
+        result.warnings.push('marked library failed to load');
+        return result;
+      }
+      const md = String(entry.chapterMarkdown || '');
+      const styles = (book?.spec?.textStyles) || defaultBookTextStyles();
+      const masterId = entry.masterId || book?.spec?.defaultMasterId || null;
+      result.masterId = masterId;
+
+      // Locate the text-frame layer on the master.
+      let frame = null;
+      if (masterId) {
+        const target = `book-master:${masterId}`;
+        for (const l of state.layers || []) {
+          if (l.target !== target) continue;
+          if (l.type === 'shape' && l.shape?.kind === 'text-frame') {
+            frame = l;
+            break;
+          }
+        }
+      }
+      if (!frame) {
+        result.warnings.push(masterId
+          ? 'Master has no text-frame layer. Add one in master-edit mode to paginate.'
+          : 'No master selected for this chapter.');
+        return result;
+      }
+      const padding = Number(frame.shape?.padding) || 0;
+      const frameW = Math.max(0.5, (Number(frame.w) || 0) - 2 * padding);
+      const frameH = Math.max(0.5, (Number(frame.h) || 0) - 2 * padding);
+      result.frame = {
+        x: Number(frame.x) || 0,
+        y: Number(frame.y) || 0,
+        w: Number(frame.w) || 0,
+        h: Number(frame.h) || 0,
+        padding,
+      };
+
+      const tokens = window.marked.lexer(md);
+
+      // One shared Canvas2D context for text-width measurement.
+      // Sized at 96 px/inch so widths come out in pixels and we
+      // divide back into inches at the end.
+      const ctx = document.createElement('canvas').getContext('2d');
+      const styleFor = (kind) => styles[kind] || styles.body || {};
+      const setFont = (style) => {
+        const fs = Number(style.fontSize) || 11;
+        const fw = Number(style.fontWeight) || 400;
+        const fst = style.fontStyle === 'italic' ? 'italic ' : '';
+        const ff = style.fontFamily || 'Georgia, serif';
+        ctx.font = `${fst}${fw} ${fs * 96 / 72}px ${ff}`; // pt → px at 96dpi
+      };
+      const lineHeightIn = (style) => {
+        const fs = Number(style.fontSize) || 11;
+        const lh = Number(style.lineHeight) || 1.5;
+        return (fs * 96 / 72 / 96) * lh; // pt → inches × line-height
+      };
+
+      // Greedy wrap for a single string into multiple lines that
+      // fit `availableW` inches. Long single words overflow with a
+      // warning; we don't auto-hyphenate.
+      function wrapTextIntoLines(text, availableW) {
+        const lines = [];
+        // Preserve hard line breaks (paragraph internal `\n`) by
+        // wrapping each segment separately.
+        const segments = String(text).split('\n');
+        for (let s = 0; s < segments.length; s++) {
+          const words = segments[s].split(/\s+/).filter(Boolean);
+          if (!words.length) {
+            // Empty paragraph line — emit a blank line so spacing
+            // stays correct.
+            if (s > 0) lines.push('');
+            continue;
+          }
+          let line = '';
+          for (const word of words) {
+            const candidate = line ? line + ' ' + word : word;
+            const widthIn = ctx.measureText(candidate).width / 96;
+            if (widthIn > availableW && line) {
+              lines.push(line);
+              line = word;
+              // Check if the single word still overflows the column.
+              if (ctx.measureText(word).width / 96 > availableW) {
+                result.warnings.push(`Long word doesn't fit: "${word.slice(0, 24)}${word.length > 24 ? '…' : ''}"`);
+              }
+            } else {
+              line = candidate;
+            }
+          }
+          if (line) lines.push(line);
+        }
+        return lines;
+      }
+
+      // Convert a single marked token to a "block": one or more
+      // measured lines + the style metadata + the total block
+      // height. Returns null for tokens we skip silently (space).
+      function blockForToken(token) {
+        if (!token) return null;
+        if (token.type === 'space') return null;
+        // Headings: depth 1-6 → h1-h6 style key.
+        let styleKey = 'body';
+        if (token.type === 'heading') styleKey = `h${Math.min(6, Math.max(1, token.depth || 1))}`;
+        else if (token.type === 'paragraph') styleKey = 'body';
+        else if (token.type === 'blockquote') styleKey = 'blockquote';
+        else if (token.type === 'code') styleKey = 'codeBlock';
+        else if (token.type === 'hr') styleKey = 'hr';
+        else if (token.type === 'list') styleKey = 'list';
+        else styleKey = 'body';
+
+        const style = styleFor(styleKey);
+        const marginBefore = Number(style.marginBefore) || 0;
+        const marginAfter  = Number(style.marginAfter)  || 0;
+        const marginLeft   = Number(style.marginLeft)   || 0;
+        const marginRight  = Number(style.marginRight)  || 0;
+        const availW = Math.max(0.1, frameW - marginLeft - marginRight);
+        setFont(style);
+        const lineH = lineHeightIn(style);
+
+        let lines = [];
+        let extraH = 0;
+        if (token.type === 'hr') {
+          // Render as a one-line rule.
+          lines = [''];
+          extraH = (Number(style.thickness) || 0.5) / 96;
+        } else if (token.type === 'code' || token.type === 'codeBlock') {
+          // Code blocks: each `\n`-separated line stays a line,
+          // no wrapping (the user controls line lengths).
+          lines = String(token.text || '').split('\n');
+        } else if (token.type === 'list') {
+          // Flatten list items into "• text" lines. Each item
+          // wraps using the list style.
+          const items = Array.isArray(token.items) ? token.items : [];
+          const ordered = !!token.ordered;
+          items.forEach((item, i) => {
+            const marker = ordered ? `${i + 1}. ` : '• ';
+            const text = String(item.text || '');
+            const itemLines = wrapTextIntoLines(marker + text, availW);
+            lines = lines.concat(itemLines);
+          });
+        } else if (token.type === 'blockquote') {
+          // marked emits blockquote with inner tokens; concatenate
+          // their plain text + wrap.
+          const inner = (token.tokens || [])
+            .map(t => t.text || t.raw || '')
+            .join('\n\n');
+          lines = wrapTextIntoLines(inner, availW);
+        } else {
+          // heading / paragraph / fallback: flat text.
+          lines = wrapTextIntoLines(token.text || '', availW);
+        }
+
+        const linesH = (lines.length || 1) * lineH + extraH;
+        const blockH = marginBefore + linesH + marginAfter;
+        return {
+          kind: styleKey,
+          tokenType: token.type,
+          lines,
+          style,
+          lineHeightIn: lineH,
+          marginBefore, marginAfter, marginLeft, marginRight,
+          blockH,
+          keepWithNext: !!style.keepWithNext,
+        };
+      }
+
+      // Lay blocks out into pages.
+      let currentPage = { blocks: [] };
+      let yCursor = 0;
+      const pages = [currentPage];
+      const pushPage = () => {
+        currentPage = { blocks: [] };
+        yCursor = 0;
+        pages.push(currentPage);
+      };
+
+      for (let i = 0; i < tokens.length; i++) {
+        const block = blockForToken(tokens[i]);
+        if (!block) continue;
+
+        // Empty page + block too tall to ever fit → record as
+        // overflow and skip so we don't loop forever.
+        if (block.blockH > frameH && currentPage.blocks.length === 0) {
+          result.overflow.push(block);
+          result.warnings.push(`Block too tall for the text-frame: ${block.kind}.`);
+          continue;
+        }
+        // Page break: doesn't fit on current page → push a new page.
+        if (yCursor + block.blockH > frameH && currentPage.blocks.length > 0) {
+          pushPage();
+        }
+        // keepWithNext: if this block is a heading and there's a
+        // next block, peek ahead — if the heading would land at
+        // the very bottom (its bottom equals the frame), push it
+        // to the next page so it stays with the following content.
+        if (block.keepWithNext) {
+          const next = (i + 1 < tokens.length) ? blockForToken(tokens[i + 1]) : null;
+          if (next && yCursor + block.blockH + next.blockH > frameH
+              && currentPage.blocks.length > 0) {
+            pushPage();
+          }
+        }
+        block.y = yCursor + block.marginBefore;
+        currentPage.blocks.push(block);
+        yCursor += block.blockH;
+      }
+
+      // Drop a trailing empty page if no blocks were laid out at all.
+      if (pages.length > 1 && pages[pages.length - 1].blocks.length === 0) pages.pop();
+      result.pages = pages;
+      return result;
+    }
+
     // Chapter editor (Phase C.5). Reflow entries open a two-pane
     // textarea + live preview instead of the canvas. The book stays
     // in 'book' template mode; an `editingChapterId` field tracks
@@ -8990,7 +9224,14 @@
       if (titleEl && titleEl !== document.activeElement) titleEl.value = entry.chapterTitle || '';
       if (ta && ta !== document.activeElement) ta.value = entry.chapterMarkdown || '';
       if (preview) preview.innerHTML = markdownToSafeHtml(entry.chapterMarkdown || '');
-      if (pagesEl) pagesEl.textContent = 'Pagination preview lands in Phase C.5.2';
+      if (pagesEl) {
+        const pag = paginateChapter(entry, book);
+        const n = pag.pages.length;
+        const wordCount = (entry.chapterMarkdown || '').trim().split(/\s+/).filter(Boolean).length;
+        const warn = pag.warnings.length ? ` · ⚠ ${pag.warnings[0]}` : '';
+        pagesEl.textContent = `${wordCount} word${wordCount === 1 ? '' : 's'} · ${n} page${n === 1 ? '' : 's'}${warn}`;
+        pagesEl.title = pag.warnings.join('\n');
+      }
     }
     // Minimal HTML escape + marked render. Sanitizes by routing
     // through marked.parse with `mangle:false, headerIds:false`
@@ -9021,10 +9262,20 @@
       if (!entry) return;
       pushHistoryDebounced(`book:chapter:${id}:md`, 'book: edit chapter', 600);
       entry.chapterMarkdown = String(value || '');
-      // Only re-render preview (cheap); thumb / pagination will
-      // re-run in C.5.2 once the engine exists.
+      // Cheap path on every keystroke: just re-render the preview
+      // HTML + the paginated count readout. Full state render()
+      // catches up at the next debounced history snapshot.
       const preview = document.getElementById('bookChapterEditorPreview');
       if (preview) preview.innerHTML = markdownToSafeHtml(entry.chapterMarkdown);
+      const pagesEl = document.getElementById('bookChapterEditorPages');
+      if (pagesEl) {
+        const pag = paginateChapter(entry, book);
+        const n = pag.pages.length;
+        const wordCount = entry.chapterMarkdown.trim().split(/\s+/).filter(Boolean).length;
+        const warn = pag.warnings.length ? ` · ⚠ ${pag.warnings[0]}` : '';
+        pagesEl.textContent = `${wordCount} word${wordCount === 1 ? '' : 's'} · ${n} page${n === 1 ? '' : 's'}${warn}`;
+        pagesEl.title = pag.warnings.join('\n');
+      }
     }
     function updateBookChapterTitle(value) {
       const book = state.book;
