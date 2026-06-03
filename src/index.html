@@ -4400,6 +4400,7 @@
           <div class="deckSorterBar">
             <div class="deckSorterCount" id="deckSorterCount">0 slides</div>
             <button type="button" id="deckSorterAddBtn" class="primary">+ Add slide</button>
+            <button type="button" id="deckToBookBtn" title="Convert this deck into a book — each slide becomes a designed page (cross-aspect letterbox-fit)">→ Convert to book</button>
           </div>
           <div class="deckSlideGrid" id="deckSlideGrid"></div>
         </div>
@@ -8768,6 +8769,89 @@
     // label. Layers for the master live in state.layers under
     // `book-master:<id>`. The first master created becomes the
     // default automatically.
+    // Convert the current deck into a book (Phase F2). Each slide
+    // becomes a designed page; layers letterbox-fit into the trim
+    // (contain-scaled + centered). Switches templateMode to 'book'.
+    function convertDeckToBook({ presetKey } = {}) {
+      const deck = state.deck;
+      const slides = deck?.slides;
+      if (!Array.isArray(slides) || !slides.length) {
+        toastError && toastError('No slides to convert — add a slide first.');
+        return false;
+      }
+      const existing = state.book?.pages?.length || 0;
+      if (existing) {
+        const ok = confirm(`This book already has ${existing} entr${existing === 1 ? 'y' : 'ies'}. Continue and replace it with ${slides.length} pages from the deck?`);
+        if (!ok) return false;
+      }
+      pushHistory('book: convert from deck');
+      const book = ensureBookState();
+      const dims = BOOK_SIZE_PRESETS[presetKey] || BOOK_SIZE_PRESETS['US Trade 6×9'];
+      const fresh = defaultBookSpec();
+      book.spec = { ...fresh, trimW: dims.trimW, trimH: dims.trimH, bookSize: presetKey || 'US Trade 6×9' };
+      book.cover = null;
+      book.masters = [];
+      book.pages = [];
+      state.layers = (state.layers || []).filter(l => !String(l.target || '').startsWith('book-'));
+      // Default master (no text-frame — designed pages don't need one).
+      const master = { id: makeBookMasterId(), label: 'Body pages' };
+      book.masters.push(master);
+      book.spec.defaultMasterId = master.id;
+      const trimW = Number(book.spec.trimW), trimH = Number(book.spec.trimH);
+      const bleed = Number(book.spec.bleed) || 0;
+      let nextZ = 1;
+      for (const slide of slides) {
+        const slideWIn = ((slide.slide?.width || 1920) / 96);
+        const slideHIn = ((slide.slide?.height || 1080) / 96);
+        const scale = Math.min(trimW / slideWIn, trimH / slideHIn);
+        const fitW = slideWIn * scale;
+        const fitH = slideHIn * scale;
+        const offX = bleed + (trimW - fitW) / 2;
+        const offY = bleed + (trimH - fitH) / 2;
+        const entryId = makeBookEntryId();
+        book.pages.push({
+          id: entryId,
+          type: 'design',
+          ref: null,
+          label: slide.name || '',
+          masterRef: null,
+          masterId: null,
+          skipNumber: false,
+          anchor: null,
+          gating: null,
+          background: slide.slide?.background || '',
+        });
+        const target = `book-page:${entryId}`;
+        const slideLayers = Array.isArray(slide.layers) ? slide.layers : [];
+        for (const src of slideLayers) {
+          const cloned = { ...src };
+          cloned.id = makeLayerId();
+          cloned.target = target;
+          cloned.x = offX + (Number(src.x) || 0) * scale;
+          cloned.y = offY + (Number(src.y) || 0) * scale;
+          cloned.w = Math.max(0.01, (Number(src.w) || 0) * scale);
+          cloned.h = Math.max(0.01, (Number(src.h) || 0) * scale);
+          if (typeof src.fontSize === 'number') cloned.fontSize = src.fontSize * scale;
+          if (src.stroke && typeof src.stroke === 'object') {
+            cloned.stroke = { ...src.stroke };
+            if (typeof src.stroke.width === 'number') cloned.stroke.width = src.stroke.width * scale;
+          }
+          cloned.z = nextZ++;
+          state.layers.push(cloned);
+        }
+      }
+      // Flip into book mode and reset publish state.
+      state.templateMode = 'book';
+      if (state.book) state.book.editingEntryId = null;
+      book.lastPublishedManifestSerial = null;
+      syncInputs();
+      render();
+      if (typeof toastSuccess === 'function') {
+        toastSuccess(`Imported ${slides.length} slide${slides.length === 1 ? '' : 's'} as designed pages.`);
+      }
+      return true;
+    }
+
     // Starter book templates (Phase F1). Each preset seeds the spec
     // + a default master with a text-frame + a starter chapter so the
     // user lands on a working book instead of an empty pages overview.
@@ -9161,6 +9245,18 @@
           { key: 'A4 8.27×11.69', label: 'A4',        dims: '8.27 × 11.69 in', desc: 'Letter-size manual / textbook' },
           { key: 'Square 8×8',    label: 'Square',    dims: '8 × 8 in',        desc: "Children's book, art book" },
         ];
+        const deckSlides = state.deck?.slides?.length || 0;
+        const deckBlock = deckSlides ? `
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">
+            <h3 style="margin:0 0 4px;font-size:1rem;font-family:inherit">Or import from a deck</h3>
+            <p class="hint" style="margin:0 0 10px">You have ${deckSlides} slide${deckSlides === 1 ? '' : 's'} in the current deck. Convert each slide into a designed page (letterbox-fit, centered).</p>
+            <button type="button" class="bookStarterCard" id="bookStarterImportDeckBtn" style="max-width:280px">
+              <div class="bookStarterCardLabel">→ Convert deck to book</div>
+              <div class="bookStarterCardDims">${deckSlides} slide${deckSlides === 1 ? '' : 's'} → ${deckSlides} designed page${deckSlides === 1 ? '' : 's'}</div>
+              <div class="bookStarterCardDesc">Uses US Trade 6×9 by default; switch sizes in Document settings after.</div>
+            </button>
+          </div>
+        ` : '';
         starter.innerHTML = `
           <h3 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Start from a template</h3>
           <p class="hint" style="margin:0 0 14px">Pick a size and we'll create a starter book with a default master + a sample chapter ready to edit.</p>
@@ -9173,15 +9269,20 @@
               </button>
             `).join('')}
           </div>
+          ${deckBlock}
           <p class="hint" style="margin-top:14px">Or skip the template — click <b>+ Add page</b>, <b>+ Add chapter</b>, or <b>Document settings…</b> to start from scratch.</p>
         `;
         grid.appendChild(starter);
-        starter.querySelectorAll('.bookStarterCard').forEach(btn => {
+        starter.querySelectorAll('.bookStarterCard[data-preset]').forEach(btn => {
           btn.addEventListener('click', () => {
             const preset = btn.dataset.preset;
             applyBookStarterTemplate(preset);
           });
         });
+        const importDeckBtn = starter.querySelector('#bookStarterImportDeckBtn');
+        if (importDeckBtn) {
+          importDeckBtn.addEventListener('click', () => convertDeckToBook());
+        }
         return;
       }
       // Numbered-page counter walks the visible sequence, skipping
@@ -33412,6 +33513,7 @@
       // ---- Deck Builder wiring ----
       $('deckAddSlideBtn')?.addEventListener('click', deckAddBlankSlide);
       $('deckSorterAddBtn')?.addEventListener('click', deckAddBlankSlide);
+      $('deckToBookBtn')?.addEventListener('click', () => convertDeckToBook());
       $('deckImportSlideBtn')?.addEventListener('click', openDeckSlideImportBrowser);
       $('deckImportFileBtn')?.addEventListener('click', deckImportSlideFromFile);
       $('importPptxBtn')?.addEventListener('click', onImportPptxClick);
