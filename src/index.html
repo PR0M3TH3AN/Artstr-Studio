@@ -8787,19 +8787,16 @@
         tile.dataset.entryId = p.id;
         tile.dataset.index = String(idx);
         tile.draggable = true;
-        // Live thumbnail of the page's current layers — only for
-        // designed pages. Reflow tiles keep the striped placeholder.
+        const thumb = document.createElement('div');
+        thumb.className = 'bookPageTileThumb';
+        tile.appendChild(thumb);
         if (p.type === 'design') {
-          const thumb = document.createElement('div');
-          thumb.className = 'bookPageTileThumb';
-          tile.appendChild(thumb);
+          // Designed page thumb: master layers underneath, then the
+          // page's own. Both remapped to 'canvas' so the preview
+          // helper's flat-canvas filter accepts them.
           const pageTarget = `book-page:${p.id}`;
           const masterId = effectiveMasterIdForPage(p);
           const masterTarget = masterId ? `book-master:${masterId}` : null;
-          // Composite master layers first (so they render below
-          // the page's own layers) then the page's own. Both get
-          // their target remapped to 'canvas' so the preview
-          // helper's flat-canvas filter accepts them.
           const masterLayers = masterTarget
             ? (state.layers || []).filter(l => l.target === masterTarget && !l.hidden)
             : [];
@@ -8819,6 +8816,42 @@
             }, { compact: true });
           } catch (err) {
             console.warn('book page thumb render failed', err);
+          }
+        } else if (p.type === 'reflow') {
+          // Reflow tile: same master underlay as designed pages,
+          // then the first paginated page of the chapter rendered
+          // as positioned text blocks on top.
+          const masterId = p.masterId || book.spec?.defaultMasterId || null;
+          const masterTarget = masterId ? `book-master:${masterId}` : null;
+          const masterLayers = masterTarget
+            ? (state.layers || []).filter(l => l.target === masterTarget && !l.hidden
+                // Don't render the text-frame outline in the thumb —
+                // the reflowed prose takes its place visually.
+                && !(l.type === 'shape' && l.shape?.kind === 'text-frame'))
+            : [];
+          const composed = masterLayers.map((l, i) => ({ ...l, target: 'canvas', z: -1e6 + i }));
+          try {
+            renderCustomArtPreviewDOM(thumb, {
+              customArt: {
+                width: trimW * 96,
+                height: trimH * 96,
+                background: p.background || book.spec?.background || '#ffffff',
+              },
+              layers: composed,
+            }, { compact: true });
+          } catch (err) {
+            console.warn('book chapter thumb (master) render failed', err);
+          }
+          // Paint the first paginated page on top, positioned at
+          // the master's text-frame coordinates (converted to
+          // percent of the thumb).
+          try {
+            const pag = paginateChapter(p, book);
+            if (pag.pages.length && pag.frame) {
+              paintReflowPageOverlay(thumb, pag.pages[0], pag.frame, trimW, trimH);
+            }
+          } catch (err) {
+            console.warn('book chapter thumb (text) render failed', err);
           }
         }
         const numEl = document.createElement('div');
@@ -8859,7 +8892,13 @@
         const label = document.createElement('div');
         label.className = 'bookPageTileLabel';
         if (p.type === 'reflow') {
-          label.textContent = p.chapterTitle || 'Chapter';
+          let count = '';
+          try {
+            const pag = paginateChapter(p, book);
+            const n = pag.pages.length;
+            if (n) count = ` · ${n} pg`;
+          } catch {}
+          label.textContent = (p.chapterTitle || 'Chapter') + count;
         } else {
           label.textContent = p.label || 'Designed page';
         }
@@ -9183,6 +9222,70 @@
       if (pages.length > 1 && pages[pages.length - 1].blocks.length === 0) pages.pop();
       result.pages = pages;
       return result;
+    }
+
+    // Paint a single paginated page's blocks onto a preview host
+    // (a tile thumb or the chapter editor's preview pane). The
+    // host must already have a master preview rendered into it via
+    // `renderCustomArtPreviewDOM`; the overlay sits on top
+    // positioned to the master's text-frame in the same inch space.
+    //
+    //   host:       a div (.bookPageTileThumb or similar) sized to
+    //               the trim aspect; its inner preview is already
+    //               position:relative.
+    //   page:       one entry from paginateChapter(...).pages
+    //   frame:      { x, y, w, h, padding } in canvas-inch space
+    //   trimW/H:    the trim dimensions (with bleed already
+    //               accounted for in the frame coords).
+    function paintReflowPageOverlay(host, page, frame, trimW, trimH) {
+      if (!host || !page || !frame) return;
+      // The renderCustomArtPreviewDOM helper appends a single child
+      // div (the page canvas) — overlay on top of it.
+      const parent = host.firstChild || host;
+      const canvasW = trimW + 2 * (state.book?.spec?.bleed || 0);
+      const canvasH = trimH + 2 * (state.book?.spec?.bleed || 0);
+      const overlay = document.createElement('div');
+      const padding = Number(frame.padding) || 0;
+      const innerX = frame.x + padding;
+      const innerY = frame.y + padding;
+      const innerW = Math.max(0.1, frame.w - 2 * padding);
+      overlay.style.cssText = [
+        'position:absolute',
+        `left:${(innerX / canvasW) * 100}%`,
+        `top:${(innerY / canvasH) * 100}%`,
+        `width:${(innerW / canvasW) * 100}%`,
+        `height:${((frame.h - 2 * padding) / canvasH) * 100}%`,
+        'pointer-events:none',
+        'overflow:hidden',
+        'z-index:50',
+      ].join(';');
+      // Each block becomes a positioned div with its style + lines.
+      const scale = (parent.offsetWidth || 200) / (canvasW * 96);
+      for (const block of page.blocks) {
+        const blk = document.createElement('div');
+        const style = block.style || {};
+        const fs = (Number(style.fontSize) || 11);
+        blk.style.cssText = [
+          'position:absolute',
+          `left:${((Number(style.marginLeft) || 0) / innerW) * 100}%`,
+          `right:${((Number(style.marginRight) || 0) / innerW) * 100}%`,
+          `top:${(block.y / (frame.h - 2 * padding)) * 100}%`,
+          `font-family:${style.fontFamily || 'Georgia, serif'}`,
+          `font-size:${fs * scale}px`,
+          `font-weight:${style.fontWeight || 400}`,
+          `font-style:${style.fontStyle || 'normal'}`,
+          `line-height:${style.lineHeight || 1.5}`,
+          `color:${style.color || '#111111'}`,
+          `text-align:${style.alignment || 'left'}`,
+          style.background ? `background:${style.background}` : '',
+          'white-space:pre-wrap',
+        ].filter(Boolean).join(';');
+        // Lines were already wrapped by the engine; preserve them
+        // with \n so the white-space:pre-wrap above lays them out.
+        blk.textContent = block.lines.join('\n');
+        overlay.appendChild(blk);
+      }
+      parent.appendChild(overlay);
     }
 
     // Chapter editor (Phase C.5). Reflow entries open a two-pane
