@@ -1502,9 +1502,68 @@
     body.template-book .jewelSpineGuide,
     body.template-book .spineText { display: none !important; }
 
+    /* Markdown chapter editor — shown when a reflow entry is open
+       on the book canvas. Two-pane layout: textarea on the left,
+       paginated preview on the right. */
+    #bookChapterEditor { display: none; }
+    body.template-book.editing-book-chapter #bookChapterEditor {
+      display: flex;
+      flex-direction: column;
+      width: 100%; gap: 10px;
+      padding: 14px 18px;
+      box-sizing: border-box;
+      min-height: calc(100vh - 160px);
+    }
+    .bookChapterEditorToolbar {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding-bottom: 8px; border-bottom: 1px solid var(--line);
+    }
+    .bookChapterEditorToolbar input[type="text"] {
+      flex: 1; min-width: 160px;
+      font-size: 1rem; font-weight: 600;
+      padding: 4px 8px;
+      border: 1px solid var(--line);
+    }
+    .bookChapterEditorPages {
+      font-size: .78rem; color: var(--muted); white-space: nowrap;
+    }
+    .bookChapterEditorBody {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      min-height: 0;
+    }
+    #bookChapterEditorTextarea {
+      width: 100%; height: 100%;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px; line-height: 1.55;
+      border: 1px solid var(--line); background: #fff;
+      resize: none;
+    }
+    .bookChapterEditorPreviewWrap {
+      border: 1px solid var(--line); background: #fff;
+      overflow: auto;
+      padding: 16px 20px;
+    }
+    #bookChapterEditorPreview { font-family: Georgia, serif; line-height: 1.6; }
+    #bookChapterEditorPreview h1 { font-family: Helvetica, Arial, sans-serif; font-size: 2rem; margin: 0 0 .6em; }
+    #bookChapterEditorPreview h2 { font-family: Helvetica, Arial, sans-serif; font-size: 1.5rem; margin: 1.2em 0 .4em; }
+    #bookChapterEditorPreview h3 { font-family: Helvetica, Arial, sans-serif; font-size: 1.2rem; margin: 1em 0 .4em; }
+    #bookChapterEditorPreview p { margin: 0 0 .8em; }
+    #bookChapterEditorPreview blockquote { margin: .8em 1.2em; font-style: italic; color: #4b5563; }
+    #bookChapterEditorPreview code { background: #f5f5f5; padding: 1px 5px; font-size: .92em; }
+    #bookChapterEditorPreview pre { background: #f5f5f5; padding: 10px 12px; overflow-x: auto; }
+    #bookChapterEditorPreview pre code { background: none; padding: 0; }
+    #bookChapterEditorPreview a { color: #0066cc; }
+    #bookChapterEditorPreview hr { border: 0; border-top: 1px solid #cccccc; margin: 1.2em 0; }
+    #bookChapterEditorPreview ul, #bookChapterEditorPreview ol { padding-left: 1.4em; margin: 0 0 .8em; }
+    #bookChapterEditorPreview img { max-width: 100%; }
+
     /* Book view shell — mirrors the deck-sorter layout pattern. */
     #bookView { display: none; }
-    body.template-book:not(.editing-book-page) #bookView {
+    body.template-book:not(.editing-book-page):not(.editing-book-chapter) #bookView {
       display: flex;
       flex-direction: column;
       width: 100%;
@@ -4259,6 +4318,21 @@
           <div class="deckSlideGrid" id="deckSlideGrid"></div>
         </div>
 
+        <div id="bookChapterEditor">
+          <div class="bookChapterEditorToolbar">
+            <button type="button" id="bookChapterEditorBack">← Back to Pages</button>
+            <input type="text" id="bookChapterEditorTitle" placeholder="Chapter title" />
+            <span class="bookChapterEditorPages" id="bookChapterEditorPages"></span>
+            <span class="bookViewSpacer"></span>
+            <span class="hint" id="bookChapterEditorHint">Markdown autosaves to this book. Phase D1 publishes as a NIP-23 article.</span>
+          </div>
+          <div class="bookChapterEditorBody">
+            <textarea id="bookChapterEditorTextarea" placeholder="# Chapter 1&#10;&#10;Write your chapter here…"></textarea>
+            <div class="bookChapterEditorPreviewWrap">
+              <div id="bookChapterEditorPreview"></div>
+            </div>
+          </div>
+        </div>
         <div id="bookView">
           <div class="bookViewToggleBar">
             <button type="button" id="bookViewTogglePages"  class="bookViewToggle active">Pages</button>
@@ -4271,10 +4345,11 @@
               <div class="buttonRow">
                 <button type="button" id="bookAddPageBtn" class="primary">+ Add page</button>
                 <button type="button" id="bookAddTenBtn">+ Add 10 pages</button>
+                <button type="button" id="bookAddChapterBtn">+ Add chapter</button>
               </div>
             </div>
             <div class="deckSlideGrid" id="bookPagesGrid"></div>
-            <p class="hint" id="bookPagesHint" style="margin:8px 0 0">Phase A4 skeleton: tiles are placeholders. Click a tile in Phase B to edit the page. Reflow / NIP-23 chapters arrive in Phase C.5; per-page Nostr publish in Phase D1.</p>
+            <p class="hint" id="bookPagesHint" style="margin:8px 0 0">Click a designed-page tile to edit it on the canvas. Click a chapter tile to edit its markdown. Per-page Nostr publish (per-event sidecars + manifest) lands in Phase D1.</p>
           </div>
           <div id="bookCoverView" style="display:none">
             <div class="bookCoverSummary" id="bookCoverSummary"></div>
@@ -5363,6 +5438,7 @@
 
   <script src="vendor/qrcode.min.js"></script>
   <script src="vendor/polygon-clipping.min.js"></script>
+  <script src="vendor/marked.min.js"></script>
   <script>
     const $ = (id) => document.getElementById(id);
     const safe$ = (id) => { try { return $(id); } catch { return null; } };
@@ -8561,6 +8637,39 @@
       syncInputs();
       render();
     }
+    // Add a fresh reflow chapter entry. Phase C.5 stores the
+    // markdown locally on the entry; Phase D1 will publish it as a
+    // NIP-23 article (kind-30023) and replace `chapterMarkdown`
+    // with a real `textRef`. The default master is required for the
+    // chapter to paginate, and the picker in C.5.x will let users
+    // pick a different one.
+    function addBookChapter() {
+      const book = ensureBookState();
+      pushHistory('book: add chapter');
+      const num = (book.pages.filter(p => p.type === 'reflow').length || 0) + 1;
+      const entry = {
+        id: makeBookEntryId(),
+        type: 'reflow',
+        textRef: null,
+        textPinnedEventId: null,
+        chapterMarkdown: `# Chapter ${num}\n\nWrite your chapter here.`,
+        masterId: book.spec?.defaultMasterId || null,
+        masterRef: null,
+        chapterTitle: `Chapter ${num}`,
+        chapterNumber: num,
+        startsOnPage: 'any',
+        skipNumberOnFirstPage: false,
+        styleOverrides: null,
+        gating: null,
+      };
+      book.pages.push(entry);
+      renderBookPagesGrid();
+      syncInputs();
+      render();
+      // Drop straight into the editor so the user can start writing.
+      openBookChapter(entry.id);
+    }
+
     function addBookTenPages() {
       const book = ensureBookState();
       pushHistory('book: add 10 pages');
@@ -8815,15 +8924,18 @@
       const idx = book.pages.findIndex(p => p.id === entryId);
       if (idx < 0) return;
       const entry = book.pages[idx];
-      // Phase B2 supports designed pages only; reflow segments open
-      // in the chapter / markdown editor in C.5.
-      if (entry.type !== 'design') {
-        toastError?.('Reflow chapter editor lands in Phase C.5.');
+      // Reflow segments route to the markdown editor instead of the
+      // canvas editor.
+      if (entry.type === 'reflow') {
+        openBookChapter(entryId);
         return;
       }
+      if (entry.type !== 'design') return;
       book.editingEntryId = entryId;
       book.editingMasterId = null;          // only one editor open at a time
+      book.editingChapterId = null;
       document.body.classList.add('editing-book-page');
+      document.body.classList.remove('editing-book-chapter');
       clearLayerSelection?.();
       try { setEditorTool('select'); } catch {}
       syncBookPageEditBar();
@@ -8839,6 +8951,91 @@
       syncInputs();
       render();
     }
+    // Chapter editor (Phase C.5). Reflow entries open a two-pane
+    // textarea + live preview instead of the canvas. The book stays
+    // in 'book' template mode; an `editingChapterId` field tracks
+    // which entry is active and a body class flips the view.
+    function openBookChapter(entryId) {
+      const book = ensureBookState();
+      const entry = book.pages.find(p => p.id === entryId);
+      if (!entry || entry.type !== 'reflow') return;
+      book.editingChapterId = entryId;
+      book.editingEntryId = null;
+      book.editingMasterId = null;
+      document.body.classList.add('editing-book-chapter');
+      syncBookChapterEditor();
+      syncInputs();
+      render();
+    }
+    function closeBookChapter() {
+      const book = state.book;
+      if (book) book.editingChapterId = null;
+      document.body.classList.remove('editing-book-chapter');
+      syncInputs();
+      render();
+    }
+    // Push entry fields into the editor inputs + render the
+    // markdown preview. Skips the textarea when it currently has
+    // focus so live typing isn't blown away by re-renders.
+    function syncBookChapterEditor() {
+      const book = state.book;
+      const id = book?.editingChapterId;
+      if (!id) return;
+      const entry = book.pages.find(p => p.id === id);
+      if (!entry) return;
+      const titleEl = document.getElementById('bookChapterEditorTitle');
+      const ta = document.getElementById('bookChapterEditorTextarea');
+      const preview = document.getElementById('bookChapterEditorPreview');
+      const pagesEl = document.getElementById('bookChapterEditorPages');
+      if (titleEl && titleEl !== document.activeElement) titleEl.value = entry.chapterTitle || '';
+      if (ta && ta !== document.activeElement) ta.value = entry.chapterMarkdown || '';
+      if (preview) preview.innerHTML = markdownToSafeHtml(entry.chapterMarkdown || '');
+      if (pagesEl) pagesEl.textContent = 'Pagination preview lands in Phase C.5.2';
+    }
+    // Minimal HTML escape + marked render. Sanitizes by routing
+    // through marked.parse with `mangle:false, headerIds:false`
+    // and post-strips any `<script>` tags as belt-and-braces.
+    function markdownToSafeHtml(src) {
+      if (typeof window.marked === 'undefined' || !window.marked.parse) {
+        return '<p>(marked library failed to load)</p>';
+      }
+      try {
+        const html = window.marked.parse(String(src || ''), {
+          mangle: false,
+          headerIds: false,
+          breaks: false,
+          gfm: false,
+        });
+        // Belt-and-braces: drop any embedded <script> just in case.
+        return String(html).replace(/<script[\s\S]*?<\/script>/gi, '');
+      } catch (err) {
+        console.warn('marked parse failed', err);
+        return '<p>(markdown parse error)</p>';
+      }
+    }
+    function updateBookChapterMarkdown(value) {
+      const book = state.book;
+      const id = book?.editingChapterId;
+      if (!id) return;
+      const entry = book.pages.find(p => p.id === id);
+      if (!entry) return;
+      pushHistoryDebounced(`book:chapter:${id}:md`, 'book: edit chapter', 600);
+      entry.chapterMarkdown = String(value || '');
+      // Only re-render preview (cheap); thumb / pagination will
+      // re-run in C.5.2 once the engine exists.
+      const preview = document.getElementById('bookChapterEditorPreview');
+      if (preview) preview.innerHTML = markdownToSafeHtml(entry.chapterMarkdown);
+    }
+    function updateBookChapterTitle(value) {
+      const book = state.book;
+      const id = book?.editingChapterId;
+      if (!id) return;
+      const entry = book.pages.find(p => p.id === id);
+      if (!entry) return;
+      pushHistoryDebounced(`book:chapter:${id}:title`, 'book: rename chapter', 400);
+      entry.chapterTitle = String(value || '');
+    }
+
     // Master-edit mode: opens a master on the same canvas as the
     // per-page editor. Same body class so the CSS that hides
     // Pages overview / shows the sheet + tool palette applies; the
@@ -10357,6 +10554,8 @@
         state.templateMode === 'book' && (!!state.book?.editingEntryId || !!state.book?.editingMasterId));
       document.body.classList.toggle('editing-book-master',
         state.templateMode === 'book' && !!state.book?.editingMasterId);
+      document.body.classList.toggle('editing-book-chapter',
+        state.templateMode === 'book' && !!state.book?.editingChapterId);
       document.body.classList.toggle('editing-deck-slide', !!state.deck && state.deck.editingIndex !== null);
       document.body.classList.toggle('hide-guides', !state.showGuides);
       document.body.classList.toggle('hide-bleed', !state.showBleed);
@@ -13067,6 +13266,7 @@
       renderDeckSorter();
       renderBookPagesGrid();
       syncBookPageEditBar();
+      syncBookChapterEditor();
       // Only repaint the cover preview when its view is the active
       // sub-view — saves work on every render() in book mode.
       if (document.getElementById('bookCoverView')?.style.display !== 'none'
@@ -32059,6 +32259,11 @@
       // Book Designer — Pages overview + Cover view toggle.
       on('bookAddPageBtn', 'click', addBookDesignedPage);
       on('bookAddTenBtn',  'click', addBookTenPages);
+      on('bookAddChapterBtn', 'click', addBookChapter);
+      // Chapter editor panes.
+      on('bookChapterEditorBack', 'click', closeBookChapter);
+      on('bookChapterEditorTextarea', 'input', (e) => updateBookChapterMarkdown(e.target.value));
+      on('bookChapterEditorTitle', 'input', (e) => updateBookChapterTitle(e.target.value));
       on('bookViewTogglePages', 'click', () => setBookSubView('pages'));
       on('bookViewToggleCover', 'click', () => setBookSubView('cover'));
       on('bookPageEditBack', 'click', () => {
@@ -32398,9 +32603,14 @@
         const bookMastersM = $('bookMastersModal');
         if (bookMastersM && bookMastersM.getAttribute('aria-hidden') === 'false') { closeBookMastersModal(); return; }
         // Esc while editing a book surface returns to the right home:
-        // master-edit → masters modal, page-edit → Pages overview.
+        // master-edit → masters modal, page-edit / chapter-edit →
+        // Pages overview.
         if (state.templateMode === 'book' && state.book?.editingMasterId) {
           closeBookMaster();
+          return;
+        }
+        if (state.templateMode === 'book' && state.book?.editingChapterId) {
+          closeBookChapter();
           return;
         }
         if (state.templateMode === 'book' && state.book?.editingEntryId) {
