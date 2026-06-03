@@ -4536,6 +4536,8 @@
           <button type="button" id="bookPageEditNext" title="Next page">→</button>
           <span id="bookPageEditLabel"></span>
           <button type="button" id="bookMasterAddTextFrame" title="Add a reflow text-frame to this master" style="display:none">+ Text frame</button>
+          <button type="button" id="bookPageEditPublish" title="Publish this page as a casewrap-page event">Publish</button>
+          <span class="hint" id="bookPageEditPublishStatus" style="margin-left:6px;font-size:.74rem"></span>
         </div>
       </div>
 
@@ -9878,6 +9880,147 @@
         if (pinBtn) pinBtn.disabled = false;
       }
     }
+    // Build the kind-30078 payload for a designed book page. Layers
+    // are filtered to just this entry and the target prefix is dropped
+    // so the event renders standalone (Linked Designs / embed).
+    function bookPagePayload(entry, role = 'interior') {
+      const spec = state.book?.spec || {};
+      const trimW = Number(spec.trimW) || 6;
+      const trimH = Number(spec.trimH) || 9;
+      const bleed = Number(spec.bleed) || 0;
+      const isMaster = role === 'master';
+      const target = isMaster ? `book-master:${entry.id}` : `book-page:${entry.id}`;
+      const flatTarget = isMaster ? 'book-master' : 'book-page';
+      const pageLayers = (state.layers || [])
+        .filter(l => l.target === target)
+        .map(l => ({ ...l, target: flatTarget }));
+      return {
+        version: typeof SCHEMA_VERSION === 'number' ? SCHEMA_VERSION : 5,
+        templateMode: 'book-page',
+        templateType: 'book-page',
+        meta: {
+          ...(state.meta || {}),
+          title: (isMaster ? (entry.label || 'Master') : (entry.label || state.meta?.title || 'Page')),
+        },
+        page: {
+          role,
+          trimW, trimH, bleed,
+          coverSpread: null,
+          background: entry.background || '',
+          layers: pageLayers,
+        },
+      };
+    }
+    // Publish a designed page as a casewrap-page event. Stable d-tag
+    // built from the entry id so re-publishes replace in place.
+    async function publishBookPageToNostr() {
+      const book = state.book;
+      const entryId = book?.editingEntryId;
+      if (!entryId) return;
+      const entry = book.pages.find(p => p.id === entryId);
+      if (!entry || entry.type !== 'design') return;
+      const status = document.getElementById('bookPageEditPublishStatus');
+      const setMsg = (text, kind) => {
+        if (!status) return;
+        status.textContent = text || '';
+        status.style.color = kind === 'error' ? '#b91c1c'
+          : kind === 'ok' ? '#15803d'
+          : 'var(--muted)';
+      };
+      if (!window.nostr) { setMsg('Sign in with a Nostr extension first.', 'error'); return; }
+      const target = `book-page:${entry.id}`;
+      const hasLayers = (state.layers || []).some(l => l.target === target);
+      if (!hasLayers && !(entry.background && entry.background.toLowerCase() !== '#ffffff')) {
+        setMsg('Page is empty — nothing to publish.', 'error');
+        return;
+      }
+      const payload = bookPagePayload(entry, 'interior');
+      const dTag = `book-page:${entry.id}`;
+      const now = Math.floor(Date.now() / 1000);
+      const tags = [
+        ['d', dTag],
+        ['t', 'casewrap'],
+        ['t', 'casewrap-page'],
+        ['title', payload.meta?.title || 'Page'],
+        ['client', 'Artstr Studio'],
+        ['role', 'interior'],
+      ];
+      const evt = { kind: 30078, created_at: now, tags, content: JSON.stringify(payload) };
+      const btn = document.getElementById('bookPageEditPublish');
+      if (btn) btn.disabled = true;
+      setMsg('Signing + publishing…');
+      try {
+        const signed = await publishCommunityEvent(evt);
+        const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
+        pushHistory('book: page publish');
+        entry.ref = { kind: 30078, pubkey: signed.pubkey, dTag, relays };
+        setMsg(`Published ${signed.id.slice(0, 8)}…`, 'ok');
+        render();
+      } catch (err) {
+        console.warn('page publish failed', err);
+        setMsg('Publish failed: ' + (err?.message || 'unknown error'), 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+    // Publish the currently-edited master as a casewrap-page event
+    // with role:'master'. Mirrors page publish; d-tag uses the master
+    // id so re-publishes replace in place.
+    async function publishBookMasterToNostr() {
+      const book = state.book;
+      const masterId = book?.editingMasterId;
+      if (!masterId) return;
+      const m = (book.masters || []).find(x => x.id === masterId);
+      if (!m) return;
+      const status = document.getElementById('bookPageEditPublishStatus');
+      const setMsg = (text, kind) => {
+        if (!status) return;
+        status.textContent = text || '';
+        status.style.color = kind === 'error' ? '#b91c1c'
+          : kind === 'ok' ? '#15803d'
+          : 'var(--muted)';
+      };
+      if (!window.nostr) { setMsg('Sign in with a Nostr extension first.', 'error'); return; }
+      const target = `book-master:${m.id}`;
+      const hasLayers = (state.layers || []).some(l => l.target === target);
+      if (!hasLayers) { setMsg('Master has no layers — nothing to publish.', 'error'); return; }
+      const payload = bookPagePayload(m, 'master');
+      const dTag = `book-master:${m.id}`;
+      const now = Math.floor(Date.now() / 1000);
+      const tags = [
+        ['d', dTag],
+        ['t', 'casewrap'],
+        ['t', 'casewrap-page'],
+        ['title', m.label || 'Master'],
+        ['client', 'Artstr Studio'],
+        ['role', 'master'],
+      ];
+      const evt = { kind: 30078, created_at: now, tags, content: JSON.stringify(payload) };
+      const btn = document.getElementById('bookPageEditPublish');
+      if (btn) btn.disabled = true;
+      setMsg('Signing + publishing…');
+      try {
+        const signed = await publishCommunityEvent(evt);
+        const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
+        pushHistory('book: master publish');
+        m.ref = { kind: 30078, pubkey: signed.pubkey, dTag, relays };
+        setMsg(`Published ${signed.id.slice(0, 8)}…`, 'ok');
+        render();
+      } catch (err) {
+        console.warn('master publish failed', err);
+        setMsg('Publish failed: ' + (err?.message || 'unknown error'), 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+    // Dispatch the Publish button to the right helper based on which
+    // book-mode view is active (page edit vs master edit).
+    function publishBookSurface() {
+      const book = state.book;
+      if (book?.editingMasterId) return publishBookMasterToNostr();
+      if (book?.editingEntryId) return publishBookPageToNostr();
+    }
+
     // Build a NIP-23 d-tag slug from the chapter title (or entry id).
     // Kept lowercase alphanumeric + hyphens so it round-trips through
     // relay query strings cleanly.
@@ -10092,6 +10235,9 @@
       bar.style.display = (editingPage || editingMaster) ? '' : 'none';
       if (!editingPage && !editingMaster) return;
       const tfBtn = document.getElementById('bookMasterAddTextFrame');
+      const pubBtn = document.getElementById('bookPageEditPublish');
+      const pubStatus = document.getElementById('bookPageEditPublishStatus');
+      if (pubStatus) pubStatus.textContent = '';
       if (editingMaster) {
         const m = book.masters.find(x => x.id === book.editingMasterId);
         if (label) label.textContent = `Master: ${m?.label || 'Untitled'}`;
@@ -10099,6 +10245,12 @@
         if (prev) prev.style.display = 'none';
         if (next) next.style.display = 'none';
         if (tfBtn) tfBtn.style.display = '';
+        if (pubBtn) {
+          pubBtn.textContent = m?.ref ? 'Re-publish master' : 'Publish master';
+          pubBtn.title = m?.ref
+            ? `Replace ${m.ref.dTag} on relays`
+            : 'Publish this master as a casewrap-page event (role:"master")';
+        }
         return;
       }
       // editingPage path
@@ -10106,6 +10258,13 @@
       if (next) next.style.display = '';
       if (tfBtn) tfBtn.style.display = 'none';
       if (back) back.textContent = '← Back to Pages';
+      if (pubBtn) {
+        const entry = book.pages.find(p => p.id === book.editingEntryId);
+        pubBtn.textContent = entry?.ref ? 'Re-publish page' : 'Publish page';
+        pubBtn.title = entry?.ref
+          ? `Replace ${entry.ref.dTag} on relays`
+          : 'Publish this page as a casewrap-page event';
+      }
       const designed = book.pages.filter(p => p.type === 'design');
       const idx = designed.findIndex(p => p.id === book.editingEntryId);
       const total = designed.length;
@@ -33298,6 +33457,7 @@
       on('bookPageEditPrev', 'click', () => gotoBookPageRelative(-1));
       on('bookPageEditNext', 'click', () => gotoBookPageRelative(1));
       on('bookMasterAddTextFrame', 'click', () => addBookTextFrameToActiveMaster());
+      on('bookPageEditPublish', 'click', publishBookSurface);
 
       // Book Designer — Masters modal.
       on('bookManageMastersBtn', 'click', openBookMastersModal);
