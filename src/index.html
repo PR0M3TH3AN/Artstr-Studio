@@ -5314,6 +5314,69 @@
     </div>
   </div>
 
+  <div class="modal" id="bookExportPdfModal" aria-hidden="true" style="display:none">
+    <div class="modalInner" style="max-width:520px;position:relative">
+      <button type="button" id="bookExportPdfCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
+      <h2 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Export PDF</h2>
+      <p class="hint" style="margin:0 0 14px">Choose what to include and how to package the output. Files render at 200 DPI; raster-only in v1 (real PDF text for embeddable fonts lands in a follow-up).</p>
+
+      <fieldset style="margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
+        <legend style="font-size:.82rem;padding:0 4px">Pages</legend>
+        <label class="toggle" style="display:flex;align-items:center;gap:6px;margin:2px 0">
+          <input type="radio" name="bookExportRange" value="all" id="bookExportRangeAll" checked />
+          <span>All physical pages</span>
+        </label>
+        <label class="toggle" style="display:flex;align-items:center;gap:6px;margin:2px 0">
+          <input type="radio" name="bookExportRange" value="range" id="bookExportRangeCustom" />
+          <span>Page range:</span>
+          <input type="number" id="bookExportRangeFrom" min="1" step="1" style="width:60px" />
+          <span>to</span>
+          <input type="number" id="bookExportRangeTo" min="1" step="1" style="width:60px" />
+        </label>
+        <label class="toggle" style="display:flex;align-items:center;gap:6px;margin:2px 0">
+          <input type="checkbox" id="bookExportIncludeCover" checked />
+          <span>Include cover spread</span>
+        </label>
+      </fieldset>
+
+      <fieldset style="margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
+        <legend style="font-size:.82rem;padding:0 4px">Print marks</legend>
+        <label class="toggle" style="display:flex;align-items:center;gap:6px;margin:2px 0">
+          <input type="checkbox" id="bookExportIncludeBleed" />
+          <span>Include bleed margin on each page</span>
+        </label>
+        <label class="toggle" style="display:flex;align-items:center;gap:6px;margin:2px 0">
+          <input type="checkbox" id="bookExportCropMarks" />
+          <span>Draw crop marks at trim corners</span>
+        </label>
+        <p class="hint" style="margin:6px 0 0;font-size:.72rem">Bleed extends the page beyond the trim by the spec's bleed value; crop marks tell the printer where to cut.</p>
+      </fieldset>
+
+      <fieldset style="margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
+        <legend style="font-size:.82rem;padding:0 4px">Output</legend>
+        <label class="toggle" style="display:flex;align-items:center;gap:6px;margin:2px 0">
+          <input type="radio" name="bookExportSplit" value="single" id="bookExportSplitSingle" checked />
+          <span>Single PDF (interior + cover)</span>
+        </label>
+        <label class="toggle" style="display:flex;align-items:center;gap:6px;margin:2px 0">
+          <input type="radio" name="bookExportSplit" value="split" id="bookExportSplitSplit" />
+          <span>Interior PDF + Cover PDF (two files)</span>
+        </label>
+      </fieldset>
+
+      <label for="bookExportFilename" style="margin-top:10px;display:block;font-size:.82rem">Filename pattern</label>
+      <input type="text" id="bookExportFilename" placeholder="book" style="width:100%;padding:4px 8px;border:1px solid var(--line)" />
+      <p class="hint" style="margin:2px 0 0;font-size:.72rem">Single-file: <code>&lt;name&gt;.pdf</code>. Split: <code>&lt;name&gt;-interior.pdf</code> + <code>&lt;name&gt;-cover.pdf</code>.</p>
+
+      <p class="hint" id="bookExportPdfMsg" style="margin:10px 0 0;font-size:.78rem"></p>
+
+      <div class="buttonRow" style="margin-top:14px;justify-content:flex-end;gap:8px">
+        <button type="button" id="bookExportPdfCancelBtn">Cancel</button>
+        <button type="button" id="bookExportPdfRunBtn" class="primary">Export</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="embedCodeModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:680px;position:relative">
       <button type="button" id="embedCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
@@ -25213,26 +25276,73 @@
         }, 'image/png');
       });
     }
-    // Phase E1 orchestrator. Walks the physical-page sequence, renders
-    // each to canvas, embeds as PDF pages. Returns { blob, warnings }.
+    // Draw L-shaped crop marks at each trim corner of a pdf-lib
+    // page. Each mark is a short pair of lines outside the trim,
+    // offset by a small gap so they don't intrude on the artwork.
+    function _drawCropMarks(pdfPage, opts) {
+      const { trimX, trimY, trimW, trimH, gap = 4.5, length = 12, thickness = 0.5 } = opts;
+      const x0 = trimX, y0 = trimY;
+      const x1 = trimX + trimW, y1 = trimY + trimH;
+      const cfg = { thickness, color: window.PDFLib.rgb(0, 0, 0) };
+      // Top-left
+      pdfPage.drawLine({ start: { x: x0, y: y1 + gap }, end: { x: x0, y: y1 + gap + length }, ...cfg });
+      pdfPage.drawLine({ start: { x: x0 - gap - length, y: y1 }, end: { x: x0 - gap, y: y1 }, ...cfg });
+      // Top-right
+      pdfPage.drawLine({ start: { x: x1, y: y1 + gap }, end: { x: x1, y: y1 + gap + length }, ...cfg });
+      pdfPage.drawLine({ start: { x: x1 + gap, y: y1 }, end: { x: x1 + gap + length, y: y1 }, ...cfg });
+      // Bottom-left
+      pdfPage.drawLine({ start: { x: x0, y: y0 - gap }, end: { x: x0, y: y0 - gap - length }, ...cfg });
+      pdfPage.drawLine({ start: { x: x0 - gap - length, y: y0 }, end: { x: x0 - gap, y: y0 }, ...cfg });
+      // Bottom-right
+      pdfPage.drawLine({ start: { x: x1, y: y0 - gap }, end: { x: x1, y: y0 - gap - length }, ...cfg });
+      pdfPage.drawLine({ start: { x: x1 + gap, y: y0 }, end: { x: x1 + gap + length, y: y0 }, ...cfg });
+    }
+    // Phase E1/E2 orchestrator. Walks the physical-page sequence, renders
+    // each to canvas, embeds as PDF pages. Options:
+    //   dpi              — render resolution (default 200)
+    //   includeCover     — bool, default true
+    //   includeBleed     — bool; pages export at trim+bleed when true
+    //   cropMarks        — bool; L-marks outside the trim
+    //   range            — { from, to } 1-based; defaults to all
+    //   split            — bool; when true returns { interior, cover, warnings }
     async function exportBookToPdf(opts = {}) {
       const PDFLib = await loadPdfLibOnce();
       const book = state.book;
       if (!book) throw new Error('No book to export.');
       const dpi = Math.max(72, Math.min(450, Number(opts.dpi) || 200));
       const includeCover = opts.includeCover !== false;
-      const seq = enumerateBookPhysicalPages(book);
-      if (!seq.length && !(includeCover && book.cover)) {
-        throw new Error('Nothing to export — add at least one page or chapter first.');
+      const includeBleed = !!opts.includeBleed;
+      const cropMarks = !!opts.cropMarks;
+      const split = !!opts.split;
+      const range = opts.range || null;
+      const seq0 = enumerateBookPhysicalPages(book);
+      // Range filter — physical-page index, 1-based.
+      let seq = seq0;
+      if (range && Number.isFinite(range.from) && Number.isFinite(range.to)) {
+        const from = Math.max(1, Math.min(seq0.length, range.from | 0));
+        const to   = Math.max(from, Math.min(seq0.length, range.to | 0));
+        seq = seq0.slice(from - 1, to);
       }
-      const pdfDoc = await PDFLib.PDFDocument.create();
+      if (!seq.length && !(includeCover && book.cover)) {
+        throw new Error('Nothing to export — the selection is empty.');
+      }
       const warnings = [];
       _exportFailedImages.clear();
-      // Per physical page.
-      const reflowCache = new Map(); // entryId → paginateChapter result
       const spec = book.spec || {};
-      const trimWpt = (Number(spec.trimW) || 6) * 72;
-      const trimHpt = (Number(spec.trimH) || 9) * 72;
+      const trimW = Number(spec.trimW) || 6;
+      const trimH = Number(spec.trimH) || 9;
+      const bleed = Number(spec.bleed) || 0;
+      const pageWIn = includeBleed ? (trimW + bleed * 2) : trimW;
+      const pageHIn = includeBleed ? (trimH + bleed * 2) : trimH;
+      const trimOffsetIn = includeBleed ? bleed : 0;
+      const trimWpt = trimW * 72;
+      const trimHpt = trimH * 72;
+      const pageWpt = pageWIn * 72;
+      const pageHpt = pageHIn * 72;
+      const trimOffsetPt = trimOffsetIn * 72;
+      // Build interior PDF.
+      const interiorDoc = await PDFLib.PDFDocument.create();
+      const reflowCache = new Map();
       for (const slot of seq) {
         const entry = book.pages.find(p => p.id === slot.entryId);
         if (!entry) continue;
@@ -25250,28 +25360,57 @@
           warnings.push(`Page ${(slot.pageNumber != null) ? slot.pageNumber : '?'}: ${err.message || err}`);
           continue;
         }
+        // Reframe the trim-sized canvas onto a bleed-inclusive page if
+        // requested — the canvas covers the trim area, and the
+        // surrounding strip stays the page's background (white).
         const png = await _canvasToPngBytes(canvas);
-        const embedded = await pdfDoc.embedPng(png);
-        const page = pdfDoc.addPage([trimWpt, trimHpt]);
-        page.drawImage(embedded, { x: 0, y: 0, width: trimWpt, height: trimHpt });
+        const embedded = await interiorDoc.embedPng(png);
+        const pdfPage = interiorDoc.addPage([pageWpt, pageHpt]);
+        pdfPage.drawImage(embedded, {
+          x: trimOffsetPt, y: trimOffsetPt,
+          width: trimWpt, height: trimHpt,
+        });
+        if (cropMarks) {
+          _drawCropMarks(pdfPage, {
+            trimX: trimOffsetPt, trimY: trimOffsetPt,
+            trimW: trimWpt, trimH: trimHpt,
+          });
+        }
       }
-      // Cover spread on its own landscape page at the end.
+      // Cover lives in its own doc when split, otherwise appended to interior.
+      let coverDoc = null;
       if (includeCover && book.cover) {
         try {
           const coverCanvas = await renderBookCoverToCanvas(dpi);
           const png = await _canvasToPngBytes(coverCanvas);
-          const embedded = await pdfDoc.embedPng(png);
-          const spec2 = book.spec || {};
-          const trimW = Number(spec2.trimW) || 6;
-          const trimH = Number(spec2.trimH) || 9;
-          const bleed = Number(spec2.bleed) || 0;
-          const hasBack = !!spec2.coverHasBack;
-          const hasSpine = !!spec2.coverHasSpine;
+          const target = split ? await PDFLib.PDFDocument.create() : interiorDoc;
+          const embedded = await target.embedPng(png);
+          const hasBack = !!spec.coverHasBack;
+          const hasSpine = !!spec.coverHasSpine;
           const spineW = hasSpine ? bookSpineWidthInches() : 0;
-          const spreadW = (hasBack ? trimW : 0) + spineW + trimW + bleed * 2;
-          const spreadH = trimH + bleed * 2;
-          const page = pdfDoc.addPage([spreadW * 72, spreadH * 72]);
-          page.drawImage(embedded, { x: 0, y: 0, width: spreadW * 72, height: spreadH * 72 });
+          const spreadTrimW = (hasBack ? trimW : 0) + spineW + trimW;
+          const spreadTrimH = trimH;
+          const spreadPageW = includeBleed ? (spreadTrimW + bleed * 2) : spreadTrimW;
+          const spreadPageH = includeBleed ? (spreadTrimH + bleed * 2) : spreadTrimH;
+          // The cover canvas already includes the bleed strip — if
+          // includeBleed is false, crop to trim by drawing the
+          // bleed-inclusive image at a negative offset so only the
+          // trim area lands on the page.
+          const pdfPage = target.addPage([spreadPageW * 72, spreadPageH * 72]);
+          const drawW = (spreadTrimW + bleed * 2) * 72;
+          const drawH = (spreadTrimH + bleed * 2) * 72;
+          const offX = includeBleed ? 0 : -bleed * 72;
+          const offY = includeBleed ? 0 : -bleed * 72;
+          pdfPage.drawImage(embedded, { x: offX, y: offY, width: drawW, height: drawH });
+          if (cropMarks) {
+            _drawCropMarks(pdfPage, {
+              trimX: includeBleed ? bleed * 72 : 0,
+              trimY: includeBleed ? bleed * 72 : 0,
+              trimW: spreadTrimW * 72,
+              trimH: spreadTrimH * 72,
+            });
+          }
+          if (split) coverDoc = target;
         } catch (err) {
           warnings.push(`Cover: ${err.message || err}`);
         }
@@ -25279,45 +25418,114 @@
       if (_exportFailedImages.size) {
         warnings.push(`${_exportFailedImages.size} image${_exportFailedImages.size === 1 ? '' : 's'} could not be embedded (CORS / missing).`);
       }
-      const bytes = await pdfDoc.save();
-      const blob = new Blob([bytes], { type: 'application/pdf' });
-      return { blob, warnings };
+      const interiorBytes = await interiorDoc.save();
+      const interior = new Blob([interiorBytes], { type: 'application/pdf' });
+      if (split && coverDoc) {
+        const coverBytes = await coverDoc.save();
+        const cover = new Blob([coverBytes], { type: 'application/pdf' });
+        return { split: true, interior, cover, warnings };
+      }
+      return { blob: interior, warnings };
     }
-    async function downloadBookPdf() {
+    function _bookExportDefaultSlug() {
+      return (state.meta?.title || 'book')
+        .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'book';
+    }
+    function openBookExportModal() {
+      const modal = document.getElementById('bookExportPdfModal');
+      if (!modal) return;
+      const book = state.book;
+      const total = book ? enumerateBookPhysicalPages(book).length : 0;
+      const fromEl = $('bookExportRangeFrom');
+      const toEl = $('bookExportRangeTo');
+      if (fromEl) { fromEl.max = String(total || 1); fromEl.value = '1'; }
+      if (toEl)   { toEl.max = String(total || 1);   toEl.value = String(total || 1); }
+      const allRadio = $('bookExportRangeAll');
+      if (allRadio) allRadio.checked = true;
+      const cover = $('bookExportIncludeCover');
+      if (cover) cover.checked = !!book?.cover;
+      const bleed = $('bookExportIncludeBleed');
+      if (bleed) bleed.checked = false;
+      const crop = $('bookExportCropMarks');
+      if (crop) crop.checked = false;
+      const single = $('bookExportSplitSingle');
+      if (single) single.checked = true;
+      const fnEl = $('bookExportFilename');
+      if (fnEl) fnEl.value = _bookExportDefaultSlug();
+      const msg = $('bookExportPdfMsg');
+      if (msg) { msg.textContent = ''; msg.style.color = 'var(--muted)'; }
+      modal.style.display = 'flex';
+      modal.setAttribute('aria-hidden', 'false');
+      if (typeof bringModalToFront === 'function') bringModalToFront(modal);
+    }
+    function closeBookExportModal() {
+      const modal = document.getElementById('bookExportPdfModal');
+      if (!modal) return;
+      modal.style.display = 'none';
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    async function runBookExportFromModal() {
       const book = state.book;
       if (!book) return;
-      const btn = document.getElementById('bookExportPdfBtn');
-      const status = document.getElementById('bookExportPdfStatus');
-      const setStatus = (text, kind) => {
-        if (!status) return;
-        status.textContent = text || '';
-        status.style.color = kind === 'error' ? '#b91c1c'
-          : kind === 'ok' ? '#15803d' : 'var(--muted)';
+      const rangeMode = (document.querySelector('input[name="bookExportRange"]:checked')?.value) || 'all';
+      const splitMode = (document.querySelector('input[name="bookExportSplit"]:checked')?.value) || 'single';
+      const opts = {
+        includeCover: $('bookExportIncludeCover')?.checked !== false,
+        includeBleed: !!$('bookExportIncludeBleed')?.checked,
+        cropMarks: !!$('bookExportCropMarks')?.checked,
+        split: splitMode === 'split',
       };
-      if (btn) btn.disabled = true;
-      setStatus('Rendering PDF…');
+      if (rangeMode === 'range') {
+        const from = Number($('bookExportRangeFrom')?.value);
+        const to = Number($('bookExportRangeTo')?.value);
+        if (Number.isFinite(from) && Number.isFinite(to)) opts.range = { from, to };
+      }
+      const slug = ($('bookExportFilename')?.value || '').trim() || _bookExportDefaultSlug();
+      const runBtn = $('bookExportPdfRunBtn');
+      const cancelBtn = $('bookExportPdfCancelBtn');
+      const msg = $('bookExportPdfMsg');
+      const setMsg = (text, kind) => {
+        if (!msg) return;
+        msg.textContent = text || '';
+        msg.style.color = kind === 'error' ? '#b91c1c' : kind === 'ok' ? '#15803d' : 'var(--muted)';
+      };
+      if (runBtn) runBtn.disabled = true;
+      if (cancelBtn) cancelBtn.disabled = true;
+      setMsg('Rendering PDF…');
       try {
-        const { blob, warnings } = await exportBookToPdf();
-        const a = document.createElement('a');
-        const url = URL.createObjectURL(blob);
-        const slug = (state.meta?.title || 'book')
-          .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64);
-        a.href = url;
-        a.download = `${slug || 'book'}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 4000);
-        if (warnings.length) {
-          setStatus(`Exported with ${warnings.length} warning${warnings.length === 1 ? '' : 's'}: ${warnings[0]}`, 'error');
+        const result = await exportBookToPdf(opts);
+        const triggerDownload = (blob, name) => {
+          const a = document.createElement('a');
+          const url = URL.createObjectURL(blob);
+          a.href = url;
+          a.download = name;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+        };
+        let totalKB;
+        if (result.split) {
+          triggerDownload(result.interior, `${slug}-interior.pdf`);
+          triggerDownload(result.cover, `${slug}-cover.pdf`);
+          totalKB = ((result.interior.size + result.cover.size) / 1024).toFixed(0);
         } else {
-          setStatus(`Exported ${(blob.size / 1024).toFixed(0)} KB.`, 'ok');
+          triggerDownload(result.blob, `${slug}.pdf`);
+          totalKB = (result.blob.size / 1024).toFixed(0);
+        }
+        const w = result.warnings || [];
+        if (w.length) {
+          setMsg(`Exported ${totalKB} KB with ${w.length} warning${w.length === 1 ? '' : 's'}: ${w[0]}`, 'error');
+        } else {
+          setMsg(`Exported ${totalKB} KB.`, 'ok');
+          setTimeout(closeBookExportModal, 800);
         }
       } catch (err) {
         console.warn('PDF export failed', err);
-        setStatus('Export failed: ' + (err?.message || 'unknown'), 'error');
+        setMsg('Export failed: ' + (err?.message || 'unknown'), 'error');
       } finally {
-        if (btn) btn.disabled = false;
+        if (runBtn) runBtn.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
       }
     }
     // ---- end Book PDF export --------------------------------------------
@@ -34736,7 +34944,23 @@
       on('bookViewTogglePages', 'click', () => setBookSubView('pages'));
       on('bookViewToggleCover', 'click', () => setBookSubView('cover'));
       on('bookCoverEditBtn', 'click', openBookCover);
-      on('bookExportPdfBtn', 'click', downloadBookPdf);
+      on('bookExportPdfBtn', 'click', openBookExportModal);
+      on('bookExportPdfCloseBtn', 'click', closeBookExportModal);
+      on('bookExportPdfCancelBtn', 'click', closeBookExportModal);
+      on('bookExportPdfRunBtn', 'click', runBookExportFromModal);
+      // Flip the page-range radio to "range" when the user types in the
+      // from/to fields, so they don't have to click the radio first.
+      ['bookExportRangeFrom', 'bookExportRangeTo'].forEach(id => {
+        on(id, 'input', () => {
+          const r = document.getElementById('bookExportRangeCustom');
+          if (r) r.checked = true;
+        });
+      });
+      // Click-outside to close.
+      const _bookExportPdfModal = document.getElementById('bookExportPdfModal');
+      if (_bookExportPdfModal) _bookExportPdfModal.addEventListener('click', (e) => {
+        if (e.target === _bookExportPdfModal) closeBookExportModal();
+      });
       on('bookPageEditBack', 'click', () => {
         // Same back-button serves per-page, per-master, and cover modes.
         if (state.book?.editingMasterId) closeBookMaster();
