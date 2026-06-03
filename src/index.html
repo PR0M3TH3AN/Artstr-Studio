@@ -1485,13 +1485,13 @@
        UNLESS a specific page is being edited (`editing-book-page`
        class), in which case those panels return and #bookView
        hides. Same pattern the deck sorter uses for the slide editor. */
-    body.template-book:not(.editing-book-page) #sheetWrap,
-    body.template-book:not(.editing-book-page) #toolOptions,
-    body.template-book:not(.editing-book-page) #canvasToolbar,
-    body.template-book:not(.editing-book-page) #exportFieldset,
-    body.template-book:not(.editing-book-page) #layersFieldset,
-    body.template-book:not(.editing-book-page) #printExportRow,
-    body.template-book:not(.editing-book-page) .toolPalette,
+    body.template-book:not(.editing-book-page):not(.editing-book-cover) #sheetWrap,
+    body.template-book:not(.editing-book-page):not(.editing-book-cover) #toolOptions,
+    body.template-book:not(.editing-book-page):not(.editing-book-cover) #canvasToolbar,
+    body.template-book:not(.editing-book-page):not(.editing-book-cover) #exportFieldset,
+    body.template-book:not(.editing-book-page):not(.editing-book-cover) #layersFieldset,
+    body.template-book:not(.editing-book-page):not(.editing-book-cover) #printExportRow,
+    body.template-book:not(.editing-book-page):not(.editing-book-cover) .toolPalette,
     body.template-book .coverOnly,
     body.template-book .diskLayer,
     body.template-book .jewelLayer,
@@ -1501,6 +1501,9 @@
     body.template-book .discSpineStrip,
     body.template-book .jewelSpineGuide,
     body.template-book .spineText { display: none !important; }
+    /* When editing the cover, hide the Pages-overview / Cover-summary
+       panels so the wider canvas takes the room. */
+    body.template-book.editing-book-cover #bookView { display: none; }
 
     /* Markdown chapter editor — shown when a reflow entry is open
        on the book canvas. Two-pane layout: textarea on the left,
@@ -4416,9 +4419,11 @@
               <div class="bookCoverPreview" id="bookCoverPreview" aria-label="Cover spread preview"></div>
             </div>
             <div class="buttonRow" style="margin-top:8px">
+              <button type="button" id="bookCoverEditBtn" class="primary">Edit cover</button>
               <button type="button" id="bookCoverReplaceBtn" disabled title="Phase D1 — pick from your published cover-spread events">Replace cover from Nostr…</button>
             </div>
-            <p class="hint" style="margin-top:8px">The cover spread reflows automatically when page count or paper thickness changes (spine width re-derives) and when trim or bleed changes in Document settings. Editing the cover layers mounts the cover designer in Phase B; publishing the cover as its own <code>casewrap-page</code> event lands in Phase D1.</p>
+            <p class="hint" id="bookCoverRefHint" style="margin-top:8px"></p>
+            <p class="hint" style="margin-top:8px">The cover spread reflows automatically when page count or paper thickness changes (spine width re-derives) and when trim or bleed changes in Document settings.</p>
           </div>
         </div>
 
@@ -9238,6 +9243,33 @@
       syncInputs();
       render();
     }
+    // Open the cover spread for editing. Canvas widens to the full
+    // back + spine + front layout; layers land under book-cover-front
+    // by default (most cover artwork is front-facing). The user can
+    // switch panels from the layer-target dropdown.
+    function openBookCover() {
+      const book = ensureBookState();
+      book.editingCover = true;
+      book.editingEntryId = null;
+      book.editingMasterId = null;
+      book.editingChapterId = null;
+      document.body.classList.add('editing-book-cover');
+      document.body.classList.remove('editing-book-page', 'editing-book-master', 'editing-book-chapter');
+      clearLayerSelection?.();
+      try { setEditorTool('select'); } catch {}
+      syncBookPageEditBar();
+      syncInputs();
+      render();
+    }
+    function closeBookCover() {
+      const book = state.book;
+      if (book) book.editingCover = false;
+      document.body.classList.remove('editing-book-cover');
+      clearLayerSelection?.();
+      syncBookPageEditBar();
+      syncInputs();
+      render();
+    }
     // Pagination engine. Pure function shape so it's testable in
     // isolation. Takes a reflow entry + the book state, returns
     // `{ pages, overflow, warnings, masterId, frame }`.
@@ -10331,12 +10363,100 @@
       const linkTags = Array.from(refs).map(r => ['link', r, relayHint]);
       return { contributorTags, linkTags };
     }
+    // Build the cover-spread payload. All three panels' layers (front
+    // / back / spine) ship under their original targets so the
+    // standalone event renders cleanly through Linked Designs.
+    function bookCoverPayload() {
+      const spec = state.book?.spec || {};
+      const trimW = Number(spec.trimW) || 6;
+      const trimH = Number(spec.trimH) || 9;
+      const bleed = Number(spec.bleed) || 0;
+      const layers = (state.layers || [])
+        .filter(l => /^book-cover-|^book-spine$/.test(String(l.target || '')))
+        .map(l => ({ ...l }));
+      return {
+        version: typeof SCHEMA_VERSION === 'number' ? SCHEMA_VERSION : 5,
+        templateMode: 'book-page',
+        templateType: 'book-page',
+        meta: { ...(state.meta || {}), title: (state.meta?.title || 'Book') + ' — cover' },
+        page: {
+          role: 'cover-spread',
+          trimW, trimH, bleed,
+          coverSpread: {
+            spineW: bookSpineWidthInches(),
+            hasSpine: !!spec.coverHasSpine,
+            hasBack: !!spec.coverHasBack,
+          },
+          background: spec.coverBackground || '',
+          layers,
+        },
+      };
+    }
+    // Publish the cover spread as a casewrap-page event with
+    // role:'cover-spread'. D-tag uses the book id (sanitised title)
+    // so re-publishes replace in place.
+    async function publishBookCoverToNostr() {
+      const book = state.book;
+      if (!book) return;
+      const status = document.getElementById('bookPageEditPublishStatus');
+      const setMsg = (text, kind) => {
+        if (!status) return;
+        status.textContent = text || '';
+        status.style.color = kind === 'error' ? '#b91c1c'
+          : kind === 'ok' ? '#15803d'
+          : 'var(--muted)';
+      };
+      if (!window.nostr) { setMsg('Sign in with a Nostr extension first.', 'error'); return; }
+      const hasLayers = (state.layers || []).some(l => /^book-cover-|^book-spine$/.test(String(l.target || '')));
+      if (!hasLayers) { setMsg('Cover has no artwork — add a layer first.', 'error'); return; }
+      const payload = bookCoverPayload();
+      const titleSlug = String(state.meta?.title || 'cover')
+        .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'cover';
+      const dTag = book.cover?.ref?.pubkey === (state.community?.myPubkey || '')
+        ? (book.cover.ref.dTag || `book-cover:${titleSlug}`)
+        : `book-cover:${titleSlug}`;
+      const isPrivate = state.visibility === 'private';
+      const btn = document.getElementById('bookPageEditPublish');
+      if (btn) btn.disabled = true;
+      setMsg(isPrivate ? 'Encrypting + publishing…' : 'Signing + publishing…');
+      try {
+        let signed;
+        if (isPrivate) {
+          if (!nostrEncryptCapability()) throw new Error('Your Nostr extension lacks NIP-44/NIP-04 encryption.');
+          signed = await _publishEncryptedBookSidecar(payload, dTag, [['role', 'cover-spread']]);
+        } else {
+          const now = Math.floor(Date.now() / 1000);
+          const tags = [
+            ['d', dTag],
+            ['t', 'casewrap'],
+            ['t', 'casewrap-page'],
+            ['title', payload.meta?.title || 'Cover'],
+            ['client', 'Artstr Studio'],
+            ['role', 'cover-spread'],
+          ];
+          const evt = { kind: 30078, created_at: now, tags, content: JSON.stringify(payload) };
+          signed = await publishCommunityEvent(evt);
+        }
+        const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
+        pushHistory('book: cover publish');
+        book.cover = { ref: { kind: 30078, pubkey: signed.pubkey, dTag, relays, encrypted: isPrivate || undefined } };
+        setMsg(`${isPrivate ? 'Privately published' : 'Published'} ${signed.id.slice(0, 8)}…`, 'ok');
+        render();
+      } catch (err) {
+        console.warn('cover publish failed', err);
+        setMsg('Publish failed: ' + (err?.message || 'unknown error'), 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
     // Dispatch the Publish button to the right helper based on which
     // book-mode view is active (page edit vs master edit).
     function publishBookSurface() {
       const book = state.book;
       if (book?.editingMasterId) return publishBookMasterToNostr();
       if (book?.editingEntryId) return publishBookPageToNostr();
+      if (book?.editingCover) return publishBookCoverToNostr();
     }
 
     // Build a NIP-23 d-tag slug from the chapter title (or entry id).
@@ -10580,12 +10700,29 @@
       const inBook = state.templateMode === 'book';
       const editingPage = inBook && !!book?.editingEntryId;
       const editingMaster = inBook && !!book?.editingMasterId;
-      bar.style.display = (editingPage || editingMaster) ? '' : 'none';
-      if (!editingPage && !editingMaster) return;
+      const editingCover = inBook && !!book?.editingCover;
+      bar.style.display = (editingPage || editingMaster || editingCover) ? '' : 'none';
+      if (!editingPage && !editingMaster && !editingCover) return;
       const tfBtn = document.getElementById('bookMasterAddTextFrame');
       const pubBtn = document.getElementById('bookPageEditPublish');
       const pubStatus = document.getElementById('bookPageEditPublishStatus');
       if (pubStatus) pubStatus.textContent = '';
+      if (editingCover) {
+        if (label) label.textContent = 'Cover spread';
+        if (back) back.textContent = '← Back to Cover view';
+        if (prev) prev.style.display = 'none';
+        if (next) next.style.display = 'none';
+        if (tfBtn) tfBtn.style.display = 'none';
+        if (pubBtn) {
+          const visTag = state.visibility === 'private' ? ' 🔒' : '';
+          const ref = book.cover?.ref;
+          pubBtn.textContent = (ref ? 'Re-publish cover' : 'Publish cover') + visTag;
+          pubBtn.title = ref
+            ? `Replace ${ref.dTag} on relays${visTag ? ' (private)' : ''}`
+            : `Publish this cover as a casewrap-page event${visTag ? ' (private, end-to-end encrypted)' : ' (role:"cover-spread")'}`;
+        }
+        return;
+      }
       if (editingMaster) {
         const m = book.masters.find(x => x.id === book.editingMasterId);
         if (label) label.textContent = `Master: ${m?.label || 'Untitled'}`;
@@ -10715,6 +10852,24 @@
       if (hasBack)  addPanel('back',  'Back',  trimW + bleed, `${fmt(trimW)} in`);
       if (hasSpine && spineW > 0) addPanel('spine', 'Spine', spineW, `${fmt(spineW)} in`);
       addPanel('front', 'Front', trimW + bleed, `${fmt(trimW)} in`);
+
+      // Ref status hint — published / unpublished / publication target.
+      const refHint = document.getElementById('bookCoverRefHint');
+      if (refHint) {
+        const ref = book.cover?.ref;
+        const coverLayerCount = (state.layers || []).filter(l => /^book-cover-|^book-spine$/.test(String(l.target || ''))).length;
+        if (ref) {
+          const enc = ref.encrypted ? ' 🔒' : '';
+          refHint.textContent = `Published${enc} as ${ref.dTag} (${coverLayerCount} layer${coverLayerCount === 1 ? '' : 's'}).`;
+          refHint.style.color = '#15803d';
+        } else if (coverLayerCount) {
+          refHint.textContent = `${coverLayerCount} layer${coverLayerCount === 1 ? '' : 's'} ready — Edit cover then Publish to mint a casewrap-page event.`;
+          refHint.style.color = 'var(--muted)';
+        } else {
+          refHint.textContent = 'No artwork yet — click Edit cover to design the spread.';
+          refHint.style.color = 'var(--muted)';
+        }
+      }
     }
 
     function syncBookSidebarSummary() {
@@ -10806,6 +10961,9 @@
           if (masterId && t === `book-master:${masterId}`) return true;
           return false;
         }
+        if (state.book?.editingCover) {
+          return t === 'book-cover-front' || t === 'book-cover-back' || t === 'book-spine';
+        }
         // Pages overview (no surface open) → no canvas layers render.
         return false;
       }
@@ -10851,6 +11009,13 @@
           const idx = (state.book?.pages || []).findIndex(p => p.id === editId);
           const human = idx >= 0 ? `Page ${idx + 1}` : 'Current page';
           return [{ key: `book-page:${editId}`, label: human }];
+        }
+        if (state.book?.editingCover) {
+          const s = state.book.spec || {};
+          const targets = [{ key: 'book-cover-front', label: 'Front cover' }];
+          if (s.coverHasSpine) targets.push({ key: 'book-spine', label: 'Spine' });
+          if (s.coverHasBack)  targets.push({ key: 'book-cover-back', label: 'Back cover' });
+          return targets;
         }
         return [];
       }
@@ -11860,7 +12025,17 @@
       if (isCanvasMode(state.templateMode)) return customArtCanvasInches().wIn;
       if (state.templateMode === 'book') {
         const s = state.book?.spec;
-        return (s ? (Number(s.trimW) || 0) + (Number(s.bleed) || 0) * 2 : 6);
+        if (!s) return 6;
+        const trimW = Number(s.trimW) || 0;
+        const bleed = Number(s.bleed) || 0;
+        // Cover edit mode: full wrap-around spread.
+        if (state.book?.editingCover) {
+          const hasBack = !!s.coverHasBack;
+          const hasSpine = !!s.coverHasSpine;
+          const spineW = hasSpine ? bookSpineWidthInches() : 0;
+          return (hasBack ? trimW : 0) + spineW + trimW + bleed * 2;
+        }
+        return trimW + bleed * 2;
       }
       return totalTrimW() + state.bleed * 2;
     }
@@ -11870,9 +12045,8 @@
       if (state.templateMode === 'jewel') return jewelTemplate.sheetH;
       if (isCanvasMode(state.templateMode)) return customArtCanvasInches().hIn;
       if (state.templateMode === 'book') {
-        // Phase A2: the canvas-host renders blank in book mode (no
-        // active page surface yet). Use trim + bleed so the host has
-        // sensible dimensions for the placeholder.
+        // Trim height + bleed top/bottom regardless of which surface
+        // is active (cover and page heights are the same in v1).
         const s = state.book?.spec;
         return (s ? (Number(s.trimH) || 0) + (Number(s.bleed) || 0) * 2 : 9);
       }
@@ -12583,6 +12757,7 @@
       if (state.templateMode === 'book') {
         if (state.book?.editingMasterId) return `book-master:${state.book.editingMasterId}`;
         if (state.book?.editingEntryId)  return `book-page:${state.book.editingEntryId}`;
+        if (state.book?.editingCover)    return 'book-cover-front';
       }
       return primaryTargetForMode(state.templateMode || 'cover');
     }
@@ -15727,9 +15902,15 @@
         if (target.startsWith('book-page:') || target.startsWith('book-master:')) {
           return { x: bleed, y: bleed, w: trimW, h: trimH };
         }
+        // Cover panels honour coverHasBack / coverHasSpine — a
+        // front-only chapbook starts the front panel at the bleed
+        // edge with no back / no spine.
+        const hasBack = !!s.coverHasBack;
+        const hasSpine = !!s.coverHasSpine;
+        const spineWUsed = hasSpine ? spineW : 0;
         if (target === 'book-cover-back')  return { x: bleed, y: bleed, w: trimW, h: trimH };
-        if (target === 'book-spine')       return { x: bleed + trimW, y: bleed, w: spineW, h: trimH };
-        if (target === 'book-cover-front') return { x: bleed + trimW + spineW, y: bleed, w: trimW, h: trimH };
+        if (target === 'book-spine')       return { x: bleed + (hasBack ? trimW : 0), y: bleed, w: spineWUsed, h: trimH };
+        if (target === 'book-cover-front') return { x: bleed + (hasBack ? trimW : 0) + spineWUsed, y: bleed, w: trimW, h: trimH };
       }
       return { x: 0, y: 0, w: sheetW(), h: sheetH() };
     }
@@ -33937,9 +34118,11 @@
       });
       on('bookViewTogglePages', 'click', () => setBookSubView('pages'));
       on('bookViewToggleCover', 'click', () => setBookSubView('cover'));
+      on('bookCoverEditBtn', 'click', openBookCover);
       on('bookPageEditBack', 'click', () => {
-        // Same back-button serves both per-page and per-master modes.
+        // Same back-button serves per-page, per-master, and cover modes.
         if (state.book?.editingMasterId) closeBookMaster();
+        else if (state.book?.editingCover) closeBookCover();
         else closeBookPage();
       });
       on('bookPageEditPrev', 'click', () => gotoBookPageRelative(-1));
