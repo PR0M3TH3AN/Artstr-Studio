@@ -9836,6 +9836,7 @@
         entry.textRef = decoded.type === 'naddr'
           ? { kind: decoded.kind, pubkey: decoded.pubkey, dTag: decoded.dTag, relays: decoded.relays || [], encrypted: isEncrypted || undefined }
           : { eventId: ev.id, pubkey: ev.pubkey, kind: ev.kind || decoded.kind || null, relays: decoded.relays || [], encrypted: isEncrypted || undefined };
+        _bookCacheWrite(entry.textRef, ev);
         // nevent imports are inherently pinned (a specific event id);
         // naddr imports default to live (follow d-tag).
         entry.textPinnedEventId = decoded.type === 'naddr' ? null : ev.id;
@@ -9905,6 +9906,7 @@
         pushHistory('book: chapter refresh');
         entry.chapterMarkdown = markdown;
         if (pinned) entry.textPinnedEventId = ev.id;
+        _bookCacheWrite(entry.textRef, ev);
         setMsg(`Updated to ${markdown.length.toLocaleString()} chars.`, 'ok');
         syncBookChapterEditor();
         render();
@@ -10050,6 +10052,7 @@
         const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
         pushHistory('book: page publish');
         entry.ref = { kind: 30078, pubkey: signed.pubkey, dTag, relays, encrypted: isPrivate || undefined };
+        _bookCacheWrite(entry.ref, signed);
         setMsg(`${isPrivate ? 'Privately published' : 'Published'} ${signed.id.slice(0, 8)}…`, 'ok');
         render();
       } catch (err) {
@@ -10107,6 +10110,7 @@
         const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
         pushHistory('book: master publish');
         m.ref = { kind: 30078, pubkey: signed.pubkey, dTag, relays, encrypted: isPrivate || undefined };
+        _bookCacheWrite(m.ref, signed);
         setMsg(`${isPrivate ? 'Privately published' : 'Published'} ${signed.id.slice(0, 8)}…`, 'ok');
         render();
       } catch (err) {
@@ -10146,6 +10150,69 @@
       try { parsed = JSON.parse(ev.content || ''); } catch { return null; }
       if (!isEncryptedEnvelope(parsed)) return null;
       return await decryptProjectEnvelope(parsed);
+    }
+
+    // Disk cache for resolved page / master / cover / chapter events.
+    // A warm re-open replays from localStorage instead of round-tripping
+    // relays. Keyed by ref coord (or pinned event id); LRU-bounded by
+    // total content bytes so a runaway book can't blow out storage.
+    const BOOK_SIDECAR_CACHE_KEY = 'casewrap:bookSidecar:v1';
+    const BOOK_SIDECAR_CACHE_MAX_BYTES = 2 * 1024 * 1024; // 2 MB cap
+    function _bookCacheRefKey(ref) {
+      if (!ref) return '';
+      if (ref.eventId && /^[0-9a-f]{64}$/i.test(ref.eventId)) return `id:${ref.eventId}`;
+      if (ref.kind && ref.pubkey && ref.dTag) return `${ref.kind}:${ref.pubkey}:${ref.dTag}`;
+      return '';
+    }
+    function _bookCacheLoad() {
+      try {
+        const raw = localStorage.getItem(BOOK_SIDECAR_CACHE_KEY);
+        if (!raw) return { version: 1, entries: {} };
+        const parsed = JSON.parse(raw);
+        if (parsed?.version !== 1 || !parsed?.entries) return { version: 1, entries: {} };
+        return parsed;
+      } catch { return { version: 1, entries: {} }; }
+    }
+    function _bookCacheSave(cache) {
+      try { localStorage.setItem(BOOK_SIDECAR_CACHE_KEY, JSON.stringify(cache)); }
+      catch (err) {
+        // Quota or other failure — drop the cache so a follow-up
+        // write can succeed. Sidecars re-fetch on next open.
+        console.warn('[book-sidecar] disk cache save failed (clearing)', err);
+        try { localStorage.removeItem(BOOK_SIDECAR_CACHE_KEY); } catch {}
+      }
+    }
+    function _bookCacheEvictIfNeeded(cache) {
+      const arr = Object.entries(cache.entries);
+      let total = 0;
+      for (const [, e] of arr) total += (e?.ev?.content?.length || 0);
+      if (total <= BOOK_SIDECAR_CACHE_MAX_BYTES) return;
+      arr.sort((a, b) => (a[1].fetchedAt || 0) - (b[1].fetchedAt || 0));
+      while (total > BOOK_SIDECAR_CACHE_MAX_BYTES && arr.length) {
+        const [k, e] = arr.shift();
+        total -= (e?.ev?.content?.length || 0);
+        delete cache.entries[k];
+      }
+    }
+    function _bookCacheRead(ref) {
+      const key = _bookCacheRefKey(ref);
+      if (!key) return null;
+      const cache = _bookCacheLoad();
+      const entry = cache.entries[key];
+      if (!entry?.ev) return null;
+      // Bump fetchedAt as a touch so frequently-used entries stay hot.
+      entry.fetchedAt = Date.now();
+      cache.entries[key] = entry;
+      _bookCacheSave(cache);
+      return entry.ev;
+    }
+    function _bookCacheWrite(ref, ev) {
+      const key = _bookCacheRefKey(ref);
+      if (!key || !ev?.id) return;
+      const cache = _bookCacheLoad();
+      cache.entries[key] = { ev, fetchedAt: Date.now() };
+      _bookCacheEvictIfNeeded(cache);
+      _bookCacheSave(cache);
     }
 
     // Walk the manifest and queue any sidecar (page / master / cover
@@ -10225,18 +10292,31 @@
     // Returns a summary { resolved, failed } for UI feedback.
     let _bookResolveInFlight = null;
     async function resolveBookSidecars(book = state.book, opts = {}) {
-      if (!book) return { resolved: 0, failed: 0 };
+      if (!book) return { resolved: 0, failed: 0, cached: 0 };
       const jobs = _collectBookSidecarJobs(book, opts);
-      if (!jobs.length) return { resolved: 0, failed: 0 };
+      if (!jobs.length) return { resolved: 0, failed: 0, cached: 0 };
+      const force = !!opts.force;
       // Coalesce concurrent calls so spamming "Refresh" doesn't fan out.
       if (_bookResolveInFlight) return _bookResolveInFlight;
-      const summary = { resolved: 0, failed: 0 };
+      const summary = { resolved: 0, failed: 0, cached: 0 };
       _bookResolveInFlight = (async () => {
         await Promise.all(jobs.map(async (job) => {
           const decoded = _refToDecoded(job.ref);
           if (!decoded) { summary.failed++; return; }
           try {
-            const ev = await _resolveEmbedEvent(decoded);
+            // Disk-cache fast path. A warm hit applies immediately
+            // without round-tripping relays. force:true skips the
+            // cache so the user-facing Refresh button gets fresh
+            // upstream state.
+            let ev = null;
+            let fromCache = false;
+            if (!force) {
+              const cached = _bookCacheRead(job.ref);
+              if (cached) { ev = cached; fromCache = true; }
+            }
+            if (!ev) {
+              ev = await _resolveEmbedEvent(decoded);
+            }
             if (!ev) { summary.failed++; return; }
             // Try decrypting first (private sidecar); fall back to
             // plain JSON parse or raw markdown for public chapters.
@@ -10254,6 +10334,8 @@
               if (job.kind === 'chapter' && ev.kind === 30023) {
                 // Public NIP-23: content is raw markdown.
                 _applyResolvedBookChapter(job.entryId, ev.content || '');
+                if (!fromCache) _bookCacheWrite(job.ref, ev);
+                if (fromCache) summary.cached++;
                 summary.resolved++;
                 return;
               }
@@ -10267,6 +10349,10 @@
               const md = payload?.chapter?.markdown ?? payload?.content ?? '';
               _applyResolvedBookChapter(job.entryId, md);
             }
+            // Write to disk cache on every successful network fetch
+            // so subsequent reloads skip the relay round-trip.
+            if (!fromCache) _bookCacheWrite(job.ref, ev);
+            if (fromCache) summary.cached++;
             summary.resolved++;
           } catch (err) {
             console.warn('book sidecar resolve failed', job, err);
@@ -10440,6 +10526,7 @@
         const relays = splitRelayList(state.community?.relays || '').slice(0, 2);
         pushHistory('book: cover publish');
         book.cover = { ref: { kind: 30078, pubkey: signed.pubkey, dTag, relays, encrypted: isPrivate || undefined } };
+        _bookCacheWrite(book.cover.ref, signed);
         setMsg(`${isPrivate ? 'Privately published' : 'Published'} ${signed.id.slice(0, 8)}…`, 'ok');
         render();
       } catch (err) {
@@ -10564,6 +10651,7 @@
           pushHistory('book: chapter publish');
           entry.textRef = { kind: 30023, pubkey: signed.pubkey, dTag, relays };
         }
+        _bookCacheWrite(entry.textRef, signed);
         entry.textPinnedEventId = null; // own publishes default to live
         setMsg(`${isPrivate ? 'Privately published' : 'Published'} as ${signed.id.slice(0, 8)}… (${md.length.toLocaleString()} chars).`, 'ok');
         syncBookChapterEditor();
@@ -34153,7 +34241,8 @@
           const summary = await resolveBookSidecars(state.book, { force: true });
           if (status) {
             if (summary.resolved || summary.failed) {
-              status.textContent = `Resolved ${summary.resolved}${summary.failed ? ` · ${summary.failed} failed` : ''}.`;
+              const cacheNote = summary.cached ? ` (${summary.cached} cached)` : '';
+              status.textContent = `Resolved ${summary.resolved}${cacheNote}${summary.failed ? ` · ${summary.failed} failed` : ''}.`;
               status.style.color = summary.failed ? '#b91c1c' : '#15803d';
             } else {
               status.textContent = 'Nothing to resolve.';
