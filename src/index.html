@@ -1663,6 +1663,31 @@
     .bookVisibilityChip.public  { color: #15803d; border-color: #86efac; }
     .bookVisibilityChip.private { color: #6b21a8; border-color: #c084fc; background: #faf5ff; }
     .bookVisibilityChip:disabled { opacity: .5; cursor: not-allowed; }
+    .bookStarterPanel {
+      grid-column: 1 / -1;
+      padding: 18px 22px; border: 1px dashed var(--line); border-radius: 8px;
+      background: #fafafa;
+    }
+    .bookStarterGrid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .bookStarterCard {
+      display: flex; flex-direction: column; align-items: flex-start;
+      padding: 14px 14px 12px;
+      border: 1px solid var(--line); border-radius: 6px;
+      background: #fff; cursor: pointer; text-align: left;
+      transition: border-color .12s, box-shadow .12s, transform .08s;
+    }
+    .bookStarterCard:hover {
+      border-color: var(--accent);
+      box-shadow: 0 4px 14px rgba(15, 23, 42, .08);
+      transform: translateY(-1px);
+    }
+    .bookStarterCardLabel { font-size: 1rem; font-weight: 700; }
+    .bookStarterCardDims  { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+    .bookStarterCardDesc  { font-size: .76rem; color: var(--ink); margin-top: 8px; line-height: 1.35; }
     .bookPageTile {
       position: relative;
       border: 1px solid var(--line); background: #fff;
@@ -8743,6 +8768,77 @@
     // label. Layers for the master live in state.layers under
     // `book-master:<id>`. The first master created becomes the
     // default automatically.
+    // Starter book templates (Phase F1). Each preset seeds the spec
+    // + a default master with a text-frame + a starter chapter so the
+    // user lands on a working book instead of an empty pages overview.
+    function applyBookStarterTemplate(presetKey) {
+      const book = ensureBookState();
+      pushHistory('book: apply starter template');
+      const dims = BOOK_SIZE_PRESETS[presetKey] || BOOK_SIZE_PRESETS['US Trade 6×9'];
+      const fresh = defaultBookSpec();
+      book.spec = { ...fresh, trimW: dims.trimW, trimH: dims.trimH, bookSize: presetKey || 'US Trade 6×9' };
+      book.cover = null;
+      book.masters = [];
+      book.pages = [];
+      // Drop any leftover book-* layers from the prior session.
+      state.layers = (state.layers || []).filter(l => !String(l.target || '').startsWith('book-'));
+      // Default master + text-frame at a 0.75" margin type area.
+      const master = { id: makeBookMasterId(), label: 'Body pages' };
+      book.masters.push(master);
+      book.spec.defaultMasterId = master.id;
+      const trimW = Number(book.spec.trimW), trimH = Number(book.spec.trimH);
+      const bleed = Number(book.spec.bleed) || 0;
+      const margin = 0.75;
+      state.layers.push({
+        id: makeLayerId(),
+        type: 'shape',
+        name: 'Text frame',
+        target: `book-master:${master.id}`,
+        x: bleed + margin, y: bleed + margin,
+        w: Math.max(0.5, trimW - margin * 2),
+        h: Math.max(0.5, trimH - margin * 2),
+        rotate: 0, opacity: 1, z: 1,
+        shape: defaultShapeData('text-frame'),
+        fill: { type: 'none' },
+        stroke: { type: 'none', color: '#60a5fa', width: 0, dash: 'solid' },
+      });
+      // Starter chapter with friendly placeholder markdown.
+      const chapterEntry = {
+        id: makeBookEntryId(),
+        type: 'reflow',
+        textRef: null,
+        textPinnedEventId: null,
+        chapterMarkdown: "# Chapter 1\n\nWelcome to your new book. Start writing — pages reflow automatically as you type.\n\n## Section heading\n\nMarkdown headings, paragraphs, lists, blockquotes, code blocks, and horizontal rules all render with the default Georgia body / Helvetica heading stylesheet. Customise it in **Document settings → Typography**.\n\n- Lists work\n- And nest a little\n\n> Block quotes do too.",
+        masterId: master.id,
+        masterRef: null,
+        chapterTitle: 'Chapter 1',
+        chapterNumber: 1,
+        startsOnPage: 'any',
+        skipNumberOnFirstPage: false,
+        styleOverrides: null,
+        gating: null,
+      };
+      book.pages.push(chapterEntry);
+      // First designed page (title page placeholder) — empty, ready
+      // for the author to add layers.
+      book.pages.unshift({
+        id: makeBookEntryId(),
+        type: 'design',
+        ref: null,
+        label: 'Title page',
+        masterRef: null,
+        masterId: null,
+        skipNumber: true,
+        anchor: null,
+        gating: null,
+      });
+      // Manifest is "fresh" — drop any prior published snapshot so
+      // the user knows their first publish creates a new event.
+      book.lastPublishedManifestSerial = null;
+      syncInputs();
+      render();
+    }
+
     function addBookMaster(label) {
       const book = ensureBookState();
       pushHistory('book: add master');
@@ -9057,10 +9153,35 @@
         readout.textContent = `${pages.length} page${pages.length === 1 ? '' : 's'} · ${reflowN} reflow`;
       }
       if (!pages.length) {
-        const empty = document.createElement('div');
-        empty.className = 'deckSlideEmpty';
-        empty.textContent = 'No pages yet. Click "+ Add page" to begin your book.';
-        grid.appendChild(empty);
+        const starter = document.createElement('div');
+        starter.className = 'bookStarterPanel';
+        const presets = [
+          { key: 'US Trade 6×9',  label: 'US Trade',  dims: '6 × 9 in',        desc: 'Novels, memoirs, self-help' },
+          { key: 'A5 5.83×8.27',  label: 'A5',        dims: '5.83 × 8.27 in', desc: 'European paperback' },
+          { key: 'A4 8.27×11.69', label: 'A4',        dims: '8.27 × 11.69 in', desc: 'Letter-size manual / textbook' },
+          { key: 'Square 8×8',    label: 'Square',    dims: '8 × 8 in',        desc: "Children's book, art book" },
+        ];
+        starter.innerHTML = `
+          <h3 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Start from a template</h3>
+          <p class="hint" style="margin:0 0 14px">Pick a size and we'll create a starter book with a default master + a sample chapter ready to edit.</p>
+          <div class="bookStarterGrid">
+            ${presets.map(t => `
+              <button type="button" class="bookStarterCard" data-preset="${escapeHtml(t.key)}">
+                <div class="bookStarterCardLabel">${escapeHtml(t.label)}</div>
+                <div class="bookStarterCardDims">${escapeHtml(t.dims)}</div>
+                <div class="bookStarterCardDesc">${escapeHtml(t.desc)}</div>
+              </button>
+            `).join('')}
+          </div>
+          <p class="hint" style="margin-top:14px">Or skip the template — click <b>+ Add page</b>, <b>+ Add chapter</b>, or <b>Document settings…</b> to start from scratch.</p>
+        `;
+        grid.appendChild(starter);
+        starter.querySelectorAll('.bookStarterCard').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const preset = btn.dataset.preset;
+            applyBookStarterTemplate(preset);
+          });
+        });
         return;
       }
       // Numbered-page counter walks the visible sequence, skipping
