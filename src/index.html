@@ -10086,14 +10086,60 @@
           };
           renderList(token, 0);
         } else if (token.type === 'table') {
-          // Tables get a placeholder row in v1 — proper column
-          // layout lands in I2.2.
-          const headerLabels = (token.header || [])
-            .map(c => (c?.text || c?.tokens?.[0]?.text || c?.raw || '')).filter(Boolean);
-          const rowCount = Array.isArray(token.rows) ? token.rows.length : 0;
-          const summary = `[Table — ${headerLabels.length} cols × ${rowCount} rows: ${headerLabels.join(' · ')}]`;
-          lines = wrapTextIntoLines(summary, availW);
-          result.warnings.push(`Tables render as a placeholder in v1 — full layout in I2.2.`);
+          // Real table layout (I2.2). Equal-width columns; each cell
+          // wraps independently; row height = max line count × line
+          // height. The returned block carries `tableLayout` so the
+          // renderer can iterate columns/rows + emit per-cell text.
+          const headerCells = (token.header || []).map(c => String(c?.text || ''));
+          const rowCellsAll = (token.rows || []).map(row => row.map(c => String(c?.text || '')));
+          const colCount = Math.max(headerCells.length, ...rowCellsAll.map(r => r.length), 1);
+          const align = Array.isArray(token.align) ? token.align : [];
+          const cellPadIn = 0.06; // breathing room inside each cell
+          const colWidthIn = availW / colCount;
+          const cellWidthIn = Math.max(0.1, colWidthIn - cellPadIn * 2);
+          // Header style: bold body.
+          const headerStyle = { ...style, fontWeight: 700 };
+          setFont(headerStyle);
+          const headerLineH = lineHeightIn(headerStyle);
+          const headerCellLines = [];
+          for (let c = 0; c < colCount; c++) {
+            headerCellLines.push(wrapTextIntoLines(headerCells[c] || '', cellWidthIn));
+          }
+          const headerRowH = Math.max(1, ...headerCellLines.map(l => l.length || 1)) * headerLineH + cellPadIn * 2;
+          // Body rows.
+          setFont(style);
+          const rowLineH = lineHeightIn(style);
+          const rowsData = rowCellsAll.map(row => {
+            const cells = [];
+            for (let c = 0; c < colCount; c++) {
+              cells.push(wrapTextIntoLines(row[c] || '', cellWidthIn));
+            }
+            const linesMax = Math.max(1, ...cells.map(l => l.length || 1));
+            return { cells, rowH: linesMax * rowLineH + cellPadIn * 2 };
+          });
+          const tableHeight = headerRowH + rowsData.reduce((s, r) => s + r.rowH, 0);
+          const tableLayout = {
+            colCount, colWidthIn, cellPadIn,
+            align,
+            headerCellLines, headerLineH, headerRowH,
+            rows: rowsData, rowLineH,
+            style, headerStyle,
+            totalHeightIn: tableHeight,
+          };
+          // Early-return: tables compute blockH directly and carry
+          // no `lines` array.
+          const blockH = marginBefore + tableHeight + marginAfter;
+          return {
+            kind: 'table',
+            tokenType: 'table',
+            lines: [],
+            style,
+            lineHeightIn: rowLineH,
+            marginBefore, marginAfter, marginLeft, marginRight,
+            blockH,
+            keepWithNext: false,
+            tableLayout,
+          };
         } else if (token.type === 'blockquote') {
           // marked emits blockquote with inner tokens; concatenate
           // their plain text + wrap.
@@ -10205,9 +10251,56 @@
       // Each block becomes a positioned div with its style + lines.
       const scale = (parent.offsetWidth || 200) / (canvasW * 96);
       for (const block of page.blocks) {
-        const blk = document.createElement('div');
         const style = block.style || {};
         const fs = (Number(style.fontSize) || 11);
+        // Table blocks (I2.2): render a positioned <table> with the
+        // computed cell-line layout instead of a flat text block.
+        if (block.tokenType === 'table' && block.tableLayout) {
+          const tl = block.tableLayout;
+          const tableWrap = document.createElement('div');
+          tableWrap.style.cssText = [
+            'position:absolute',
+            `left:${((Number(style.marginLeft) || 0) / innerW) * 100}%`,
+            `right:${((Number(style.marginRight) || 0) / innerW) * 100}%`,
+            `top:${(block.y / (frame.h - 2 * padding)) * 100}%`,
+            `font-family:${style.fontFamily || 'Georgia, serif'}`,
+            `font-size:${fs * scale}px`,
+            `line-height:${style.lineHeight || 1.5}`,
+            `color:${style.color || '#111111'}`,
+          ].filter(Boolean).join(';');
+          const tbl = document.createElement('table');
+          tbl.style.cssText = `width:100%;border-collapse:collapse;table-layout:fixed`;
+          const thead = document.createElement('thead');
+          const trH = document.createElement('tr');
+          for (let c = 0; c < tl.colCount; c++) {
+            const th = document.createElement('th');
+            const a = tl.align[c] || 'left';
+            th.style.cssText = `text-align:${a};vertical-align:top;padding:${tl.cellPadIn * scale * 96}px;border-bottom:1px solid #999;font-weight:700`;
+            th.textContent = (tl.headerCellLines[c] || []).join('\n');
+            th.style.whiteSpace = 'pre-wrap';
+            trH.appendChild(th);
+          }
+          thead.appendChild(trH);
+          tbl.appendChild(thead);
+          const tbody = document.createElement('tbody');
+          for (const row of tl.rows) {
+            const tr = document.createElement('tr');
+            for (let c = 0; c < tl.colCount; c++) {
+              const td = document.createElement('td');
+              const a = tl.align[c] || 'left';
+              td.style.cssText = `text-align:${a};vertical-align:top;padding:${tl.cellPadIn * scale * 96}px;border-bottom:1px solid #ddd`;
+              td.textContent = (row.cells[c] || []).join('\n');
+              td.style.whiteSpace = 'pre-wrap';
+              tr.appendChild(td);
+            }
+            tbody.appendChild(tr);
+          }
+          tbl.appendChild(tbody);
+          tableWrap.appendChild(tbl);
+          overlay.appendChild(tableWrap);
+          continue;
+        }
+        const blk = document.createElement('div');
         blk.style.cssText = [
           'position:absolute',
           `left:${((Number(style.marginLeft) || 0) / innerW) * 100}%`,
@@ -25975,6 +26068,97 @@
         const align = style.alignment || 'left';
         const color = style.color || '#111';
         const fontKey = collect ? _resolveStandardFontKey(family, isBold, isItalic) : null;
+        // Table blocks (I2.2): draw cells via fillText, draw thin
+        // row separators via stroke, and emit per-cell textOps when
+        // collecting for real PDF text.
+        if (block.tokenType === 'table' && block.tableLayout) {
+          const tl = block.tableLayout;
+          const tableTopIn = innerY + (Number(block.y) || 0);
+          const tableLeftIn = xStartIn;
+          // Header row geometry.
+          const headerFontPx = (Number(tl.headerStyle?.fontSize) || fontSizePt) * (dpi / 72);
+          const headerLineHPx = tl.headerLineH * dpi;
+          const rowLineHPx = tl.rowLineH * dpi;
+          const cellPadPx = tl.cellPadIn * dpi;
+          let yPx = tableTopIn * dpi;
+          const drawCell = (cellLines, xPx, yTopPx, widthPx, cellHPx, alignment, isHeader) => {
+            const fs = isHeader ? headerFontPx : fontPx;
+            const lh = isHeader ? headerLineHPx : rowLineHPx;
+            const fw = isHeader ? 700 : weight;
+            ctx.font = `${styleAttr} ${fw} ${fs}px ${family}`;
+            ctx.fillStyle = color;
+            ctx.textBaseline = 'top';
+            const a = alignment === 'right' ? 'right' : alignment === 'center' ? 'center' : 'left';
+            ctx.textAlign = a;
+            const contentLeftPx = xPx + cellPadPx;
+            const contentRightPx = xPx + widthPx - cellPadPx;
+            const contentWPx = Math.max(1, contentRightPx - contentLeftPx);
+            let drawX;
+            if (a === 'right') drawX = contentRightPx;
+            else if (a === 'center') drawX = contentLeftPx + contentWPx / 2;
+            else drawX = contentLeftPx;
+            const startY = yTopPx + cellPadPx;
+            for (let li = 0; li < cellLines.length; li++) {
+              ctx.fillText(cellLines[li], drawX, startY + li * lh);
+            }
+            // Real-PDF emission: emit one textOp per line per cell.
+            if (collect && fontKey) {
+              const headerFontKey = isHeader
+                ? _resolveStandardFontKey(family, true, isItalic)
+                : fontKey;
+              if (headerFontKey) {
+                const cellLeftIn = (xPx / dpi);
+                const cellRightIn = ((xPx + widthPx) / dpi);
+                const padLeftIn = cellLeftIn + tl.cellPadIn;
+                const widthInForOp = (cellRightIn - cellLeftIn) - 2 * tl.cellPadIn;
+                const fsPt = isHeader ? (Number(tl.headerStyle?.fontSize) || fontSizePt) : fontSizePt;
+                for (let li = 0; li < cellLines.length; li++) {
+                  const lineTopIn = (yTopPx / dpi) + tl.cellPadIn + li * (isHeader ? tl.headerLineH : tl.rowLineH);
+                  textOps.push({
+                    text: cellLines[li],
+                    fontKey: headerFontKey,
+                    sizePt: fsPt,
+                    color,
+                    align: a,
+                    leftIn: padLeftIn,
+                    widthIn: widthInForOp,
+                    topInchesFromTrim: lineTopIn,
+                  });
+                }
+              }
+            }
+          };
+          // Header.
+          const colWidthPx = tl.colWidthIn * dpi;
+          for (let c = 0; c < tl.colCount; c++) {
+            const colX = tableLeftIn * dpi + c * colWidthPx;
+            drawCell(tl.headerCellLines[c] || [], colX, yPx, colWidthPx, tl.headerRowH * dpi, tl.align[c] || 'left', true);
+          }
+          // Header bottom separator.
+          ctx.beginPath();
+          ctx.strokeStyle = '#888';
+          ctx.lineWidth = Math.max(1, dpi / 144);
+          ctx.moveTo(tableLeftIn * dpi, yPx + tl.headerRowH * dpi);
+          ctx.lineTo((tableLeftIn + tl.colWidthIn * tl.colCount) * dpi, yPx + tl.headerRowH * dpi);
+          ctx.stroke();
+          yPx += tl.headerRowH * dpi;
+          // Rows.
+          for (const row of tl.rows) {
+            for (let c = 0; c < tl.colCount; c++) {
+              const colX = tableLeftIn * dpi + c * colWidthPx;
+              drawCell(row.cells[c] || [], colX, yPx, colWidthPx, row.rowH * dpi, tl.align[c] || 'left', false);
+            }
+            // Row bottom separator.
+            ctx.beginPath();
+            ctx.strokeStyle = '#ddd';
+            ctx.lineWidth = Math.max(0.5, dpi / 200);
+            ctx.moveTo(tableLeftIn * dpi, yPx + row.rowH * dpi);
+            ctx.lineTo((tableLeftIn + tl.colWidthIn * tl.colCount) * dpi, yPx + row.rowH * dpi);
+            ctx.stroke();
+            yPx += row.rowH * dpi;
+          }
+          continue;
+        }
         if (collect && fontKey) {
           // Emit as real PDF text — push positioned line ops, skip
           // the canvas raster for this block. PDF y is the baseline,
