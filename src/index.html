@@ -3568,7 +3568,9 @@
         <div class="buttonRow" style="margin-top:8px">
           <button type="button" id="bookDocumentSettingsBtn">Document settings…</button>
           <button type="button" id="bookManageMastersBtn">Manage masters…</button>
+          <button type="button" id="bookResolveBtn" title="Re-fetch every referenced page / master / cover / chapter event from your relays">↻ Refresh from Nostr</button>
         </div>
+        <p class="hint" id="bookResolveStatus" style="margin-top:6px;font-size:.74rem"></p>
         <div id="bookVisibilityRow" style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:.78rem;color:var(--muted)">Publish visibility:</span>
           <button type="button" id="bookVisibilityChip" class="bookVisibilityChip" title="Toggle public / private (private = end-to-end encrypted to your own key)">Public</button>
@@ -10112,6 +10114,137 @@
       try { parsed = JSON.parse(ev.content || ''); } catch { return null; }
       if (!isEncryptedEnvelope(parsed)) return null;
       return await decryptProjectEnvelope(parsed);
+    }
+
+    // Walk the manifest and queue any sidecar (page / master / cover
+    // / chapter) whose content isn't already in state. Idempotent —
+    // skipping entries whose layers / markdown are already loaded.
+    function _collectBookSidecarJobs(book, { force = false } = {}) {
+      const jobs = [];
+      if (!book) return jobs;
+      if (book.cover?.ref) {
+        const hasCoverLayers = (state.layers || []).some(l => /^book-cover-/.test(String(l.target || '')));
+        if (force || !hasCoverLayers) jobs.push({ kind: 'cover', ref: book.cover.ref });
+      }
+      for (const m of (book.masters || [])) {
+        if (!m?.ref || !m.id) continue;
+        const target = `book-master:${m.id}`;
+        const hasLayers = (state.layers || []).some(l => l.target === target);
+        if (force || !hasLayers) jobs.push({ kind: 'master', ref: m.ref, masterId: m.id });
+      }
+      for (const p of (book.pages || [])) {
+        if (!p) continue;
+        if (p.type === 'design' && p.ref) {
+          const target = `book-page:${p.id}`;
+          const hasLayers = (state.layers || []).some(l => l.target === target);
+          if (force || !hasLayers) jobs.push({ kind: 'page', ref: p.ref, entryId: p.id });
+        }
+        if (p.type === 'reflow' && p.textRef && (force || !String(p.chapterMarkdown || '').trim())) {
+          jobs.push({ kind: 'chapter', ref: p.textRef, entryId: p.id });
+        }
+      }
+      return jobs;
+    }
+    // Turn a sidecar ref ({kind, pubkey, dTag} or {eventId}) into the
+    // `decoded` shape _resolveEmbedEvent expects.
+    function _refToDecoded(ref) {
+      if (!ref) return null;
+      if (ref.eventId) {
+        return { type: 'nevent', eventId: ref.eventId, relays: ref.relays || [], author: ref.pubkey || '', kind: ref.kind || null };
+      }
+      if (ref.dTag && ref.pubkey) {
+        return { type: 'naddr', kind: ref.kind || 30078, pubkey: ref.pubkey, dTag: ref.dTag, relays: ref.relays || [] };
+      }
+      return null;
+    }
+    // Apply a resolved page event to state.layers under the entry's
+    // own target prefix. Replaces any prior layers for that entry so
+    // a refresh wipes stale content cleanly.
+    function _applyResolvedBookPage(entryId, payload) {
+      const target = `book-page:${entryId}`;
+      const incoming = Array.isArray(payload?.page?.layers) ? payload.page.layers : [];
+      const remapped = incoming.map(l => ({ ...l, target }));
+      state.layers = (state.layers || []).filter(l => l.target !== target);
+      state.layers.push(...remapped);
+      const entry = state.book?.pages?.find(p => p.id === entryId);
+      if (entry && payload?.page?.background) entry.background = payload.page.background;
+    }
+    function _applyResolvedBookMaster(masterId, payload) {
+      const target = `book-master:${masterId}`;
+      const incoming = Array.isArray(payload?.page?.layers) ? payload.page.layers : [];
+      const remapped = incoming.map(l => ({ ...l, target }));
+      state.layers = (state.layers || []).filter(l => l.target !== target);
+      state.layers.push(...remapped);
+    }
+    function _applyResolvedBookCover(payload) {
+      const incoming = Array.isArray(payload?.page?.layers) ? payload.page.layers : [];
+      // Cover layers already carry book-cover-front/back/spine targets.
+      const coverTargets = new Set(incoming.map(l => l.target).filter(t => /^book-cover-/.test(String(t || ''))));
+      state.layers = (state.layers || []).filter(l => !coverTargets.has(l.target));
+      state.layers.push(...incoming.filter(l => /^book-cover-/.test(String(l.target || ''))));
+    }
+    function _applyResolvedBookChapter(entryId, markdown) {
+      const entry = state.book?.pages?.find(p => p.id === entryId);
+      if (!entry || entry.type !== 'reflow') return;
+      entry.chapterMarkdown = String(markdown || '');
+    }
+    // Progressive sidecar resolver. Fetches every missing sidecar in
+    // parallel; each one renders as it arrives so the book "fills in".
+    // Returns a summary { resolved, failed } for UI feedback.
+    let _bookResolveInFlight = null;
+    async function resolveBookSidecars(book = state.book, opts = {}) {
+      if (!book) return { resolved: 0, failed: 0 };
+      const jobs = _collectBookSidecarJobs(book, opts);
+      if (!jobs.length) return { resolved: 0, failed: 0 };
+      // Coalesce concurrent calls so spamming "Refresh" doesn't fan out.
+      if (_bookResolveInFlight) return _bookResolveInFlight;
+      const summary = { resolved: 0, failed: 0 };
+      _bookResolveInFlight = (async () => {
+        await Promise.all(jobs.map(async (job) => {
+          const decoded = _refToDecoded(job.ref);
+          if (!decoded) { summary.failed++; return; }
+          try {
+            const ev = await _resolveEmbedEvent(decoded);
+            if (!ev) { summary.failed++; return; }
+            // Try decrypting first (private sidecar); fall back to
+            // plain JSON parse or raw markdown for public chapters.
+            let payload = null;
+            try {
+              const decrypted = await _decryptBookSidecarEvent(ev);
+              if (decrypted) payload = decrypted;
+            } catch (decErr) {
+              // Encrypted but not addressed to us → can't decrypt.
+              if ((ev.tags || []).some(t => t[0] === 'encrypted')) {
+                summary.failed++; return;
+              }
+            }
+            if (!payload) {
+              if (job.kind === 'chapter' && ev.kind === 30023) {
+                // Public NIP-23: content is raw markdown.
+                _applyResolvedBookChapter(job.entryId, ev.content || '');
+                summary.resolved++;
+                return;
+              }
+              try { payload = JSON.parse(ev.content || ''); } catch { payload = null; }
+            }
+            if (!payload) { summary.failed++; return; }
+            if (job.kind === 'page')        _applyResolvedBookPage(job.entryId, payload);
+            else if (job.kind === 'master') _applyResolvedBookMaster(job.masterId, payload);
+            else if (job.kind === 'cover')  _applyResolvedBookCover(payload);
+            else if (job.kind === 'chapter') {
+              const md = payload?.chapter?.markdown ?? payload?.content ?? '';
+              _applyResolvedBookChapter(job.entryId, md);
+            }
+            summary.resolved++;
+          } catch (err) {
+            console.warn('book sidecar resolve failed', job, err);
+            summary.failed++;
+          }
+        }));
+      })().finally(() => { _bookResolveInFlight = null; });
+      await _bookResolveInFlight;
+      render();
+      return summary;
     }
 
     // Build the casewrap-book manifest payload. Lean — references
@@ -25454,6 +25587,44 @@
         return;
       }
 
+      if (mode === 'book' || parsed.book) {
+        const book = parsed.book || {};
+        const incomingSpec = { ...defaultBookSpec(), ...(book.spec || {}) };
+        // Merge default textStyles under the loaded ones so old
+        // manifests missing keys still render.
+        incomingSpec.textStyles = { ...defaultBookTextStyles(), ...(book.spec?.textStyles || {}) };
+        Object.assign(state, {
+          templateMode: 'book',
+          meta: { ...state.meta, ...(parsed.meta || {}) },
+          book: {
+            spec: incomingSpec,
+            cover: book.cover || null,
+            masters: Array.isArray(book.masters) ? book.masters.map(m => ({ ...m })) : [],
+            pages: Array.isArray(book.pages) ? book.pages.map(p => ({ ...p })) : [],
+            editingEntryId: null,
+            editingMasterId: null,
+            editingChapterId: null,
+          },
+          // Drop layers from other modes; keep book-* targets if the
+          // payload happens to inline them (rare — manifests are
+          // sidecar-only, but legacy / inline-published projects
+          // might).
+          layers: (state.layers || []).filter(l => String(l.target || '').startsWith('book-')),
+          layerGroups: { ...ensureLayerGroups(), ...(parsed.layerGroups || {}) },
+          selectedLayerId: '',
+          selectedLayerIds: [],
+        });
+        syncInputs();
+        render();
+        // Progressive fetch: every page / master / cover / chapter
+        // ref pulls its sidecar in parallel. Encrypted sidecars are
+        // decrypted via the existing private-publishing key-wrap.
+        setTimeout(() => {
+          resolveBookSidecars(state.book).catch(err => console.warn('book resolver failed', err));
+        }, 0);
+        return;
+      }
+
       if (mode === 'pixelart' || (parsed.pixelArt && parsed.templateMode === 'pixelart')) {
         Object.assign(state, {
           templateMode: 'pixelart',
@@ -33680,6 +33851,14 @@
         if (linkedSpecs.length) {
           try { linkedDesigns.prefetchBatch(linkedSpecs); } catch {}
         }
+        // Book autosave restore: fetch any sidecar whose layers /
+        // markdown weren't in the saved state. Non-blocking, so the
+        // editor opens immediately; refs fill in as relays answer.
+        if (state.templateMode === 'book' && state.book) {
+          setTimeout(() => {
+            resolveBookSidecars(state.book).catch(err => console.warn('book resolver (autosave) failed', err));
+          }, 0);
+        }
       } catch (error) {
         console.warn('Autosave restore failed', error);
       }
@@ -33781,6 +33960,29 @@
       // Book Designer — Document settings modal.
       on('bookDocumentSettingsBtn', 'click', openBookDocumentSettings);
       on('bookVisibilityChip', 'click', toggleBookVisibility);
+      on('bookResolveBtn', 'click', async () => {
+        const status = document.getElementById('bookResolveStatus');
+        const btn = document.getElementById('bookResolveBtn');
+        if (!state.book) return;
+        if (status) { status.textContent = 'Resolving sidecars…'; status.style.color = 'var(--muted)'; }
+        if (btn) btn.disabled = true;
+        try {
+          const summary = await resolveBookSidecars(state.book, { force: true });
+          if (status) {
+            if (summary.resolved || summary.failed) {
+              status.textContent = `Resolved ${summary.resolved}${summary.failed ? ` · ${summary.failed} failed` : ''}.`;
+              status.style.color = summary.failed ? '#b91c1c' : '#15803d';
+            } else {
+              status.textContent = 'Nothing to resolve.';
+              status.style.color = 'var(--muted)';
+            }
+          }
+        } catch (err) {
+          if (status) { status.textContent = 'Refresh failed: ' + (err?.message || 'unknown'); status.style.color = '#b91c1c'; }
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      });
       on('bookDocumentSettingsCloseBtn', 'click', closeBookDocumentSettings);
       on('bookSettingsCancelBtn', 'click', closeBookDocumentSettings);
       on('bookSettingsApplyBtn', 'click', applyBookDocumentSettings);
