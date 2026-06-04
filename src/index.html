@@ -576,6 +576,50 @@
        white-on-accent, so the icon needs its own light/dark
        contrast pairs. */
     .layoutTab .docsHelpIcon { font-size: .76rem; margin-left: 4px; opacity: .55; }
+
+    .experimentalPill {
+      display: inline-block;
+      font-size: .58rem;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      padding: 1px 5px;
+      margin-left: 5px;
+      border-radius: 3px;
+      background: #f59e0b;
+      color: #1f2937;
+      vertical-align: middle;
+      line-height: 1.4;
+    }
+    .layoutTab.active .experimentalPill { background: #fde68a; color: #78350f; }
+
+    .experimentalBanner {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin: 0 0 10px;
+      padding: 8px 10px;
+      border: 1px solid #f59e0b;
+      border-radius: 5px;
+      background: rgba(245, 158, 11, .10);
+      font-size: .76rem;
+      line-height: 1.45;
+      color: var(--ink);
+    }
+    body.dark .experimentalBanner { background: rgba(245, 158, 11, .15); }
+    .experimentalBanner strong {
+      display: inline-block;
+      background: #f59e0b;
+      color: #1f2937;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-size: .62rem;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      font-weight: 800;
+      margin-right: 4px;
+      flex-shrink: 0;
+    }
     .layoutTab.active .docsHelpIcon { color: rgba(255,255,255,.85); opacity: 1; }
     .layoutTab:hover .docsHelpIcon { opacity: 1; }
 
@@ -3654,7 +3698,7 @@
           <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover<span class="docsHelpIcon" data-help="cover" role="button" aria-label="Open help: Case cover wrap" title="Open help">ⓘ</span></button>
           <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels<span class="docsHelpIcon" data-help="disc" role="button" aria-label="Open help: Disc-label sheet" title="Open help">ⓘ</span></button>
           <button type="button" class="layoutTab" id="mode-deck" data-template-mode="deck" role="tab">Slide deck<span class="docsHelpIcon" data-help="deck" role="button" aria-label="Open help: Slide deck" title="Open help">ⓘ</span></button>
-          <button type="button" class="layoutTab" id="mode-book" data-template-mode="book" role="tab">Book<span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help">ⓘ</span></button>
+          <button type="button" class="layoutTab" id="mode-book" data-template-mode="book" role="tab" title="Book mode is still under construction — expect rough edges">Book<span class="experimentalPill" aria-label="Experimental feature">Beta</span><span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help">ⓘ</span></button>
         </div>
       </fieldset>
 
@@ -3839,7 +3883,11 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="bookFieldset">
-        <legend data-step="2">Book <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help">ⓘ</span></legend>
+        <legend data-step="2">Book <span class="experimentalPill" aria-label="Experimental feature">Beta</span> <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help">ⓘ</span></legend>
+        <div class="experimentalBanner" role="note">
+          <strong>Beta</strong>
+          <span>Book Designer is experimental and still under construction. Pagination, masters, chapter import, and PDF export all work — but expect rough edges, breaking changes to the manifest format, and the occasional surprise. Use it to play, not yet for your final print files.</span>
+        </div>
         <p class="hint">A book combines a cover spread (front + spine + back), an ordered list of designed pages, optional reflowable chapters written as NIP-23 markdown, and master pages for shared running heads and page numbers. See <code>docs/BOOK_DESIGNER_FEATURE.md</code> for the full spec.</p>
         <div id="bookSpecSummary" class="hint" style="margin-top:8px"></div>
         <div class="buttonRow" style="margin-top:8px">
