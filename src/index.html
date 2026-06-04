@@ -4782,7 +4782,9 @@
             </div>
             <div class="buttonRow" style="margin-top:8px">
               <button type="button" id="bookCoverEditBtn" class="primary">Edit cover</button>
-              <button type="button" id="bookCoverReplaceBtn" disabled title="Phase D1 — pick from your published cover-spread events">Replace cover from Nostr…</button>
+              <button type="button" id="bookCoverReplaceBtn" title="Paste an naddr / nevent pointing at a published cover-spread event to import it into this book">📥 Load cover from Nostr…</button>
+              <button type="button" id="bookCoverImportJsonBtn" title="Load a cover JSON file exported from another book">📁 Load cover from JSON…</button>
+              <input type="file" id="bookCoverImportJsonFile" accept="application/json,.json" style="display:none">
             </div>
             <p class="hint" id="bookCoverRefHint" style="margin-top:8px"></p>
             <p class="hint" style="margin-top:8px">The cover spread reflows automatically when page count or paper thickness changes (spine width re-derives) and when trim or bleed changes in Document settings.</p>
@@ -9334,6 +9336,126 @@
         console.warn('book: importBookPageFromNostr failed', err);
         toastError && toastError('Import failed: ' + (err?.message || 'unknown error'));
       }
+    }
+
+    // Load a cover spread from Nostr by naddr / nevent pointer. The
+    // event must be a casewrap-page (kind 30078) with role='cover-
+    // spread' (mirrors what publishBookCoverToNostr emits). On success
+    // the cover's layers, the cover-spread spec (trim, bleed, spine
+    // hints) and the publish ref all land on the active book.
+    async function importBookCoverFromNostr() {
+      const book = ensureBookState();
+      const raw = (typeof prompt === 'function')
+        ? prompt('Paste an naddr / nevent / note / hex pointing at a casewrap-page cover-spread event:')
+        : '';
+      if (!raw) return;
+      const decoded = decodeNostrId(raw.trim());
+      if (!decoded) { toastError && toastError('Could not decode that id.'); return; }
+      const decodedForResolver = decoded.type === 'naddr'
+        ? decoded
+        : { type: 'nevent', eventId: decoded.eventId, relays: decoded.relays || [], author: decoded.author || '', kind: decoded.kind || null };
+      try {
+        const ev = await _resolveEmbedEvent(decodedForResolver);
+        if (!ev) { toastError && toastError('No event found on your relays.'); return; }
+        if (ev.kind !== 30078) { toastError && toastError(`Event is kind ${ev.kind}, not a casewrap-page.`); return; }
+        const roleTag = (ev.tags || []).find(t => t[0] === 'role')?.[1] || '';
+        let payload = null;
+        try {
+          const decrypted = await _decryptBookSidecarEvent(ev);
+          if (decrypted) payload = decrypted;
+        } catch {}
+        if (!payload) {
+          try { payload = JSON.parse(ev.content || ''); } catch {}
+        }
+        const role = roleTag || payload?.page?.role || '';
+        if (role !== 'cover-spread') {
+          const ok = confirm(`This event's role is "${role || '(none)'}", not "cover-spread". Load it as the cover anyway?`);
+          if (!ok) return;
+        }
+        if (!payload?.page) { toastError && toastError('Event payload is missing "page" data.'); return; }
+        const dTag = (ev.tags || []).find(t => t[0] === 'd' && t[1])?.[1] || (decoded.dTag || '');
+        if (!dTag || !ev.pubkey) { toastError && toastError('Event is missing d-tag / pubkey.'); return; }
+        // Warn if the current book has cover layers already.
+        const hasExistingCover = (state.layers || []).some(l => /^book-cover-|^book-spine$/.test(String(l.target || '')));
+        if (hasExistingCover) {
+          const ok = confirm('This book already has a cover. Replace it with the imported one?');
+          if (!ok) return;
+        }
+        pushHistory('book: import cover');
+        // Pull spec hints from the payload — these were captured at
+        // publish time so the cover lays out correctly even if our
+        // local book.spec drifted (different trim, missing back, etc.).
+        if (payload.page.trimW || payload.page.trimH || payload.page.bleed != null) {
+          book.spec = book.spec || {};
+          if (payload.page.trimW) book.spec.trimW = Number(payload.page.trimW) || book.spec.trimW;
+          if (payload.page.trimH) book.spec.trimH = Number(payload.page.trimH) || book.spec.trimH;
+          if (payload.page.bleed != null) book.spec.bleed = Number(payload.page.bleed) || book.spec.bleed;
+        }
+        if (payload.page.coverSpread) {
+          book.spec = book.spec || {};
+          if (payload.page.coverSpread.hasBack  != null) book.spec.coverHasBack  = !!payload.page.coverSpread.hasBack;
+          if (payload.page.coverSpread.hasSpine != null) book.spec.coverHasSpine = !!payload.page.coverSpread.hasSpine;
+        }
+        // Replace cover layers + publish ref.
+        _applyResolvedBookCover(payload);
+        book.cover = book.cover || {};
+        book.cover.ref = {
+          kind: 30078, pubkey: ev.pubkey, dTag,
+          relays: (decoded.relays || []).slice(0, 4),
+          encrypted: (ev.tags || []).some(t => t[0] === 'encrypted') || undefined,
+        };
+        _bookCacheWrite(book.cover.ref, ev);
+        syncInputs();
+        render();
+        if (typeof toastSuccess === 'function') toastSuccess('Cover imported.');
+      } catch (err) {
+        console.warn('book: importBookCoverFromNostr failed', err);
+        toastError && toastError('Import failed: ' + (err?.message || 'unknown error'));
+      }
+    }
+
+    // Load a cover spread from a local JSON file (matching the format
+    // bookCoverFileExportPayload emits). Replaces the active book's
+    // cover layers + cover-spread spec hints; clears book.cover.ref
+    // because a file-loaded cover hasn't been re-published yet.
+    async function importBookCoverFromJsonFile(file) {
+      if (!file) return;
+      const book = ensureBookState();
+      let parsed;
+      try {
+        const text = await file.text();
+        parsed = JSON.parse(text);
+      } catch (err) {
+        toastError && toastError('Not a valid JSON file.');
+        return;
+      }
+      if (parsed?.templateMode !== 'book-cover' || !parsed?.bookCover) {
+        toastError && toastError('Not a book-cover JSON (expected templateMode "book-cover").');
+        return;
+      }
+      const hasExistingCover = (state.layers || []).some(l => /^book-cover-|^book-spine$/.test(String(l.target || '')));
+      if (hasExistingCover) {
+        const ok = confirm('This book already has a cover. Replace it with the imported one?');
+        if (!ok) return;
+      }
+      pushHistory('book: import cover (JSON)');
+      const bc = parsed.bookCover;
+      book.spec = book.spec || {};
+      if (bc.trimW) book.spec.trimW = Number(bc.trimW) || book.spec.trimW;
+      if (bc.trimH) book.spec.trimH = Number(bc.trimH) || book.spec.trimH;
+      if (bc.bleed != null) book.spec.bleed = Number(bc.bleed) || book.spec.bleed;
+      if (bc.safe  != null) book.spec.safe  = Number(bc.safe)  || book.spec.safe;
+      if (bc.coverHasBack  != null) book.spec.coverHasBack  = !!bc.coverHasBack;
+      if (bc.coverHasSpine != null) book.spec.coverHasSpine = !!bc.coverHasSpine;
+      // Build a fake page payload so _applyResolvedBookCover can do
+      // the layer swap with its standard filter logic.
+      const coverLayers = (parsed.layers || []).filter(l => /^book-cover-|^book-spine$/.test(String(l.target || '')));
+      _applyResolvedBookCover({ page: { layers: coverLayers } });
+      book.cover = book.cover || {};
+      book.cover.ref = null; // file-loaded, not yet published
+      syncInputs();
+      render();
+      if (typeof toastSuccess === 'function') toastSuccess('Cover loaded from JSON.');
     }
 
     // Starter book templates (Phase F1). Each preset seeds the spec
@@ -26048,12 +26170,15 @@
       };
     }
 
-    // Cover-only payload — just the three cover panels + the spec
-    // fields the cover needs to render correctly (trim, bleed, safe,
-    // spine width snapshotted at export so the file is portable). Use
-    // it to move a cover spread between books or stash it as a
-    // standalone artifact.
-    function bookCoverPayload() {
+    // Cover-only JSON payload (file export — distinct from the
+    // Nostr-publish payload bookCoverPayload() at the top of the file,
+    // which has a different shape used for casewrap-page events).
+    // Captures the three cover panels + the spec fields the cover
+    // needs to render correctly (trim, bleed, safe, spine width
+    // snapshotted at export so the file is portable). Use it to move
+    // a cover spread between books or stash it as a standalone
+    // artifact.
+    function bookCoverFileExportPayload() {
       const spec = state.book?.spec || {};
       return {
         version: SCHEMA_VERSION,
@@ -37296,6 +37421,16 @@
       on('bookViewTogglePages', 'click', () => setBookSubView('pages'));
       on('bookViewToggleCover', 'click', () => setBookSubView('cover'));
       on('bookCoverEditBtn', 'click', openBookCover);
+      on('bookCoverReplaceBtn', 'click', importBookCoverFromNostr);
+      on('bookCoverImportJsonBtn', 'click', () => {
+        const input = document.getElementById('bookCoverImportJsonFile');
+        if (input) input.click();
+      });
+      on('bookCoverImportJsonFile', 'change', async (e) => {
+        const file = e.target?.files?.[0];
+        e.target.value = '';
+        if (file) await importBookCoverFromJsonFile(file);
+      });
       on('bookExportPdfBtn', 'click', openBookExportModal);
       on('bookExportPdfCloseBtn', 'click', closeBookExportModal);
       on('bookExportPdfCancelBtn', 'click', closeBookExportModal);
@@ -37334,7 +37469,7 @@
         const sizePart = filenamePart(spec.bookSize, '')
           || `${Number(spec.trimW) || 0}x${Number(spec.trimH) || 0}`;
         const filename = [titlePart, 'book_cover', sizePart].filter(Boolean).join('_') + '.json';
-        triggerDownload(bookCoverPayload(), filename);
+        triggerDownload(bookCoverFileExportPayload(), filename);
         toastSuccess?.('Cover spread saved.');
       });
       on('bookPageEditProofPdf', 'click', async () => {
