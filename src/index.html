@@ -2088,6 +2088,20 @@
       0%,100% { box-shadow: 0 0 0 3px rgba(59,130,246,.9); }
       50%     { box-shadow: 0 0 0 6px rgba(59,130,246,.35); }
     }
+
+    /* J3.c: thread-hover highlight. When the user hovers any port on
+       a threaded frame, every frame in the same chain glows so the
+       flow path is visible at a glance. Implemented by tagging
+       chain-member freeLayers with `.threadHighlight` from a JS
+       hover handler. */
+    .freeLayer.threadHighlight {
+      outline: 2px solid rgba(34,197,94,.85);
+      outline-offset: 2px;
+      transition: outline-color .12s;
+    }
+    .freeLayer.threadHighlight.threadHighlightHead {
+      outline-color: rgba(59,130,246,.85);
+    }
     .bookFrameIdBadge {
       position: absolute; bottom: 4px; left: 4px;
       font-size: .58rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -22662,6 +22676,54 @@
       layer.nextFrame = null;
       render();
     }
+    // J3.c — walk forward + backward along nextFrame refs from
+    // `layer` and tag every chain member's freeLayer wrapper. The
+    // head of the thread (first frame, no incoming link) gets a
+    // distinct blue outline so direction is readable.
+    function _bookHighlightThread(layer) {
+      _bookClearThreadHighlight();
+      const chain = _bookCollectThreadChain(layer);
+      if (!chain.length) return;
+      chain.forEach((l, i) => {
+        const el = document.querySelector(`.freeLayer[data-layer-id="${CSS.escape(l.id)}"]`);
+        if (!el) return;
+        el.classList.add('threadHighlight');
+        if (i === 0) el.classList.add('threadHighlightHead');
+      });
+    }
+    function _bookClearThreadHighlight() {
+      document.querySelectorAll('.freeLayer.threadHighlight').forEach(el => {
+        el.classList.remove('threadHighlight', 'threadHighlightHead');
+      });
+    }
+    function _bookCollectThreadChain(layer) {
+      // Walk backwards to the head, then forward to the tail.
+      // Returns layers in flow order (head → ... → tail).
+      const seen = new Set();
+      // Backwards: find the layer whose nextFrame.frameId equals
+      // current.frameId; loop until none exists.
+      let head = layer;
+      let guard = 0;
+      while (guard++ < 1000) {
+        const prev = _findBookFrameLayer(o => o !== head && o.nextFrame?.frameId === head.frameId);
+        if (!prev || seen.has(prev.id)) break;
+        seen.add(prev.id);
+        head = prev;
+      }
+      const chain = [head];
+      seen.add(head.id);
+      let cursor = head;
+      guard = 0;
+      while (cursor.nextFrame?.frameId && guard++ < 1000) {
+        const nxt = _findBookFrameLayer(o => o.frameId === cursor.nextFrame.frameId);
+        if (!nxt || seen.has(nxt.id)) break;
+        seen.add(nxt.id);
+        chain.push(nxt);
+        cursor = nxt;
+      }
+      return chain;
+    }
+
     function _bookPortOnClick(layer, portKind, ev) {
       ev.preventDefault();
       ev.stopPropagation();
@@ -22713,6 +22775,10 @@
       inPort.dataset.framePort = 'in';
       inPort.dataset.frameId = myFrameId;
       inPort.addEventListener('click', (ev) => _bookPortOnClick(layer, 'in', ev));
+      if (linkedIn || linkedOut) {
+        inPort.addEventListener('mouseenter', () => _bookHighlightThread(layer));
+        inPort.addEventListener('mouseleave', _bookClearThreadHighlight);
+      }
       el.appendChild(inPort);
 
       const outPort = document.createElement('div');
@@ -22727,6 +22793,10 @@
       outPort.dataset.framePort = 'out';
       outPort.dataset.frameId = myFrameId;
       outPort.addEventListener('click', (ev) => _bookPortOnClick(layer, 'out', ev));
+      if (linkedIn || linkedOut) {
+        outPort.addEventListener('mouseenter', () => _bookHighlightThread(layer));
+        outPort.addEventListener('mouseleave', _bookClearThreadHighlight);
+      }
       el.appendChild(outPort);
 
       const badge = document.createElement('div');
