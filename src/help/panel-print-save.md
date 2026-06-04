@@ -33,8 +33,9 @@ publishing to Nostr lives in the top-right Publish flow, not here.
 ## Export
 
 - **Export JPEG** — direct rasterised export at the artboard's
-  natural pixel size, JPEG-compressed (~0.92 quality). One file
-  per artboard.
+  natural pixel size, JPEG-compressed. The resolution dropdown
+  picks between **Low (96 DPI)**, **Standard (150 DPI)**, and
+  **Print (300 DPI)**.
 - **Export PNG** — same but as PNG (lossless). Sometimes available
   only for modes that support transparent backgrounds.
 - Pixel-art mode has its own dedicated exports (PNG at multiple
@@ -42,6 +43,30 @@ publishing to Nostr lives in the top-right Publish flow, not here.
   panel here is hidden.
 - Book mode has its own dedicated **Export PDF…** flow (page range,
   bleed, crop marks, split output) from the Pages overview toolbar.
+
+### Why JPEG sometimes routes through PDF
+
+The direct-JPEG path renders every layer onto a hidden canvas, then
+extracts the canvas as a JPEG. That fails in three cases:
+
+1. **CORS-blocked images** — if any image layer's source server
+   doesn't send `Access-Control-Allow-Origin: *`, the browser
+   refuses to embed the pixels in the canvas. The "Render canvas"
+   path can't bypass this; the print engine can.
+2. **Tainted canvas** — the canvas accepted the image but flagged it
+   "tainted" once it tried to read pixels. Same root cause as #1
+   but caught at a different stage.
+3. **Unsupported modes** — pixel-art (uses its own dedicated
+   exporter) and standalone decks (which have a multi-slide
+   exporter elsewhere) don't go through this path.
+
+In any of those cases, the JPEG button automatically opens the
+**Print → PDF** flow: the browser's print engine has a separate
+image pipeline that handles cross-origin embeds the canvas can't
+touch. You'll see a toast explaining the switch ("N image(s)
+couldn't be embedded directly — switching to the PDF route"). Save
+the resulting PDF, then re-export it as JPEG from a PDF viewer if
+you specifically need a flat JPEG.
 
 ## Designer tab
 
