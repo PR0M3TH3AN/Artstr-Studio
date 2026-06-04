@@ -1683,15 +1683,36 @@
     body.template-book:not(.editing-book-page):not(.editing-book-cover) #layersFieldset,
     body.template-book:not(.editing-book-page):not(.editing-book-cover) #printExportRow,
     body.template-book:not(.editing-book-page):not(.editing-book-cover) .toolPalette,
-    body.template-book .coverOnly,
+    /* Hide DVD/disc/jewel-specific scaffolding in book mode, *except*
+       when we're actively editing the book's cover spread — then we
+       want the back/spine/front slot boxes, fold lines, crop marks,
+       bleed fill and trim guide back, so the canvas looks like the
+       DVD cover designer scaled to the book's spec. */
+    body.template-book:not(.editing-book-cover) .coverOnly,
+    body.template-book:not(.editing-book-cover) .bleedFill,
+    body.template-book:not(.editing-book-cover) .trimArea,
+    body.template-book:not(.editing-book-cover) .foldLine,
+    body.template-book:not(.editing-book-cover) .spineText { display: none !important; }
+    /* Disc + jewel scaffolding never belongs on a book cover. */
     body.template-book .diskLayer,
     body.template-book .jewelLayer,
-    body.template-book .bleedFill,
-    body.template-book .trimArea,
-    body.template-book .foldLine,
     body.template-book .discSpineStrip,
-    body.template-book .jewelSpineGuide,
-    body.template-book .spineText { display: none !important; }
+    body.template-book .jewelSpineGuide { display: none !important; }
+
+    /* When the book has no back panel / no spine, hide those slot
+       boxes so the front sits alone (JS in renderDimensions positions
+       it correctly via inline left/width overrides). */
+    body.template-book.editing-book-cover.no-cover-back  .slot.back  { display: none !important; }
+    body.template-book.editing-book-cover.no-cover-spine .slot.spine { display: none !important; }
+    body.template-book.editing-book-cover.no-cover-spine .spineText  { display: none !important; }
+    body.template-book.editing-book-cover.no-cover-spine .foldLine   { display: none !important; }
+
+    /* Slot placeholders ("Enter back image URL" etc.) belong to the
+       DVD cover URL flow; book covers use the layer system instead.
+       Replace the text in book-cover edit mode via data-label hints
+       on the slot itself. */
+    body.template-book.editing-book-cover .slot .placeholder { display: none !important; }
+
     /* When editing the cover, hide the Pages-overview / Cover-summary
        panels so the wider canvas takes the room. */
     body.template-book.editing-book-cover #bookView { display: none; }
@@ -14092,6 +14113,67 @@
       syncBookSidebarSummary();
     }
 
+    // Book cover edit mode reuses the DVD-style .slot.back / .slot.spine
+    // / .slot.front scaffolding (positioned via --panel-w / --spine-w
+    // CSS vars). The canonical book wrap (hasBack && hasSpine) lays out
+    // correctly via the default CSS rules once those vars hold the
+    // book's trim + spine. The asymmetric cases (no back, no spine)
+    // need inline `left` / `width` overrides because the default rules
+    // assume both panels are present.
+    function applyBookCoverSlotLayout({ trimW, trimH, spineW, bleed, hasBack, hasSpine }) {
+      const back  = document.getElementById('slot-back');
+      const spine = document.getElementById('slot-spine');
+      const front = document.getElementById('slot-front');
+      const trim  = document.querySelector('.trimArea');
+      const foldL = document.querySelector('.foldLine.left');
+      const foldR = document.querySelector('.foldLine.right');
+      const backW  = hasBack  ? trimW  : 0;
+      const sW     = hasSpine ? spineW : 0;
+      const totalTrimW = backW + sW + trimW;
+      if (back)  { back.style.left  = inches(bleed); back.style.width  = inches(trimW); }
+      if (spine) { spine.style.left = inches(bleed + backW);     spine.style.width = inches(spineW); }
+      if (front) { front.style.left = inches(bleed + backW + sW); front.style.width = inches(trimW); }
+      if (trim)  { trim.style.left  = inches(bleed); trim.style.width = inches(totalTrimW); }
+      if (foldL) foldL.style.left = inches(bleed + backW);
+      if (foldR) foldR.style.left = inches(bleed + backW + sW);
+      // Crop marks anchor to the four outer corners of the trim.
+      _setCropMark('.cm-tl-h', bleed - 0.24,            bleed);
+      _setCropMark('.cm-tl-v', bleed,                   bleed - 0.24);
+      _setCropMark('.cm-tr-h', bleed + totalTrimW + 0.06, bleed);
+      _setCropMark('.cm-tr-v', bleed + totalTrimW,      bleed - 0.24);
+      _setCropMark('.cm-bl-h', bleed - 0.24,            bleed + trimH);
+      _setCropMark('.cm-bl-v', bleed,                   bleed + trimH + 0.06);
+      _setCropMark('.cm-br-h', bleed + totalTrimW + 0.06, bleed + trimH);
+      _setCropMark('.cm-br-v', bleed + totalTrimW,      bleed + trimH + 0.06);
+    }
+    function _setCropMark(sel, leftIn, topIn) {
+      const el = document.querySelector(sel);
+      if (!el) return;
+      el.style.left = inches(leftIn);
+      el.style.top  = inches(topIn);
+    }
+    function clearBookCoverSlotLayout() {
+      // Drop all inline overrides so the CSS defaults take over again
+      // (used when leaving cover edit mode or switching to a non-book
+      // template). Idempotent — safe to call on every render.
+      const ids = ['slot-back', 'slot-spine', 'slot-front'];
+      for (const id of ids) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        el.style.left = '';
+        el.style.width = '';
+      }
+      for (const sel of ['.trimArea', '.foldLine.left', '.foldLine.right',
+                         '.cm-tl-h', '.cm-tl-v', '.cm-tr-h', '.cm-tr-v',
+                         '.cm-bl-h', '.cm-bl-v', '.cm-br-h', '.cm-br-v']) {
+        const el = document.querySelector(sel);
+        if (!el) continue;
+        el.style.left = '';
+        el.style.top  = '';
+        el.style.width = '';
+      }
+    }
+
     function renderDimensions() {
       if (state.appMode === 'designer') {
         const design = state.discDesign;
@@ -14105,11 +14187,38 @@
       const root = document.documentElement;
       root.style.setProperty('--sheet-w', inches(sheetW()));
       root.style.setProperty('--sheet-h', inches(sheetH()));
-      root.style.setProperty('--panel-w', inches(state.panelW));
-      root.style.setProperty('--trim-h', inches(state.trimH));
-      root.style.setProperty('--spine-w', inches(state.spineW));
-      root.style.setProperty('--bleed', inches(state.bleed));
-      root.style.setProperty('--safe', inches(state.safe));
+      // Book cover edit mode reuses the DVD-cover slot scaffolding
+      // (.slot.back / .slot.spine / .slot.front + bleed + trim + crop
+      // marks), so the CSS custom properties need to be book-spec
+      // values rather than the DVD-cover state.* values. Spine width
+      // re-derives from page count × paper thickness via
+      // bookSpineWidthInches().
+      if (state.templateMode === 'book' && state.book?.editingCover) {
+        const s = state.book.spec || {};
+        const trimW = Number(s.trimW) || 0;
+        const trimH = Number(s.trimH) || 0;
+        const bleed = Number(s.bleed) || 0;
+        const safe  = Number(s.safe)  || 0.125;
+        const hasBack  = !!s.coverHasBack;
+        const hasSpine = !!s.coverHasSpine;
+        const spineW = hasSpine ? bookSpineWidthInches() : 0;
+        root.style.setProperty('--panel-w', inches(trimW));
+        root.style.setProperty('--trim-h', inches(trimH));
+        root.style.setProperty('--spine-w', inches(spineW));
+        root.style.setProperty('--bleed', inches(bleed));
+        root.style.setProperty('--safe', inches(safe));
+        document.body.classList.toggle('no-cover-back',  !hasBack);
+        document.body.classList.toggle('no-cover-spine', !hasSpine);
+        applyBookCoverSlotLayout({ trimW, trimH, spineW, bleed, hasBack, hasSpine });
+      } else {
+        root.style.setProperty('--panel-w', inches(state.panelW));
+        root.style.setProperty('--trim-h', inches(state.trimH));
+        root.style.setProperty('--spine-w', inches(state.spineW));
+        root.style.setProperty('--bleed', inches(state.bleed));
+        root.style.setProperty('--safe', inches(state.safe));
+        document.body.classList.remove('no-cover-back', 'no-cover-spine');
+        clearBookCoverSlotLayout();
+      }
 
       const pageW = state.templateMode === 'cover' ? 11 : sheetW();
       const pageH = state.templateMode === 'cover' ? 8.5 : sheetH();
