@@ -8852,6 +8852,16 @@
     }
     function ensureBookState() {
       if (!state.book) state.book = defaultBookState();
+      // Backfill any spec fields that pre-date later additions, so
+      // older saved books don't end up with undefined coverHasBack /
+      // coverHasSpine (which would make `!!s.coverHasBack` evaluate
+      // false and drop back-panel layers from the preview, sheet
+      // sizing, and PDF export).
+      if (!state.book.spec) state.book.spec = defaultBookSpec();
+      const defaults = defaultBookSpec();
+      for (const k of Object.keys(defaults)) {
+        if (state.book.spec[k] === undefined) state.book.spec[k] = defaults[k];
+      }
       return state.book;
     }
     // Physical page count — manifest entries except reflow segments,
@@ -12718,7 +12728,10 @@
     function renderBookCoverPreview() {
       const wrap = document.getElementById('bookCoverPreview');
       const summary = document.getElementById('bookCoverSummary');
-      const book = state.book;
+      // Backfill any missing spec flags (older saved books) before we
+      // read coverHasBack / coverHasSpine — `!!undefined === false`
+      // would otherwise drop the back and spine layers entirely.
+      const book = state.book ? ensureBookState() : null;
       if (!wrap || !summary || !book) return;
       const s = book.spec;
       const spineW = bookSpineWidthInches();
