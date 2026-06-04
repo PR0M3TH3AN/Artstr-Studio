@@ -4921,6 +4921,7 @@
           <button type="button" id="bookMasterAddTextFrame" title="Add a reflow text-frame to this master" style="display:none">+ Text frame</button>
           <button type="button" id="bookPageEditPublish" title="Publish this page as a casewrap-page event">Publish</button>
           <button type="button" id="bookPageEditProofPdf" title="Export just this page as a PDF (single-page proof for the printer)">📄 Proof PDF</button>
+          <button type="button" id="bookCoverExportJsonBtn" title="Download just the cover spread as a portable JSON file" style="display:none">💾 Cover JSON</button>
           <button type="button" id="bookPageEditGatingBtn" title="Set premium / paywall on this page" style="display:none">⚡ Free</button>
           <span class="hint" id="bookPageEditPublishStatus" style="margin-left:6px;font-size:.74rem"></span>
         </div>
@@ -12497,6 +12498,8 @@
         if (prev) prev.style.display = 'none';
         if (next) next.style.display = 'none';
         if (tfBtn) tfBtn.style.display = 'none';
+        const coverExportBtn = document.getElementById('bookCoverExportJsonBtn');
+        if (coverExportBtn) coverExportBtn.style.display = '';
         if (pubBtn) {
           const visTag = state.visibility === 'private' ? ' 🔒' : '';
           const ref = book.cover?.ref;
@@ -12506,6 +12509,11 @@
             : `Publish this cover as a casewrap-page event${visTag ? ' (private, end-to-end encrypted)' : ' (role:"cover-spread")'}`;
         }
         return;
+      }
+      // Editing a page / master → hide the cover-only export button.
+      {
+        const coverExportBtn = document.getElementById('bookCoverExportJsonBtn');
+        if (coverExportBtn) coverExportBtn.style.display = 'none';
       }
       if (editingMaster) {
         const m = book.masters.find(x => x.id === book.editingMasterId);
@@ -25918,6 +25926,90 @@
       };
     }
 
+    // Whole-book payload — spec + pages + masters + cover metadata +
+    // every layer that belongs to any book surface (pages, masters,
+    // cover panels). Transient UI fields (editingCover / editingEntryId
+    // / editingMasterId / editingChapterId) are excluded; restore opens
+    // the book at the Pages overview.
+    function bookPayload() {
+      const book = state.book || {};
+      return {
+        version: SCHEMA_VERSION,
+        templateMode: 'book',
+        templateType: 'book',
+        meta: state.meta,
+        ui: {
+          zoom: state.zoom,
+          showGuides: state.showGuides,
+          showBleed: state.showBleed,
+          showCrops: state.showCrops,
+          printGuides: state.printGuides,
+          printCrops: state.printCrops,
+        },
+        book: {
+          spec:    book.spec    || {},
+          pages:   book.pages   || [],
+          masters: book.masters || [],
+          cover:   book.cover   || {},
+        },
+        layerGroups: { ...ensureLayerGroups() },
+        layers: nonGeneratedLayers().filter(l => {
+          const t = String(l.target || '');
+          return t.startsWith('book-page:')
+              || t.startsWith('book-master:')
+              || t === 'book-cover-front'
+              || t === 'book-spine'
+              || t === 'book-cover-back';
+        }),
+      };
+    }
+
+    // Cover-only payload — just the three cover panels + the spec
+    // fields the cover needs to render correctly (trim, bleed, safe,
+    // spine width snapshotted at export so the file is portable). Use
+    // it to move a cover spread between books or stash it as a
+    // standalone artifact.
+    function bookCoverPayload() {
+      const spec = state.book?.spec || {};
+      return {
+        version: SCHEMA_VERSION,
+        templateMode: 'book-cover',
+        templateType: 'book-cover',
+        meta: state.meta,
+        ui: {
+          zoom: state.zoom,
+          showGuides: state.showGuides,
+          showBleed: state.showBleed,
+          showCrops: state.showCrops,
+        },
+        bookCover: {
+          trimW:          Number(spec.trimW) || 0,
+          trimH:          Number(spec.trimH) || 0,
+          bleed:          Number(spec.bleed) || 0,
+          safe:           Number(spec.safe)  || 0.125,
+          coverHasBack:   !!spec.coverHasBack,
+          coverHasSpine:  !!spec.coverHasSpine,
+          // Snapshot the derived spine width so the cover is
+          // self-contained — re-importing into a book with a
+          // different page count won't shift it unless the user opts
+          // in by toggling spineFromPages.
+          spineWidth:     bookSpineWidthInches(),
+          spineFromPages: !!spec.spineFromPages,
+          spineWManual:   Number(spec.spineWManual) || 0,
+          paperThickness: Number(spec.paperThickness) || 0,
+          pageCountAtExport: bookPageCount(),
+          bookSize:       spec.bookSize || 'Custom',
+        },
+        layerGroups: { ...ensureLayerGroups() },
+        layers: nonGeneratedLayers().filter(l => {
+          const t = String(l.target || '');
+          return t === 'book-cover-front'
+              || t === 'book-spine'
+              || t === 'book-cover-back';
+        }),
+      };
+    }
+
     function exportPayload() {
       const templateType = templateTypeForMode();
       return {
@@ -27966,6 +28058,11 @@
       } else if (state.templateMode === 'pixelart') {
         const pa = state.pixelArt || defaultPixelArt(32, 32);
         triggerDownload(pixelArtPayload(), projectFilename('pixel_art', `${pa.width}x${pa.height}`));
+      } else if (state.templateMode === 'book') {
+        const spec = state.book?.spec || {};
+        const variant = filenamePart(spec.bookSize, 'custom')
+          || `${Number(spec.trimW) || 0}x${Number(spec.trimH) || 0}`;
+        triggerDownload(bookPayload(), projectFilename('book', variant));
       } else if (isCanvasMode(state.templateMode)) {
         const ca = state.customArt || { width: 1920, height: 1080 };
         const stem = state.templateMode === 'slide' ? 'slide' : 'custom_art';
@@ -37145,6 +37242,16 @@
       on('bookPageEditGatingBtn', 'click', () => {
         const id = state.book?.editingEntryId;
         if (id) openBookPageGatingDialog(id);
+      });
+      on('bookCoverExportJsonBtn', 'click', () => {
+        if (!state.book?.editingCover) return;
+        const titlePart = filenamePart(state.meta?.title, 'untitled');
+        const spec = state.book?.spec || {};
+        const sizePart = filenamePart(spec.bookSize, '')
+          || `${Number(spec.trimW) || 0}x${Number(spec.trimH) || 0}`;
+        const filename = [titlePart, 'book_cover', sizePart].filter(Boolean).join('_') + '.json';
+        triggerDownload(bookCoverPayload(), filename);
+        toastSuccess?.('Cover spread saved.');
       });
       on('bookPageEditProofPdf', 'click', async () => {
         const book = state.book;
