@@ -2058,7 +2058,7 @@
          overset (red)   → end of thread with overflow text */
     .bookFramePort {
       position: absolute;
-      width: 10px; height: 10px;
+      width: 12px; height: 12px;
       background: #fff;
       border: 1.5px solid #475569;
       box-sizing: border-box;
@@ -2066,11 +2066,28 @@
       z-index: 50;
       pointer-events: auto;
     }
-    .bookFramePort.in  { top: -6px;    left: -6px;   border-radius: 0; }
-    .bookFramePort.out { bottom: -6px; right: -6px;  border-radius: 0; }
+    .bookFramePort.in  { top: -7px;    left: -7px;   border-radius: 0; }
+    .bookFramePort.out { bottom: -7px; right: -7px;  border-radius: 0; }
     .bookFramePort.linked  { background: #16a34a; border-color: #15803d; }
     .bookFramePort.overset { background: #dc2626; border-color: #991b1b; }
     .bookFramePort:hover { box-shadow: 0 0 0 2px rgba(96,165,250,.6); }
+    /* Source port (the one the user clicked to start a link) pulses
+       so it stays visually anchored as the cursor wanders. */
+    body.book-port-loading .bookFramePort.out.loadingSource {
+      box-shadow: 0 0 0 3px rgba(59,130,246,.9);
+      animation: bookFramePulse 1.2s infinite;
+    }
+    /* In ports highlight while a load is in progress so users see
+       where they can drop the link. */
+    body.book-port-loading .bookFramePort.in {
+      box-shadow: 0 0 0 2px rgba(96,165,250,.55);
+      cursor: copy;
+    }
+    body.book-port-loading { cursor: copy; }
+    @keyframes bookFramePulse {
+      0%,100% { box-shadow: 0 0 0 3px rgba(59,130,246,.9); }
+      50%     { box-shadow: 0 0 0 6px rgba(59,130,246,.35); }
+    }
     .bookFrameIdBadge {
       position: absolute; bottom: 4px; left: 4px;
       font-size: .58rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -22578,46 +22595,140 @@
       ctx.restore();
     }
 
+    // Phase J3 — module-level state for the port "loaded cursor"
+    // pattern. When the user clicks an empty out-port we store its
+    // layer reference here and flip a body class so the cursor +
+    // in-port highlights reflect the in-progress link operation.
+    let _bookPortLoading = null;  // { layerId } | null
+
+    function _findBookFrameLayer(predicate) {
+      for (const l of (state.layers || [])) {
+        if (l.type !== 'shape' || l.shape?.kind !== 'text-frame') continue;
+        if (predicate(l)) return l;
+      }
+      return null;
+    }
+
+    // Cycle detection — walking from `startLayer` along nextFrame
+    // refs, does the chain ever hit `targetFrameId`? Used to refuse
+    // links that would create a loop (A → B → C, then linking C → A).
+    function _bookFrameChainContains(startLayer, targetFrameId, depth = 0) {
+      if (!startLayer || depth > 1000) return false;
+      if (startLayer.frameId === targetFrameId) return true;
+      const next = startLayer.nextFrame;
+      if (!next?.frameId) return false;
+      const nextLayer = _findBookFrameLayer(l => l.frameId === next.frameId);
+      if (!nextLayer) return false;
+      return _bookFrameChainContains(nextLayer, targetFrameId, depth + 1);
+    }
+
+    function _startBookPortLoad(layer) {
+      _bookPortLoading = { layerId: layer.id };
+      document.body.classList.add('book-port-loading');
+      render();
+    }
+    function _cancelBookPortLoad() {
+      if (!_bookPortLoading) return;
+      _bookPortLoading = null;
+      document.body.classList.remove('book-port-loading');
+      render();
+    }
+    function _completeBookPortLink(targetLayer) {
+      if (!_bookPortLoading) return;
+      const sourceLayer = (state.layers || []).find(l => l.id === _bookPortLoading.layerId);
+      if (!sourceLayer || sourceLayer === targetLayer) {
+        _cancelBookPortLoad();
+        return;
+      }
+      // Cycle guard — refuse if linking would close a loop.
+      if (_bookFrameChainContains(targetLayer, sourceLayer.frameId)) {
+        toastError?.('Refused — that link would create a thread cycle.');
+        _cancelBookPortLoad();
+        return;
+      }
+      pushHistory('book: link text frames');
+      sourceLayer.nextFrame = {
+        target: String(targetLayer.target || ''),
+        frameId: targetLayer.frameId,
+      };
+      _bookPortLoading = null;
+      document.body.classList.remove('book-port-loading');
+      toastSuccess?.('Frames threaded.');
+      render();
+    }
+    function _breakBookFrameLink(layer) {
+      if (!layer?.nextFrame) return;
+      pushHistory('book: break text-frame thread');
+      layer.nextFrame = null;
+      render();
+    }
+    function _bookPortOnClick(layer, portKind, ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (portKind === 'out') {
+        // Already linked? Click breaks the thread at this point.
+        if (layer.nextFrame?.frameId) {
+          _breakBookFrameLink(layer);
+          return;
+        }
+        // Already loading from this same port? Cancel.
+        if (_bookPortLoading?.layerId === layer.id) {
+          _cancelBookPortLoad();
+          return;
+        }
+        _startBookPortLoad(layer);
+        return;
+      }
+      // In port click
+      if (_bookPortLoading) {
+        _completeBookPortLink(layer);
+      }
+    }
+
     // Phase J3.a — attach in/out ports + a small frameId badge to a
     // text-frame layer's rendered wrapper. Reads thread-link state
     // by scanning state.layers (any text-frame whose nextFrame ref
-    // points at this layer counts as "linked in"). Click handling
-    // for port-to-port threading lands in J3.b; for now the ports
-    // are visible affordances only.
+    // points at this layer counts as "linked in"). J3.b adds the
+    // click handlers below for the load-cursor flow.
     function _attachBookFramePorts(el, layer) {
       // The frame might be a legacy text-frame layer that pre-dates
       // J2 — give it a frameId on the fly so the ports work.
       if (!layer.frameId) layer.frameId = makeBookEntryId();
-      const target = String(layer.target || '');
       const myFrameId = layer.frameId;
       // Has this frame been linked OUT to a next frame?
       const linkedOut = !!(layer.nextFrame && layer.nextFrame.frameId);
       // Has any other text-frame's nextFrame pointed AT this frame?
-      let linkedIn = false;
-      for (const other of (state.layers || [])) {
-        if (other === layer) continue;
-        if (other.type !== 'shape' || other.shape?.kind !== 'text-frame') continue;
-        if (other.nextFrame?.frameId === myFrameId) { linkedIn = true; break; }
-      }
+      const incoming = _findBookFrameLayer(other =>
+        other !== layer && other.nextFrame?.frameId === myFrameId);
+      const linkedIn = !!incoming;
+      const isLoadingSource = _bookPortLoading?.layerId === layer.id;
+
       const inPort = document.createElement('div');
       inPort.className = 'bookFramePort in' + (linkedIn ? ' linked' : '');
       inPort.title = linkedIn
-        ? 'In port — text flows in from a linked previous frame.'
-        : 'In port — empty. Future: click an "out" port elsewhere first, then this to link.';
+        ? `In port — text flows in from frame ⌗${String(incoming.frameId).slice(0,6)}.`
+        : (_bookPortLoading
+            ? 'In port — click to receive the loaded thread here.'
+            : 'In port — empty. Click an "out" port elsewhere first to load a thread, then click this.');
       inPort.dataset.framePort = 'in';
       inPort.dataset.frameId = myFrameId;
+      inPort.addEventListener('click', (ev) => _bookPortOnClick(layer, 'in', ev));
       el.appendChild(inPort);
+
       const outPort = document.createElement('div');
-      outPort.className = 'bookFramePort out' + (linkedOut ? ' linked' : '');
+      outPort.className = 'bookFramePort out'
+        + (linkedOut ? ' linked' : '')
+        + (isLoadingSource ? ' loadingSource' : '');
       outPort.title = linkedOut
-        ? 'Out port — text continues into frame ' + String(layer.nextFrame.frameId).slice(0, 8) + '. Click to break the thread (J3.b+).'
-        : 'Out port — text ends here. Future: click to load and then click another frame\'s in port to link.';
+        ? `Out port — text continues into frame ⌗${String(layer.nextFrame.frameId).slice(0,6)}. Click to break the thread.`
+        : (isLoadingSource
+            ? 'Out port — loaded; click an in port elsewhere to link, or click this again / press Esc to cancel.'
+            : 'Out port — text ends here. Click to load and then click another frame\'s in port to link.');
       outPort.dataset.framePort = 'out';
       outPort.dataset.frameId = myFrameId;
+      outPort.addEventListener('click', (ev) => _bookPortOnClick(layer, 'out', ev));
       el.appendChild(outPort);
-      // Tiny id chip so the user can see which frameId a frame has
-      // (useful while authoring threads + debugging). Hidden behind
-      // a `.bookFrameIdBadge` class so we can dim / hide later.
+
       const badge = document.createElement('div');
       badge.className = 'bookFrameIdBadge';
       badge.textContent = '⌗ ' + String(myFrameId).slice(0, 6);
@@ -38227,6 +38338,10 @@
       document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeActionMenus();
         if (e.key !== 'Escape') return;
+        // J3.b: Esc cancels an in-progress text-frame thread load.
+        // Runs before modal Esc handlers because the load-cursor
+        // shouldn't survive a modal close on the same keystroke.
+        if (_bookPortLoading) { _cancelBookPortLoad(); return; }
         const tipM = $('tipModal');
         if (tipM && tipM.getAttribute('aria-hidden') === 'false') { closeTipModal(); return; }
         const pubConfirmM = $('publishConfirmModal');
