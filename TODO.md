@@ -63,6 +63,40 @@ Big arc. v1 supports a tight markdown subset for prose; explicitly
 deferred to Phase I: tables, footnotes, nested lists, embedded
 HTML, multi-column text frames, float-around-image.
 
+### Phase J — Linked Content + threaded text frames
+
+Spec at `docs/BOOK_LINKED_CONTENT_FEATURE.md`. Reframes the Book
+Designer around two ideas:
+
+- **Events are linked files.** Generalizes the pin-vs-live toggle
+  shipped for chapters to every external reference — masters,
+  designed pages, illustration sets, future asset kinds. A new
+  `book.links[]` collection is the project's "Links panel."
+- **Threaded text frames** (InDesign-style). First-class
+  `text-frame` layers on designed pages, threaded port-to-port; a
+  thread declares its content source (a linked chapter event) and
+  the pagination engine pours text through the frame chain.
+
+Phasing:
+
+- **J1** Linked Content tab + Pages overview filters to designed
+  pages only; one-time migration of legacy `type: 'reflow'` entries
+  into `links[]` + `threads[]` + auto-generated designed pages.
+- **J2** First-class `text-frame` layer on `book-page:<id>` targets
+  (today they're master-only).
+- **J3** Threading UI — in / out ports, load-cursor, break / show
+  thread.
+- **J4** Thread-aware pagination engine — walk `thread.frames[]`
+  instead of cloning a master N times.
+- **J5** Thread ↔ chapter assignment in the Linked Content library
+  (relink, embed, show usages).
+- **J6** Polish — autoflow on Shift-click, overset warnings, cycle
+  detection, bulk relink / embed-all.
+
+The pagination engine, PDF export, Reader Mode, Linked Designs
+resolver, and NIP-23 chapter events all survive — this is a UI +
+data-model refactor, not a rebuild. Manifest schema version bumps.
+
 ## Design-tool follow-ups (Illustrator parity arc)
 
 The pen / select / pathfinder bundle (`docs/PEN_TOOL_FEATURE.md`)
