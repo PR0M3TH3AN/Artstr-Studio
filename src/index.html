@@ -2048,6 +2048,38 @@
     .bookStarterCardLabel { font-size: 1rem; font-weight: 700; }
     .bookStarterCardDims  { font-size: .78rem; color: var(--muted); margin-top: 2px; }
     .bookStarterCardDesc  { font-size: .76rem; color: var(--ink); margin-top: 8px; line-height: 1.35; }
+
+    /* Phase J3: in / out ports for threaded text frames. The ports
+       are small square handles at the corners of every text-frame
+       layer; clicking out → in links the frames so chapter text
+       flows from one to the next. Colour signals state:
+         empty  (slate)  → unlinked
+         linked (green)  → part of a thread
+         overset (red)   → end of thread with overflow text */
+    .bookFramePort {
+      position: absolute;
+      width: 10px; height: 10px;
+      background: #fff;
+      border: 1.5px solid #475569;
+      box-sizing: border-box;
+      cursor: crosshair;
+      z-index: 50;
+      pointer-events: auto;
+    }
+    .bookFramePort.in  { top: -6px;    left: -6px;   border-radius: 0; }
+    .bookFramePort.out { bottom: -6px; right: -6px;  border-radius: 0; }
+    .bookFramePort.linked  { background: #16a34a; border-color: #15803d; }
+    .bookFramePort.overset { background: #dc2626; border-color: #991b1b; }
+    .bookFramePort:hover { box-shadow: 0 0 0 2px rgba(96,165,250,.6); }
+    .bookFrameIdBadge {
+      position: absolute; bottom: 4px; left: 4px;
+      font-size: .58rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: rgba(71,85,105,.65);
+      background: rgba(255,255,255,.7);
+      padding: 1px 4px; border-radius: 2px;
+      pointer-events: none;
+      user-select: none;
+    }
     .bookPageTile {
       position: relative;
       border: 1px solid var(--line); background: #fff;
@@ -22546,6 +22578,52 @@
       ctx.restore();
     }
 
+    // Phase J3.a — attach in/out ports + a small frameId badge to a
+    // text-frame layer's rendered wrapper. Reads thread-link state
+    // by scanning state.layers (any text-frame whose nextFrame ref
+    // points at this layer counts as "linked in"). Click handling
+    // for port-to-port threading lands in J3.b; for now the ports
+    // are visible affordances only.
+    function _attachBookFramePorts(el, layer) {
+      // The frame might be a legacy text-frame layer that pre-dates
+      // J2 — give it a frameId on the fly so the ports work.
+      if (!layer.frameId) layer.frameId = makeBookEntryId();
+      const target = String(layer.target || '');
+      const myFrameId = layer.frameId;
+      // Has this frame been linked OUT to a next frame?
+      const linkedOut = !!(layer.nextFrame && layer.nextFrame.frameId);
+      // Has any other text-frame's nextFrame pointed AT this frame?
+      let linkedIn = false;
+      for (const other of (state.layers || [])) {
+        if (other === layer) continue;
+        if (other.type !== 'shape' || other.shape?.kind !== 'text-frame') continue;
+        if (other.nextFrame?.frameId === myFrameId) { linkedIn = true; break; }
+      }
+      const inPort = document.createElement('div');
+      inPort.className = 'bookFramePort in' + (linkedIn ? ' linked' : '');
+      inPort.title = linkedIn
+        ? 'In port — text flows in from a linked previous frame.'
+        : 'In port — empty. Future: click an "out" port elsewhere first, then this to link.';
+      inPort.dataset.framePort = 'in';
+      inPort.dataset.frameId = myFrameId;
+      el.appendChild(inPort);
+      const outPort = document.createElement('div');
+      outPort.className = 'bookFramePort out' + (linkedOut ? ' linked' : '');
+      outPort.title = linkedOut
+        ? 'Out port — text continues into frame ' + String(layer.nextFrame.frameId).slice(0, 8) + '. Click to break the thread (J3.b+).'
+        : 'Out port — text ends here. Future: click to load and then click another frame\'s in port to link.';
+      outPort.dataset.framePort = 'out';
+      outPort.dataset.frameId = myFrameId;
+      el.appendChild(outPort);
+      // Tiny id chip so the user can see which frameId a frame has
+      // (useful while authoring threads + debugging). Hidden behind
+      // a `.bookFrameIdBadge` class so we can dim / hide later.
+      const badge = document.createElement('div');
+      badge.className = 'bookFrameIdBadge';
+      badge.textContent = '⌗ ' + String(myFrameId).slice(0, 6);
+      el.appendChild(badge);
+    }
+
     function renderLayers() {
       const overlay = $('layerOverlay');
       const designerOverlay = $('designerLayerOverlay');
@@ -22615,6 +22693,13 @@
           el.style.background = layer.color || COLOR_LAYER_DEFAULT_FILL;
         } else if (layer.type === 'shape') {
           renderShapeIntoElement(el, layer);
+          // Phase J3.a — visible in/out ports on every text-frame
+          // layer in book mode. Click handling lands in J3.b; for
+          // now they signal the surface is a text frame and show
+          // whether it's part of a thread.
+          if (layer.shape?.kind === 'text-frame' && state.templateMode === 'book') {
+            _attachBookFramePorts(el, layer);
+          }
         } else if (layer.type === 'qr') {
           renderQrIntoElement(el, layer);
         } else if (layer.type === 'pixelart') {
