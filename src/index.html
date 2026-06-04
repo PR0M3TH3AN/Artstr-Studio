@@ -9931,7 +9931,18 @@
         const chapterN = pages.filter(p => p.type === 'reflow').length;
         readout.textContent = `${designN} page${designN === 1 ? '' : 's'} · ${chapterN} chapter${chapterN === 1 ? '' : 's'}`;
       }
-      if (!pages.length) {
+      // Phase J1.b empty states. Three cases to distinguish:
+      //   (1) Brand-new book — no designed pages AND no chapters → show
+      //       the starter-template panel so the user picks a size and we
+      //       seed a default master + sample chapter.
+      //   (2) Chapters but no designed pages — the user has started
+      //       writing but hasn't laid out any pages yet. Don't show the
+      //       starter (it would create a duplicate sample chapter);
+      //       point them at the Add Page buttons + the Chapters tab.
+      //   (3) Any designed pages exist → render the grid normally.
+      const designedPagesN = pages.filter(p => p.type === 'design').length;
+      const chaptersN = pages.filter(p => p.type === 'reflow').length;
+      if (designedPagesN === 0 && chaptersN === 0) {
         const starter = document.createElement('div');
         starter.className = 'bookStarterPanel';
         const presets = [
@@ -9965,7 +9976,7 @@
             `).join('')}
           </div>
           ${deckBlock}
-          <p class="hint" style="margin-top:14px">Or skip the template — click <b>+ Add page</b>, <b>+ Add chapter</b>, or <b>Document settings…</b> to start from scratch.</p>
+          <p class="hint" style="margin-top:14px">Or skip the template — click <b>+ Add page</b> here, <b>+ Add chapter</b> under the <b>📎 Chapters</b> tab, or <b>Document settings…</b> in the sidebar to start from scratch.</p>
         `;
         grid.appendChild(starter);
         starter.querySelectorAll('.bookStarterCard[data-preset]').forEach(btn => {
@@ -9978,6 +9989,24 @@
         if (importDeckBtn) {
           importDeckBtn.addEventListener('click', () => convertDeckToBook());
         }
+        return;
+      }
+      if (designedPagesN === 0 && chaptersN > 0) {
+        const empty = document.createElement('div');
+        empty.className = 'bookStarterPanel';
+        empty.innerHTML = `
+          <h3 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">No designed pages yet</h3>
+          <p class="hint" style="margin:0 0 12px">You have ${chaptersN} chapter${chaptersN === 1 ? '' : 's'} of text but no pages laid out to hold it. Add designed pages here, then (in J3+) thread text frames through them to pour the chapter text in. For now, the pagination engine still auto-paginates each chapter against its master.</p>
+          <div class="buttonRow" style="margin:0">
+            <button type="button" class="primary" id="bookEmptyAddPageBtn">+ Add page</button>
+            <button type="button" id="bookEmptyAdd10Btn">+ Add 10 pages</button>
+            <button type="button" id="bookEmptyChaptersBtn">📎 Go to Chapters</button>
+          </div>
+        `;
+        grid.appendChild(empty);
+        empty.querySelector('#bookEmptyAddPageBtn')?.addEventListener('click', () => addBookDesignedPage());
+        empty.querySelector('#bookEmptyAdd10Btn')?.addEventListener('click', () => addBookTenPages());
+        empty.querySelector('#bookEmptyChaptersBtn')?.addEventListener('click', () => setBookSubView('chapters'));
         return;
       }
       // Numbered-page counter walks the visible sequence, skipping
