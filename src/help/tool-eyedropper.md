@@ -14,14 +14,19 @@ native `window.EyeDropper` API.
   focus (right-side panel).
 - Press **Esc** to cancel without sampling.
 
-## Inline eyedropper buttons
+## OS colour picker eyedropper
 
-You don't need the toolbar tool to use the eyedropper — many
-colour-input fields in the right-side panels have a small ⊙ button
-next to them that triggers a one-shot sample directly into that
-specific field. Use that when you want to sample a colour for a
-specific property (e.g., stroke colour) without affecting the
-"active" slot.
+The browser's native colour picker (which opens when you click any
+colour field in the right-side panels) also includes its own
+eyedropper button in Chromium-based browsers — useful when you
+want to sample a colour directly into a specific field instead of
+the active slot. Behaviour differs by browser:
+
+- **Chromium-based** (Chrome / Edge / Brave) — the native colour
+  picker has an eyedropper inside.
+- **Safari / Firefox** — no built-in eyedropper. Type a hex value
+  by hand or use the dedicated toolbar tool to sample into the
+  active swatch.
 
 ## Browser support
 

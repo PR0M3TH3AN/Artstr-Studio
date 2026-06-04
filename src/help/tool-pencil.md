@@ -1,45 +1,32 @@
 # Pencil tool (B)
 
-Freehand drawing. Your pointer's path is recorded as a sequence of
-points then smoothed into a Bézier path on release.
+Freehand drawing. Your pointer's path is sampled as a polyline of
+line segments — each stroke becomes its own `shape` (path) layer.
 
 ## Drawing
 
 - **Click + drag** to draw. Release to commit.
-- The resulting layer is a vector `shape` (path kind) — identical
-  data model to a path drawn with the Pen tool, so you can edit it
-  with [Direct Selection](#/help/tool-direct-select) afterwards.
+- The resulting layer is a vector `shape` (path kind) — same
+  underlying data model as a Pen path, so you can edit it with
+  [Direct Selection](#/help/tool-direct-select) afterwards (drag
+  individual anchors, bow segments, etc).
 
-## Smoothing
+## Tool options
 
-The pencil applies a default smoothing pass that:
+The right-side **Tool options** pane has two inputs:
 
-- Drops every Nth point to reduce noise.
-- Fits Bézier handles to the remaining points using a curvature-
-  preserving algorithm.
-- Closes the path automatically if your release point is within a
-  short distance of the start (configurable threshold).
+- **Stroke colour** — the line colour.
+- **Stroke width** — in pixels.
 
-The right-side **Tool options** pane has a smoothing slider — drop
-it to 0 to get every raw input point preserved; crank it up for
-sketch-style smoothed strokes.
-
-## Modifiers
-
-- **Alt+drag** — add to the currently-selected path (extends it
-  from the closest endpoint).
-- **Shift+click** an endpoint of the currently-selected path to
-  continue from that endpoint with a single straight segment.
-
-## Stroke + fill
-
-Like the Pen, the active **Stroke** panel + **Fill** panel apply at
-draw time. A pencil layer with a fill becomes a closed-shape fill;
-with stroke only it stays a single drawn line.
+Both apply at draw time. They're separate from any selected
+layer's stroke settings.
 
 ## Tips
 
-- Trackpad input gives you nicer curves than a mouse — natural
-  micro-jitter feeds the smoother better.
-- For a pixel-perfect path, switch to the **Pen** tool instead —
-  Pencil is for organic strokes, Pen for deliberate Bézier work.
+- Pencil strokes are stored as line-to segments (no smoothing in
+  v1). For a smoothed curve, draw with the **Pen tool** instead and
+  pull tangent handles where you want curves.
+- Each release creates a new layer — for multi-stroke sketches you
+  can group the layers later via the Layers panel.
+- Trackpad input gives you smoother visual motion than a mouse, but
+  the underlying path stays a polyline either way.

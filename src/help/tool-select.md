@@ -6,22 +6,20 @@ The default tool. Moves, scales, and rotates whole layers.
 
 - **Click** a layer to select it. Eight handles appear around the
   bounding box.
-- **Drag** to move. Hold **Shift** to constrain to the nearest 45°
-  axis (horizontal, vertical, or diagonal).
-- **Drag a corner handle** to scale. Hold **Shift** to keep the
-  aspect ratio.
+- **Drag** the layer body to move it.
+- **Drag a corner handle** to scale on both axes.
 - **Drag a side handle** to scale on one axis.
-- **Drag the small rotate handle** above the top edge to rotate. Hold
-  **Shift** to snap to 15° increments.
-- **Hold Alt while dragging** to duplicate the layer in place.
+- **Drag the rotate handle** above the top edge to rotate.
+- **Cmd/Ctrl + D** duplicates the selected layer.
 
 ## Multi-select
 
-- **Shift+click** another layer to add it to the selection.
-- **Cmd/Ctrl+A** selects every layer on the current surface.
+- **Shift+click** (or Cmd / Ctrl + click) another layer to add it to
+  the selection.
 - **Marquee box-select** — click an empty area of the canvas and drag.
   Every layer whose bounding box intersects the marquee joins the
-  selection.
+  selection. Hold **Shift / Cmd / Ctrl** while marqueeing to add to
+  the existing selection instead of replacing it.
 
 With ≥2 layers selected, the **Align & Distribute** panel + the
 **Pathfinder** ops (for vector shapes) become available.
@@ -36,8 +34,6 @@ With ≥2 layers selected, the **Align & Distribute** panel + the
 
 ## Tips
 
-- The Select tool ignores the per-layer visibility / lock state set
-  in the Layers panel. A locked layer still highlights on hover but
-  refuses drag input.
-- Hold **Cmd/Ctrl** while clicking to pick up a layer that's behind
-  another layer at the click point (z-stack walk).
+- A locked layer (lock icon in the Layers panel) refuses drag input
+  on the canvas; the row in the list still highlights on hover.
+- Hidden layers (eye icon off) don't intercept canvas clicks at all.

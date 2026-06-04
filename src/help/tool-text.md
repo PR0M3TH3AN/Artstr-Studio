@@ -5,29 +5,28 @@ created with `contentEditable` set so you can type immediately.
 
 ## Creating
 
-- **Drag** a rectangle on the canvas to size the text box.
-- The cursor lands inside the box at the end of the drag — start
-  typing.
-- **Click + release without dragging** drops a default-sized text
-  box at the click point.
+- **Click** the canvas. A default-sized text box drops at the click
+  point, the tool auto-flips back to Select, and the box's
+  contentEditable area gains focus so you can start typing
+  immediately. The placeholder text is pre-selected so your first
+  keystroke replaces it.
 
 ## Editing
 
-A text layer's content is HTML (rich text). Inline marks supported:
+A text layer's content is HTML (rich text). Inline marks are
+applied via the text-layer-options inline buttons (or the browser's
+native rich-text shortcuts when the contenteditable area has focus
+— browser behaviour differs):
 
-- **Bold** (`**bold**` or **Cmd/Ctrl + B**)
-- *Italic* (`*italic*` or **Cmd/Ctrl + I**)
-- Underline (toolbar button or **Cmd/Ctrl + U**)
-- Strikethrough
-- Inline link (paste a URL while text is selected; or use the link
-  button in the **Type** panel).
+- **Bold**, *italic*, underline, strikethrough — via the inline
+  toolbar buttons that appear with a text layer selected.
+- Inline link — use the link button in the layer-options pane to
+  add a URL to selected text.
 
 Block formatting:
 
-- Headings via the right-side type panel.
-- Bulleted / numbered lists (Enter continues the list; empty Enter
-  exits).
-- Alignment (left / center / right / justify).
+- Alignment (left / center / right) via the **Alignment** dropdown.
+- Font, size, colour via the **Type** options pane.
 
 ## Right-side Type panel
 

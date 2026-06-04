@@ -42,10 +42,19 @@ whatever you've selected.
 ## Keyboard shortcuts (canvas focus)
 
 - **V / A / H / P / B / S / T / I** — switch tools.
-- **Shift** while drawing — constrain (square / circle / 45° angles).
-- **Alt** — duplicate-as-you-drag for a selected layer.
-- **Arrow keys** — nudge selection by 1 px; **Shift+Arrow** by 10 px.
-- **Cmd/Ctrl + D** — duplicate selected.
 - **Cmd/Ctrl + Z** / **Cmd/Ctrl + Shift + Z** — undo / redo.
-- **Delete / Backspace** — remove selected.
-- **Spacebar** — hold to temp-pan (releases back to the previous tool).
+- **Cmd/Ctrl + Y** — redo (alternate).
+- **Cmd/Ctrl + D** — duplicate selected layer.
+- **Cmd/Ctrl + C / X / V** — copy / cut / paste layer(s).
+- **Cmd/Ctrl + G** — group selected layers.
+- **Cmd/Ctrl + ] / [** — bring forward / send backward; add **Shift**
+  for bring-to-front / send-to-back.
+- **Cmd/Ctrl + J** — close path / join two selected endpoints
+  (Pen / Direct Selection edit mode only).
+- **Cmd/Ctrl + Alt + J** — average selected anchors to their centroid
+  (Pen / Direct Selection edit mode only).
+- **Delete / Backspace** — remove selected layer; remove selected
+  anchor in Pen / Direct Selection edit mode.
+- **Shift + click** (or Cmd / Ctrl + click) — additive multi-select.
+- **Shift while drawing with the Pen tool** — constrain the next
+  anchor to a 45° angle from the previous one.

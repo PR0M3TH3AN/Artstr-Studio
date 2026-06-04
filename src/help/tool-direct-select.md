@@ -21,8 +21,8 @@ counterpart to Select, which moves the whole layer.
   By default both handles move symmetrically (smooth point).
 - **Alt+drag** a handle to break symmetry — corner point with
   independent handles per side.
-- **Click an anchor without dragging, then Alt+click** to flip
-  between smooth point and corner point.
+- **Alt+click an anchor** toggles between smooth point and corner
+  point.
 
 ## Multi-anchor edits
 
@@ -36,11 +36,13 @@ counterpart to Select, which moves the whole layer.
 
 ## Segment edits
 
-- **Drag a segment** between two anchors to bow it without moving
-  the anchors themselves (curve-direct-edit).
-- **Click an endpoint** when the path is open to continue drawing
-  from it (auto-flips you to the Pen tool with the path's last
-  anchor pre-selected).
+- **Drag a segment** between two anchors to bow it (curve-direct-
+  edit) without moving the anchors themselves.
+- **Alt+click a segment** to insert a new anchor at the click point
+  and drag it.
+- To continue drawing from an open endpoint, switch to the **Pen
+  tool** and click the endpoint — Direct Selection alone won't
+  extend the path.
 
 ## Tips
 

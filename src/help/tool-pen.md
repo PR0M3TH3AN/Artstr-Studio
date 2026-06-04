@@ -65,11 +65,13 @@ With **multiple anchors selected via the Direct Selection tool**:
 
 ## Tips
 
-- The stroke thickness while drawing matches what's set in the
-  right-side **Stroke** panel — set width + colour before you start
-  if you want immediate visual feedback.
+- The Pen tool's options pane has its own **Fill colour**, **Stroke
+  colour**, and **Stroke width** inputs — set them before you start
+  drawing for immediate visual feedback. They're separate from any
+  layer's existing stroke settings.
+- The **Fill closed path** checkbox in the options pane controls
+  whether a closed path renders with its fill colour or stays
+  outline-only.
 - Pen and Pencil store the same underlying path data, so a Pencil
   sketch can be opened with Direct Selection + edited with the Pen
   ops without conversion.
-- The canvas grid + snap settings (right-side panel) help with
-  precise vector placement.

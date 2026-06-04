@@ -9,28 +9,24 @@ when the canvas extends beyond the visible area.
 - The cursor changes to a closed grab while dragging.
 - Doesn't select, modify, or create layers.
 
-## Temp-pan from any tool
+## Pen-mode Spacebar reposition
 
-You rarely need to switch to the Hand tool explicitly:
-
-- **Hold Spacebar** with any other tool active to temp-pan. The
-  cursor switches to the grab cursor; release the spacebar to pop
-  back to the previous tool. Works mid-stroke for the Pen + Pencil
-  tools (the in-progress draft stays put).
+A specific case: while mid-draw with the **Pen tool**, holding
+**Spacebar** repositions the anchor you're currently placing (and
+slides its handles with it). This is a Pen-tool-only behaviour, not
+a global "temp-pan". Release to commit the anchor.
 
 ## Zoom controls
 
-Zoom isn't tied to the Hand tool — it works from any tool:
+Zoom isn't tied to the Hand tool — it works from any tool via the
+canvas toolbar at the top of the canvas:
 
-- **Cmd/Ctrl + scroll wheel** zooms toward the cursor.
-- **Cmd/Ctrl + + / -** zoom in / out by one preset step.
-- **Cmd/Ctrl + 0** fits the artboard to the viewport.
-- The **Zoom** select at the top of the canvas chooses a preset
-  level (25% → 400%) or "Fit".
+- **− / +** buttons step by 10 % each.
+- **Zoom dropdown** chooses a preset level.
+- **Fit** button auto-fits the artboard to the viewport.
 
 ## Tips
 
-- The temp-pan modifier is essentially the only reason to flip to
-  the Hand tool deliberately — it gives you a momentary pan without
-  losing your active tool's modal state.
 - A trackpad two-finger swipe also pans without a tool change.
+- For pixel-precise alignment, zoom in via the **+** button until
+  pixel boundaries are visible, then pan with the Hand tool.

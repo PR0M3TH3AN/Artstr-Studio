@@ -40,11 +40,14 @@ Each row in the layer list shows:
 - **Drag** rows to reorder. Z-order on the canvas follows the
   list order (top of the list = top of the stack).
 - **Cmd/Ctrl + ]** / **Cmd/Ctrl + [** sends selected layers
-  forward / backward.
-- **Shift+click** to multi-select; then drag a contiguous block.
+  forward / backward. Add **Shift** for bring-to-front / send-to-
+  back.
+- **Shift+click** (or Cmd / Ctrl + click) to multi-select rows.
 - **Group** — select multiple rows + click the Group button (or
-  Cmd/Ctrl + G) to collapse them under a single expandable row.
-  Groups have their own visibility / lock toggles that cascade.
+  press **Cmd/Ctrl + G**) to collapse them under a single
+  expandable row. Groups have their own visibility / lock toggles
+  that cascade.
+- **Ungroup** — click an active group's Ungroup button.
 
 ## Layer options (the per-layer right-side pane)
 
@@ -52,8 +55,9 @@ Clicking a layer in the list (or selecting it on the canvas)
 populates a contextual options block in the right-side floating
 pane. Common controls:
 
-- **Position** — x / y / w / h in inches (or px in screen-DPI
-  modes). Aspect-ratio lock keeps width + height proportional.
+- **Position** — x / y / w / h in canvas units (inches for print
+  modes; pixels for Custom Art / Slide / Deck). The 🔒 button
+  toggles aspect-ratio lock so changing w updates h proportionally.
 - **Rotation** — 0–360°.
 - **Opacity** — 0–1.
 - **Fit** — for image layers: cover / contain / fill / none.
