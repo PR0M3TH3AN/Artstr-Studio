@@ -4982,7 +4982,7 @@
   <div class="modal" id="welcomeModal" aria-hidden="true">
     <div class="modalCard welcomeCard" style="position:relative">
       <button type="button" id="welcomeCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
-      <h2 style="margin:0 0 4px">Welcome to Artstr Studio</h2>
+      <h2 style="margin:0 0 4px">Welcome to Artstr Studio <span class="docsHelpIcon" data-help="index" role="button" aria-label="Open help: Overview" title="Open the docs">ⓘ</span></h2>
       <p class="subhead" style="margin:0 0 14px">Browse community templates or start your own.</p>
       <div class="welcomeSearchRow">
         <div><label for="welcomeQuery" style="font-size:.78rem">Title or IMDb ID</label><input id="welcomeQuery" type="text" placeholder="e.g. The Matrix or tt0133093" /></div>
@@ -5010,7 +5010,7 @@
   <div class="modal" id="nostrModal" aria-hidden="true">
     <div class="modalCard">
       <div class="modalHeader">
-        <div id="nostrBrowseHeading"><h2>Browse Community Templates</h2></div>
+        <div id="nostrBrowseHeading"><h2>Browse Community Templates <span class="docsHelpIcon" data-help="publishing" role="button" aria-label="Open help: Publishing tiers" title="Open help: how publishing tiers + tipping work">ⓘ</span></h2></div>
         <div id="nostrPreviewHeading" style="display:none">
           <h2 id="nostrPreviewTitle">Design Preview</h2>
           <p id="nostrPreviewMeta" class="subhead"></p>
@@ -5029,7 +5029,7 @@
         <button type="button" class="modalTab" id="tabNew">New</button>
         <button type="button" class="modalTab" id="tabPopular">Popular</button>
         <button type="button" class="modalTab" id="tabZapped">⚡ Zapped</button>
-        <button type="button" class="modalTab" id="tabPremium">⚡ Premium</button>
+        <button type="button" class="modalTab" id="tabPremium">⚡ Premium<span class="docsHelpIcon" data-help="publishing-premium" role="button" aria-label="Open help: Premium publishing" title="Open help: zap-gated premium">ⓘ</span></button>
         <button type="button" class="modalTab" id="tabSearch">Search</button>
         <button type="button" class="modalTab" id="tabMine">My Designs</button>
       </div>
@@ -5769,7 +5769,10 @@
   <div class="modal" id="tipModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:420px;position:relative">
       <button type="button" id="tipCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
-      <h2 id="tipTitle" style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Send a tip</h2>
+      <div style="display:flex;align-items:baseline;gap:6px;margin:0 0 4px">
+        <h2 id="tipTitle" style="margin:0;font-size:1.05rem;font-family:inherit;flex:1">Send a tip</h2>
+        <span class="docsHelpIcon" data-help="zaps" role="button" aria-label="Open help: Zaps and tipping" title="Open help: zaps + tipping">ⓘ</span>
+      </div>
       <p class="hint" id="tipSubtitle" style="margin:0 0 14px"></p>
 
       <div id="tipPickerView">
