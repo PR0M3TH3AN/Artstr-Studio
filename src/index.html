@@ -5685,6 +5685,7 @@
       <div class="docsHeader">
         <h2>Artstr Studio docs</h2>
         <span class="docsBreadcrumb" id="docsBreadcrumb"></span>
+        <button type="button" id="docsCopyMdBtn" title="Copy this page as raw markdown" aria-label="Copy this page as markdown" style="font-size:.78rem;padding:4px 10px">📋 Copy as markdown</button>
         <button type="button" id="docsCloseBtn" class="welcomeCloseBtn" aria-label="Close" style="position:relative;top:auto;right:auto">×</button>
       </div>
       <div class="docsBody">
@@ -12126,8 +12127,9 @@
       { slug: 'zaps',                title: 'Zaps (NIP-57)',           group: 'Publishing & payments', file: 'help/zaps.md' },
       { slug: 'nwc',                 title: 'NWC wallet setup',        group: 'Publishing & payments', file: 'help/nwc.md' },
     ];
-    const _docsCache = new Map(); // slug → rendered HTML
+    const _docsCache = new Map(); // slug → { html, md }
     let _docsActiveSlug = 'index';
+    let _docsActiveMd = '';
 
     function _renderDocsSidebar() {
       const aside = document.getElementById('docsSidebar');
@@ -12172,12 +12174,15 @@
         try { history.replaceState(null, '', `#/help/${topic.slug}`); } catch {}
       }
       if (_docsCache.has(topic.slug)) {
-        content.innerHTML = _docsCache.get(topic.slug);
+        const cached = _docsCache.get(topic.slug);
+        content.innerHTML = cached.html;
+        _docsActiveMd = cached.md;
         _wireDocsInternalLinks(content);
         content.scrollTop = 0;
         return;
       }
       content.innerHTML = '<p class="docsLoading">Loading…</p>';
+      _docsActiveMd = '';
       try {
         const md = await _fetchDocsMarkdown(topic.file);
         let html;
@@ -12188,7 +12193,8 @@
         }
         // Safety scrub: strip <script> just in case.
         html = String(html).replace(/<script[\s\S]*?<\/script>/gi, '');
-        _docsCache.set(topic.slug, html);
+        _docsCache.set(topic.slug, { html, md });
+        _docsActiveMd = md;
         content.innerHTML = html;
         _wireDocsInternalLinks(content);
         content.scrollTop = 0;
@@ -37007,6 +37013,25 @@
       on('docsLink', 'click', (e) => { e.preventDefault(); openDocsModal(); });
       _wireDocsHelpDelegation();
       on('docsCloseBtn', 'click', closeDocsModal);
+      on('docsCopyMdBtn', 'click', async () => {
+        const btn = document.getElementById('docsCopyMdBtn');
+        if (!btn) return;
+        if (!_docsActiveMd) {
+          toastError?.('Nothing to copy yet — the page is still loading.');
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(_docsActiveMd);
+          const orig = btn.textContent;
+          btn.textContent = '✓ Copied';
+          btn.disabled = true;
+          setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1400);
+          toastSuccess?.('Markdown copied to clipboard.');
+        } catch (err) {
+          console.warn('docs copy failed', err);
+          toastError?.('Copy failed — check clipboard permissions.');
+        }
+      });
       const _docsModal = document.getElementById('docsModal');
       if (_docsModal) _docsModal.addEventListener('click', (e) => {
         if (e.target === _docsModal) closeDocsModal();
