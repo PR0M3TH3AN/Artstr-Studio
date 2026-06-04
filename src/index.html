@@ -12238,6 +12238,13 @@
     // fieldset legends, modal titles, tool-options headings). Catching
     // the event on document.body keeps every site that wants a help
     // affordance to a single attribute — no per-icon listener wiring.
+    //
+    // Capture phase is intentional. Many icons live inside buttons
+    // that have their own direct click listeners (layout tabs swap
+    // modes, app-mode tabs swap apps, etc); those listeners run on
+    // bubble. Capturing lets us intercept the click before it reaches
+    // the wrapping button and stopPropagation prevents the bubble
+    // from ever delivering.
     function _wireDocsHelpDelegation() {
       if (document.body.dataset.docsHelpWired === '1') return;
       document.body.dataset.docsHelpWired = '1';
@@ -12252,7 +12259,7 @@
         e.preventDefault();
         e.stopPropagation();
         openDocsModal(slug);
-      });
+      }, true); // ← capture
     }
     // ---- end docs ------------------------------------------------------
 
