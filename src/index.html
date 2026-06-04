@@ -12776,36 +12776,33 @@
       // Spread preview. Paint the actual cover layers into a single
       // composite canvas the size of the full wrap-around spread,
       // overlaid with subtle panel labels + fold-line dividers + the
-      // red trim guide. Layers are stored in panel-local space
-      // (book-cover-back / book-spine / book-cover-front, each at
-      // x=0 = left edge of that panel's trim area), so we remap each
-      // layer's target to 'canvas' and add the panel's offset within
-      // the spread + the outer bleed.
+      // red trim guide. IMPORTANT: cover layers store x / y in
+      // sheet-absolute coordinates (see renderLayers at ~22344 — the
+      // layer DOM is appended directly to #layerOverlay, not inside
+      // the slot div), so a back-panel layer's x already includes
+      // the bleed offset, and a front-panel layer's x already
+      // includes bleed + trimW + spineW. We only need to remap the
+      // target to 'canvas' so the preview helper's flat-canvas filter
+      // accepts the layer — no extra offset.
       const previewMaxPx = 720;
       const pxPerIn = totalW > 0 ? Math.min(previewMaxPx / totalW, 60) : 60;
       const renderWidth = Math.max(40, Math.round(totalW * pxPerIn));
       wrap.innerHTML = '';
 
+      // Panel boundary positions within the spread (sheet-absolute,
+      // in inches). Used only for the overlay (fold lines + labels);
+      // layer positions are already sheet-absolute and don't need
+      // these added.
       const backX  = bleed;
       const spineX = bleed + (hasBack  ? trimW  : 0);
       const frontX = bleed + (hasBack  ? trimW  : 0) + (hasSpine ? spineW : 0);
-      const panelY = bleed;
 
       const compositeLayers = [];
       for (const l of (state.layers || [])) {
         if (l.hidden) continue;
         const t = String(l.target || '');
-        let xo, yo;
-        if      (t === 'book-cover-back'  && hasBack)  { xo = backX;  yo = panelY; }
-        else if (t === 'book-spine'       && hasSpine) { xo = spineX; yo = panelY; }
-        else if (t === 'book-cover-front')             { xo = frontX; yo = panelY; }
-        else continue;
-        compositeLayers.push({
-          ...l,
-          target: 'canvas',
-          x: (Number(l.x) || 0) + xo,
-          y: (Number(l.y) || 0) + yo,
-        });
+        if (t !== 'book-cover-back' && t !== 'book-spine' && t !== 'book-cover-front') continue;
+        compositeLayers.push({ ...l, target: 'canvas' });
       }
       compositeLayers.sort((a, b) => (a.z || 0) - (b.z || 0));
 
