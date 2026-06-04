@@ -545,6 +545,34 @@
       text-decoration: underline;
     }
 
+    /* Contextual help icon — small ⓘ that opens the in-app docs
+       modal to a specific topic. Sits inline next to tab labels,
+       fieldset legends, panel headings, modal titles. */
+    .docsHelpIcon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px;
+      margin-left: 6px;
+      font-size: .82rem; line-height: 1;
+      color: var(--muted);
+      cursor: pointer;
+      vertical-align: middle;
+      transition: color .12s, transform .12s;
+      user-select: none;
+    }
+    .docsHelpIcon:hover { color: var(--accent); transform: scale(1.1); }
+    .docsHelpIcon:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+      border-radius: 50%;
+    }
+    /* In-tab context, the icon should be a touch lighter so it
+       doesn't compete with the tab label itself. */
+    .appModeTab .docsHelpIcon { font-size: .9rem; color: rgba(255,255,255,.6); }
+    .appModeTab.active .docsHelpIcon { color: rgba(255,255,255,.85); }
+    .appModeTab .docsHelpIcon:hover { color: #fff; }
+    body:not(.dark) .appModeTab .docsHelpIcon { color: rgba(0,0,0,.4); }
+    body:not(.dark) .appModeTab.active .docsHelpIcon { color: rgba(255,255,255,.85); }
+
     /* Docs modal — Read-the-Docs-style two-pane layout. */
     #docsModal .modalInner {
       max-width: 1100px; width: 92vw;
@@ -3595,8 +3623,8 @@
       </div>
 
       <div class="appModeTabs">
-        <button type="button" class="appModeTab active" id="modeTabTemplate"><img src="paper_icon_32px.png" alt="Template" style="height: 60px; width: auto;" />Template</button>
-        <button type="button" class="appModeTab" id="modeTabDesigner"><img src="design_icon_32px.png" alt="Designer" style="height: 60px; width: auto;" />Designer</button>
+        <button type="button" class="appModeTab active" id="modeTabTemplate"><img src="paper_icon_32px.png" alt="Template" style="height: 60px; width: auto;" />Template<span class="docsHelpIcon" data-help="template" role="button" aria-label="What is the Template tab?" title="Open help: Template tab">ⓘ</span></button>
+        <button type="button" class="appModeTab" id="modeTabDesigner"><img src="design_icon_32px.png" alt="Designer" style="height: 60px; width: auto;" />Designer<span class="docsHelpIcon" data-help="designer" role="button" aria-label="What is the Designer tab?" title="Open help: Designer tab">ⓘ</span></button>
       </div>
 
 
@@ -3615,7 +3643,7 @@
       </div>
 
       <fieldset class="workflowStep template-only" id="layoutFieldset">
-        <legend data-step="1">Layout</legend>
+        <legend data-step="1">Layout <span class="docsHelpIcon" data-help="template" role="button" aria-label="Open help: Template tab" title="Open help">ⓘ</span></legend>
         <div class="layoutTabs" role="tablist" aria-label="Template layout">
           <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover</button>
           <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels</button>
@@ -3625,7 +3653,7 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="coverSizeFieldset">
-        <legend data-step="2">Template</legend>
+        <legend data-step="2">Template <span class="docsHelpIcon" data-help="cover" role="button" aria-label="Open help: Case cover wrap" title="Open help">ⓘ</span></legend>
         <label for="preset">Template preset</label>
         <select id="preset">
           <option value="dvd">DVD case wrap — 10.80 × 7.50 in with bleed</option>
@@ -3667,7 +3695,7 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="metadataFieldset">
-        <legend data-step="5">Project metadata</legend>
+        <legend data-step="5">Project metadata <span class="docsHelpIcon" data-help="panel-metadata" role="button" aria-label="Open help: Project Metadata" title="Open help">ⓘ</span></legend>
         <label for="titleField">Title *</label><input id="titleField" type="text" placeholder="Movie title" required />
         <details id="mediaIdentifiersWrap" class="addIdentifiersDetails" style="margin:10px 0">
           <summary class="addIdentifiersBtn"><span id="identifierBtnLabel">+ Add Media Identifiers</span></summary>
@@ -3703,14 +3731,14 @@
       </fieldset>
 
       <fieldset class="template-only" id="creditsFieldset" style="display:none;margin-top:10px">
-        <legend style="font-size:.85rem;font-weight:600">🔗 Credits</legend>
+        <legend style="font-size:.85rem;font-weight:600">🔗 Credits <span class="docsHelpIcon" data-help="panel-credits" role="button" aria-label="Open help: Credits" title="Open help">ⓘ</span></legend>
         <ul id="creditsList" style="margin:6px 0 0;padding:0;list-style:none;font-size:.82rem"></ul>
         <p class="hint" style="margin:6px 0 0;font-size:.7rem">Distinct creators reachable via the linked layers in this design. Tagged on the published event for indexers.</p>
       </fieldset>
 
 
       <fieldset class="workflowStep template-only" id="exportFieldset">
-        <legend data-step="4">Display options</legend>
+        <legend data-step="4">Display options <span class="docsHelpIcon" data-help="panel-export" role="button" aria-label="Open help: Export options" title="Open help">ⓘ</span></legend>
         <label for="zoom">Preview zoom</label>
         <div class="rangeLine">
           <input id="zoom" type="range" min="20" max="125" step="1" value="60" />
@@ -3729,7 +3757,7 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="printSaveFieldset">
-        <legend data-step="6">Print &amp; Save</legend>
+        <legend data-step="6">Print &amp; Save <span class="docsHelpIcon" data-help="panel-print-save" role="button" aria-label="Open help: Save and Print" title="Open help">ⓘ</span></legend>
         <div class="buttonRow" id="printExportRow">
           <button class="primary" id="printBtn">Print / Save PDF</button>
           <button id="exportJpegBtn">Export JPEG</button>
@@ -3760,7 +3788,7 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="customArtFieldset">
-        <legend data-step="2">Canvas</legend>
+        <legend data-step="2">Canvas <span class="docsHelpIcon" data-help="customart" role="button" aria-label="Open help: Custom art" title="Open help">ⓘ</span></legend>
         <label for="customArtPreset">Preset size</label>
         <select id="customArtPreset"></select>
         <div class="row">
@@ -3787,7 +3815,7 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="deckFieldset">
-        <legend data-step="2">Slides</legend>
+        <legend data-step="2">Slides <span class="docsHelpIcon" data-help="deck" role="button" aria-label="Open help: Slide deck" title="Open help">ⓘ</span></legend>
         <div class="buttonRow">
           <button type="button" id="deckAddSlideBtn">+ Add blank slide</button>
         </div>
@@ -3805,7 +3833,7 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="bookFieldset">
-        <legend data-step="2">Book</legend>
+        <legend data-step="2">Book <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help">ⓘ</span></legend>
         <p class="hint">A book combines a cover spread (front + spine + back), an ordered list of designed pages, optional reflowable chapters written as NIP-23 markdown, and master pages for shared running heads and page numbers. See <code>docs/BOOK_DESIGNER_FEATURE.md</code> for the full spec.</p>
         <div id="bookSpecSummary" class="hint" style="margin-top:8px"></div>
         <div class="buttonRow" style="margin-top:8px">
@@ -3823,7 +3851,7 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="deckThemeFieldset">
-        <legend data-step="3">Deck theme</legend>
+        <legend data-step="3">Deck theme <span class="docsHelpIcon" data-help="deck" role="button" aria-label="Open help: Slide deck" title="Open help">ⓘ</span></legend>
         <p class="hint">A deck theme restyles every slide in the thumbnails and Presenter Mode — the slides themselves are never changed.</p>
         <label for="deckThemeFont">Font for all slides</label>
         <select id="deckThemeFont"></select>
@@ -3835,7 +3863,7 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="coverArtworkFieldset">
-        <legend data-step="3">Artwork</legend>
+        <legend data-step="3">Artwork <span class="docsHelpIcon" data-help="cover" role="button" aria-label="Open help: Case cover wrap" title="Open help">ⓘ</span></legend>
 
         <label for="artworkMode">Artwork mode</label>
         <select id="artworkMode">
@@ -3920,7 +3948,7 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="discArtworkFieldset">
-        <legend data-step="3">Disc Layout</legend>
+        <legend data-step="3">Disc Layout <span class="docsHelpIcon" data-help="disc" role="button" aria-label="Open help: Disc-label sheet" title="Open help">ⓘ</span></legend>
         <div class="miniReadout" id="discSizeReadout"></div>
         <div id="discControls" class="slotGrid"></div>
         <p class="hint">Import saved disc designs into each print position from file or Nostr.</p>
@@ -3941,7 +3969,7 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="jewelArtworkFieldset">
-        <legend data-step="3">Jewel Inserts</legend>
+        <legend data-step="3">Jewel Inserts <span class="docsHelpIcon" data-help="jewel" role="button" aria-label="Open help: Jewel-case insert" title="Open help">ⓘ</span></legend>
         <div class="miniReadout" id="jewelSizeReadout"></div>
         <div id="jewelControls" class="slotGrid"></div>
         <div class="buttonRow">
@@ -3965,7 +3993,7 @@
       </fieldset>
 
       <fieldset class="workflowStep" id="designerLayoutFieldset">
-        <legend data-step="1">Layout</legend>
+        <legend data-step="1">Layout <span class="docsHelpIcon" data-help="designer" role="button" aria-label="Open help: Designer tab" title="Open help">ⓘ</span></legend>
         <div class="layoutTabs" role="tablist" aria-label="Designer layout">
           <button type="button" class="layoutTab" id="mode-customart" data-layout="customart" role="tab">Custom art</button>
           <button type="button" class="layoutTab" id="mode-slide" data-layout="slide" role="tab">Slide</button>
@@ -3975,7 +4003,7 @@
       </fieldset>
 
       <fieldset class="workflowStep designer-only" id="designerFieldset">
-        <legend data-step="1">Disc Design</legend>
+        <legend data-step="1">Disc Design <span class="docsHelpIcon" data-help="designer" role="button" aria-label="Open help: Designer tab" title="Open help">ⓘ</span></legend>
         <label for="designerUrl">Image URL</label>
         <div class="urlRow">
           <input id="designerUrl" type="url" placeholder="https://example.com/disc.jpg" />
@@ -4029,7 +4057,7 @@
       </fieldset>
 
       <fieldset class="workflowStep template-only" id="layersFieldset">
-        <legend data-step="2">Layers</legend>
+        <legend data-step="2">Layers <span class="docsHelpIcon" data-help="panel-layers" role="button" aria-label="Open help: Layers panel" title="Open help">ⓘ</span></legend>
         <div class="layerClipboardRow">
           <button type="button" id="layerCopyAllBtn">Copy all</button>
           <button type="button" id="layerPasteBtn" disabled>Paste</button>
@@ -4410,7 +4438,7 @@
       </fieldset>
 
       <fieldset class="workflowStep designer-only" id="designerMetadataFieldset">
-        <legend data-step="3">Project metadata</legend>
+        <legend data-step="3">Project metadata <span class="docsHelpIcon" data-help="panel-metadata" role="button" aria-label="Open help: Project Metadata" title="Open help">ⓘ</span></legend>
           <label for="designerTitleField">Title *</label>
           <input id="designerTitleField" type="text" placeholder="Movie, album, or game title" />
           <details class="addIdentifiersDetails" style="margin:10px 0">
@@ -4454,7 +4482,7 @@
       </fieldset>
 
       <fieldset class="workflowStep designer-only" id="designerPrintSaveFieldset">
-        <legend data-step="4">Save &amp; Export</legend>
+        <legend data-step="4">Save &amp; Export <span class="docsHelpIcon" data-help="panel-print-save" role="button" aria-label="Open help: Save and Print" title="Open help">ⓘ</span></legend>
         <div class="buttonRow">
           <button type="button" id="designerSaveProjectBtn">Save design (JSON)</button>
           <button type="button" id="designerExportJpegBtn">Export JPEG</button>
@@ -4834,7 +4862,7 @@
 
         <div class="toolOptions" id="toolOptions" style="display:none">
           <div id="penToolOptions" style="display:none">
-            <h4>Pen tool</h4>
+            <h4>Pen tool <span class="docsHelpIcon" data-help="tool-pen" role="button" aria-label="Open help: Pen tool" title="Open help">ⓘ</span></h4>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="penFillEnabled" checked style="accent-color:var(--accent)" /> Fill closed path</label>
             <div class="toolOptRow">
               <div><label for="penFillColor">Fill</label><input type="color" id="penFillColor" value="#3b82f6" /></div>
@@ -4853,11 +4881,11 @@
             </div>
           </div>
           <div id="directSelectToolOptions" style="display:none">
-            <h4>Direct Selection</h4>
+            <h4>Direct Selection <span class="docsHelpIcon" data-help="tool-direct-select" role="button" aria-label="Open help: Direct Selection" title="Open help">ⓘ</span></h4>
             <p class="toolOptHint">Click a path to reveal its anchors, then drag anchors / handles to reshape. Shift-click or drag a marquee to multi-select; arrow keys nudge selected anchors.</p>
           </div>
           <div id="pathActionsBlock" style="display:none">
-            <h4>Path actions</h4>
+            <h4>Path actions <span class="docsHelpIcon" data-help="tool-pen" role="button" aria-label="Open help: Pen tool path actions" title="Open help">ⓘ</span></h4>
             <p class="toolOptHint" id="pathActionsHint">Operations apply to the selected anchors on the editable path.</p>
             <div class="buttonRow">
               <button type="button" id="pathActionPointed" title="Drop handles on the selected anchor(s) — sharp corner">Pointed corner</button>
@@ -4876,7 +4904,7 @@
             </div>
           </div>
           <div id="pencilToolOptions" style="display:none">
-            <h4>Pencil tool</h4>
+            <h4>Pencil tool <span class="docsHelpIcon" data-help="tool-pencil" role="button" aria-label="Open help: Pencil tool" title="Open help">ⓘ</span></h4>
             <label for="pencilStrokeColor">Stroke color</label>
             <input type="color" id="pencilStrokeColor" value="#111827" />
             <label for="pencilStrokeWidth">Stroke width</label>
@@ -4884,7 +4912,7 @@
             <p class="toolOptHint">Click and drag to draw freehand. Each stroke becomes its own layer.</p>
           </div>
           <div id="shapeToolOptions" style="display:none">
-            <h4>Shape tool</h4>
+            <h4>Shape tool <span class="docsHelpIcon" data-help="tool-shape" role="button" aria-label="Open help: Shape tool" title="Open help">ⓘ</span></h4>
             <label for="shapeToolKind">Shape</label>
             <select id="shapeToolKind">
               <option value="rect">Rectangle</option>
@@ -4906,7 +4934,7 @@
             <p class="toolOptHint">Drag on the canvas to draw. Tweak points / sides / radius in the layer controls.</p>
           </div>
           <div id="textToolOptions" style="display:none">
-            <h4>Text tool</h4>
+            <h4>Text tool <span class="docsHelpIcon" data-help="tool-text" role="button" aria-label="Open help: Text tool" title="Open help">ⓘ</span></h4>
             <label for="textToolFont">Font</label>
             <select id="textToolFont"></select>
             <div class="toolOptRow">
@@ -5200,7 +5228,7 @@
         <div id="blockListContainer" class="hint">No blocked authors yet.</div>
       </details>
       <details id="walletDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
-        <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">⚡ Lightning wallet <span id="walletStatusBadge" style="font-weight:500;color:var(--muted);font-size:.74rem;margin-left:6px"></span></summary>
+        <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">⚡ Lightning wallet <span class="docsHelpIcon" data-help="nwc" role="button" aria-label="Open help: NWC wallet setup" title="Open help: NWC setup">ⓘ</span><span id="walletStatusBadge" style="font-weight:500;color:var(--muted);font-size:.74rem;margin-left:6px"></span></summary>
         <div id="walletDisconnectedView">
           <p class="hint" style="margin:8px 0 6px">Connect a NIP-47 wallet to unlock premium templates. Recommended: <strong>CoinOS</strong> — free, web-based, no install.</p>
           <ol class="hint" style="margin:0 0 8px 18px;padding:0;line-height:1.55">
@@ -5402,7 +5430,10 @@
   <div class="modal" id="publishConfirmModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:580px;position:relative">
       <button type="button" id="publishConfirmCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
-      <h2 id="publishConfirmTitle" style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Ready to publish?</h2>
+      <div style="display:flex;align-items:baseline;gap:6px;margin:0 0 4px">
+        <h2 id="publishConfirmTitle" style="margin:0;font-size:1.05rem;font-family:inherit;flex:1">Ready to publish?</h2>
+        <span class="docsHelpIcon" data-help="publishing" role="button" aria-label="Open help: Publishing tiers" title="Open help: publishing tiers + tipping">ⓘ</span>
+      </div>
       <p class="hint" id="publishConfirmSubtitle" style="margin:0 0 12px">Double-check the details below before posting to Nostr. You can edit or delete later, but the original event will exist on relays.</p>
       <div id="publishConfirmPreview" class="publishConfirmPreview"></div>
       <dl id="publishConfirmMetaList" class="publishConfirmMeta"></dl>
@@ -5448,7 +5479,7 @@
   <div class="modal" id="bookMastersModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:520px;position:relative">
       <button type="button" id="bookMastersCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
-      <h2 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Master pages</h2>
+      <h2 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Master pages <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help">ⓘ</span></h2>
       <p class="hint" style="margin:0 0 12px">Masters are reusable page templates — running headers, page numbers, margin guides, background art. Pages that inherit a master render its layers underneath their own. The <b>default</b> master is applied to new pages automatically; per-page overrides come from the Pages overview.</p>
       <div id="bookMastersList" style="display:flex;flex-direction:column;gap:6px"></div>
       <div class="buttonRow" style="margin-top:12px;justify-content:flex-end;gap:8px">
@@ -5461,7 +5492,7 @@
   <div class="modal" id="bookDocumentSettingsModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:560px;position:relative">
       <button type="button" id="bookDocumentSettingsCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
-      <h2 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Document settings</h2>
+      <h2 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Document settings <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help">ⓘ</span></h2>
       <p class="hint" style="margin:0 0 14px">Trim, bleed, paper thickness, and page-numbering rules for this book. Changes apply immediately and are saved with the project.</p>
 
       <label for="bookSettingsPreset">Book size</label>
@@ -5578,7 +5609,7 @@
   <div class="modal" id="bookExportPdfModal" aria-hidden="true" style="display:none">
     <div class="modalInner" style="max-width:520px;position:relative">
       <button type="button" id="bookExportPdfCloseBtn" class="welcomeCloseBtn" aria-label="Close">×</button>
-      <h2 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Export PDF</h2>
+      <h2 style="margin:0 0 4px;font-size:1.05rem;font-family:inherit">Export PDF <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help">ⓘ</span></h2>
       <p class="hint" style="margin:0 0 14px">Choose what to include and how to package the output. Files render at 200 DPI; raster-only in v1 (real PDF text for embeddable fonts lands in a follow-up).</p>
 
       <fieldset style="margin-top:8px;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
@@ -12187,6 +12218,27 @@
       if (/^#\/help\//.test(location.hash)) {
         try { history.replaceState(null, '', location.pathname + location.search); } catch {}
       }
+    }
+    // Delegated click handler for any element with data-help="<slug>".
+    // Used by the contextual ⓘ icons sprinkled across the UI (tabs,
+    // fieldset legends, modal titles, tool-options headings). Catching
+    // the event on document.body keeps every site that wants a help
+    // affordance to a single attribute — no per-icon listener wiring.
+    function _wireDocsHelpDelegation() {
+      if (document.body.dataset.docsHelpWired === '1') return;
+      document.body.dataset.docsHelpWired = '1';
+      document.body.addEventListener('click', (e) => {
+        const target = e.target.closest('[data-help]');
+        if (!target) return;
+        // Don't intercept Cmd / Ctrl / Shift clicks — leave them as the
+        // browser would handle (in case the icon is also a link).
+        if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+        const slug = target.getAttribute('data-help');
+        if (!slug) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openDocsModal(slug);
+      });
     }
     // ---- end docs ------------------------------------------------------
 
@@ -36932,6 +36984,7 @@
       // hash-route auto-open. Topic slug comes from the URL hash:
       // #/help/<slug> opens directly to that page.
       on('docsLink', 'click', (e) => { e.preventDefault(); openDocsModal(); });
+      _wireDocsHelpDelegation();
       on('docsCloseBtn', 'click', closeDocsModal);
       const _docsModal = document.getElementById('docsModal');
       if (_docsModal) _docsModal.addEventListener('click', (e) => {
