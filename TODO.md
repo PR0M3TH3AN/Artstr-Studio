@@ -86,6 +86,56 @@ landed with these intentional gaps:
 - **Pixel-art frame timeline.** Onion skin + frame list + FPS control.
   Largest open arc; transformative if pixel art is a focus.
 
+### Industry-convention parity gaps (surfaced 2026-06)
+
+The Pen tool's Illustrator-parity arc landed in full, but several
+universal design-tool conventions are missing from the rest of the
+vector toolset. Each is small — typically one branch in the
+existing drag handler. Surfaced while auditing the in-app docs
+(authors expected these to work because every other design tool
+has them).
+
+- **Select tool — Shift-constrain-axis on drag.** Hold Shift while
+  moving a layer to lock movement to horizontal / vertical / 45°.
+  Branch the drag handler on `e.shiftKey`. Universal in
+  Illustrator / Figma / Sketch.
+- **Select tool — Alt-drag duplicate.** Hold Alt while starting a
+  drag to clone the layer at the pointerdown position and drag the
+  clone. Universal.
+- **Select tool — Shift-aspect-lock on corner scale.** Hold Shift
+  during a corner-handle drag to keep the layer's aspect ratio.
+  Universal.
+- **Select tool — Shift-rotation 15° snap.** Hold Shift while
+  rotating to snap to 15° increments. Universal.
+- **Cmd/Ctrl + A select-all.** Selects every layer on the current
+  surface. Wire next to the existing Cmd+G / Cmd+] bindings.
+- **Spacebar temp-pan from any tool.** Track keydown / keyup; flip
+  the active tool to `hand` while held, restore on release. Must
+  release cleanly mid-stroke (Pen tool already does its own
+  spacebar-reposition; carve around that).
+- **Cmd/Ctrl + 0** to fit-zoom the artboard. Trivial — bind to
+  `resetZoomAuto`. The button already exists in the canvas toolbar.
+- **Cmd/Ctrl + + / - / wheel** for zoom. Trickier because browsers
+  usually intercept Cmd+wheel for page zoom. Cmd+= / Cmd+- (no
+  wheel) is the safer compromise.
+- **Shape tool — Shift-constrain.** Hold Shift while dragging a
+  shape primitive to constrain to a perfect square / circle / 45°
+  line. Universal in every drawing app.
+- **Shape tool — Alt-from-center draw.** Hold Alt to draw from the
+  centre outward instead of corner-to-corner. Universal.
+- **Text tool — drag-to-size.** Drag instead of click to size the
+  new text box (Illustrator's "type-on-area" vs "type-on-point").
+  Today it's always click-to-place at a fixed size.
+- **Pencil tool — smoothing slider.** Rolling average + Bézier fit
+  at commit time. Pencil today writes a literal polyline (M / L
+  segments); the spec gestures at smoothing in a "later phase".
+- **Pencil tool — Alt-drag append.** Extend the currently-selected
+  pen / pencil path from its nearest endpoint instead of starting a
+  new layer. Illustrator behaviour.
+- **Pencil tool — auto-close near start.** If the release point is
+  within ~10 px of the stroke's start point, close the path. Tiny
+  flourish that turns pencil into a viable closed-shape tool.
+
 ## QR code layer — remaining phases
 
 Phases A and B shipped (the `qr` layer type: data, error-correction level,
