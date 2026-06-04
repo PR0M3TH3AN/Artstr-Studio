@@ -53,6 +53,15 @@
       color: var(--ink);
       font-family: 'VT323', 'Courier New', monospace;
       letter-spacing: 0.05em;
+      /* Stop the trackpad two-finger horizontal swipe from triggering
+         the browser's back / forward navigation — which would throw
+         away in-progress design work. `overscroll-behavior-x: none`
+         tells the browser the page does not want to "rubber-band"
+         horizontally, and Chrome / Edge / Firefox honor it as a
+         swipe-nav disable. Vertical scroll is unaffected. Safari
+         respects it on newer versions; older Safari users still get
+         the gesture but most users are on modern browsers. */
+      overscroll-behavior-x: none;
     }
 
     /* Thin scrollbars throughout — about half the default thickness. */
