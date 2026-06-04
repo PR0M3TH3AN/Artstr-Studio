@@ -1851,7 +1851,8 @@
       box-shadow: 0 6px 20px rgba(15,23,42,.18);
       font-size: .82rem;
     }
-    body.template-book.editing-book-page #bookPageEditBar { display: flex; }
+    body.template-book.editing-book-page #bookPageEditBar,
+    body.template-book.editing-book-cover #bookPageEditBar { display: flex; }
     #bookPageEditBack {
       border: 0; background: var(--accent); color: #fff;
       cursor: pointer; border-radius: 999px;
@@ -12494,7 +12495,10 @@
       if (pubStatus) pubStatus.textContent = '';
       if (editingCover) {
         if (label) label.textContent = 'Cover spread';
-        if (back) back.textContent = '← Back to Cover view';
+        if (back) {
+          back.textContent = '✓ Done — back to Cover view';
+          back.title = 'Your changes are autosaved. Click to return to the cover summary.';
+        }
         if (prev) prev.style.display = 'none';
         if (next) next.style.display = 'none';
         if (tfBtn) tfBtn.style.display = 'none';
@@ -12945,7 +12949,10 @@
       { value: 'custom-art', label: 'Custom art' },
       { value: 'slide', label: 'Slide design' },
       { value: 'slide-deck', label: 'Slide deck' },
-      { value: 'pixel-art', label: 'Pixel art' }
+      { value: 'pixel-art', label: 'Pixel art' },
+      { value: 'book', label: 'Book' },
+      { value: 'meme', label: 'Meme' },
+      { value: 'other', label: 'Other' }
     ];
 
     const DEFAULT_NOSTR_RELAYS = [
