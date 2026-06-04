@@ -572,6 +572,12 @@
     .appModeTab .docsHelpIcon:hover { color: #fff; }
     body:not(.dark) .appModeTab .docsHelpIcon { color: rgba(0,0,0,.4); }
     body:not(.dark) .appModeTab.active .docsHelpIcon { color: rgba(255,255,255,.85); }
+    /* Layout-picker buttons are tight + active state inverts to
+       white-on-accent, so the icon needs its own light/dark
+       contrast pairs. */
+    .layoutTab .docsHelpIcon { font-size: .76rem; margin-left: 4px; opacity: .55; }
+    .layoutTab.active .docsHelpIcon { color: rgba(255,255,255,.85); opacity: 1; }
+    .layoutTab:hover .docsHelpIcon { opacity: 1; }
 
     /* Docs modal — Read-the-Docs-style two-pane layout. */
     #docsModal .modalInner {
@@ -3645,10 +3651,10 @@
       <fieldset class="workflowStep template-only" id="layoutFieldset">
         <legend data-step="1">Layout <span class="docsHelpIcon" data-help="template" role="button" aria-label="Open help: Template tab" title="Open help">ⓘ</span></legend>
         <div class="layoutTabs" role="tablist" aria-label="Template layout">
-          <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover</button>
-          <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels</button>
-          <button type="button" class="layoutTab" id="mode-deck" data-template-mode="deck" role="tab">Slide deck</button>
-          <button type="button" class="layoutTab" id="mode-book" data-template-mode="book" role="tab">Book</button>
+          <button type="button" class="layoutTab" id="mode-cover" data-template-mode="cover" role="tab">Case cover<span class="docsHelpIcon" data-help="cover" role="button" aria-label="Open help: Case cover wrap" title="Open help">ⓘ</span></button>
+          <button type="button" class="layoutTab" id="mode-disc" data-template-mode="disc" role="tab">Disc labels<span class="docsHelpIcon" data-help="disc" role="button" aria-label="Open help: Disc-label sheet" title="Open help">ⓘ</span></button>
+          <button type="button" class="layoutTab" id="mode-deck" data-template-mode="deck" role="tab">Slide deck<span class="docsHelpIcon" data-help="deck" role="button" aria-label="Open help: Slide deck" title="Open help">ⓘ</span></button>
+          <button type="button" class="layoutTab" id="mode-book" data-template-mode="book" role="tab">Book<span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help">ⓘ</span></button>
         </div>
       </fieldset>
 
@@ -3995,10 +4001,10 @@
       <fieldset class="workflowStep" id="designerLayoutFieldset">
         <legend data-step="1">Layout <span class="docsHelpIcon" data-help="designer" role="button" aria-label="Open help: Designer tab" title="Open help">ⓘ</span></legend>
         <div class="layoutTabs" role="tablist" aria-label="Designer layout">
-          <button type="button" class="layoutTab" id="mode-customart" data-layout="customart" role="tab">Custom art</button>
-          <button type="button" class="layoutTab" id="mode-slide" data-layout="slide" role="tab">Slide</button>
-          <button type="button" class="layoutTab" id="mode-pixelart" data-layout="pixelart" role="tab">Pixel art</button>
-          <button type="button" class="layoutTab" id="mode-discdesign" data-layout="discdesign" role="tab">Disc design</button>
+          <button type="button" class="layoutTab" id="mode-customart" data-layout="customart" role="tab">Custom art<span class="docsHelpIcon" data-help="customart" role="button" aria-label="Open help: Custom art" title="Open help">ⓘ</span></button>
+          <button type="button" class="layoutTab" id="mode-slide" data-layout="slide" role="tab">Slide<span class="docsHelpIcon" data-help="slide" role="button" aria-label="Open help: Slide" title="Open help">ⓘ</span></button>
+          <button type="button" class="layoutTab" id="mode-pixelart" data-layout="pixelart" role="tab">Pixel art<span class="docsHelpIcon" data-help="pixelart" role="button" aria-label="Open help: Pixel art" title="Open help">ⓘ</span></button>
+          <button type="button" class="layoutTab" id="mode-discdesign" data-layout="discdesign" role="tab">Disc design<span class="docsHelpIcon" data-help="designer" role="button" aria-label="Open help: Designer tab" title="Open help">ⓘ</span></button>
         </div>
       </fieldset>
 
@@ -4645,6 +4651,7 @@
             <button type="button" id="bookChapterEditorBack">← Back to Pages</button>
             <input type="text" id="bookChapterEditorTitle" placeholder="Chapter title" />
             <span class="bookChapterEditorPages" id="bookChapterEditorPages"></span>
+            <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help: Book chapter editor">ⓘ</span>
             <span class="bookViewSpacer"></span>
             <span class="hint" id="bookChapterEditorHint">Markdown autosaves to this book. Phase D1 publishes as a NIP-23 article.</span>
           </div>
@@ -4670,6 +4677,7 @@
           <div class="bookViewToggleBar">
             <button type="button" id="bookViewTogglePages"  class="bookViewToggle active">Pages</button>
             <button type="button" id="bookViewToggleCover"  class="bookViewToggle">Cover</button>
+            <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help: Book mode">ⓘ</span>
             <span class="bookViewSpacer"></span>
             <span class="bookCountReadout" id="bookCountReadout">0 pages · 0 reflow</span>
           </div>
@@ -4830,6 +4838,7 @@
           <button type="button" id="bookPageEditPrev" title="Previous page">←</button>
           <button type="button" id="bookPageEditNext" title="Next page">→</button>
           <span id="bookPageEditLabel"></span>
+          <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help: Book mode">ⓘ</span>
           <button type="button" id="bookMasterAddTextFrame" title="Add a reflow text-frame to this master" style="display:none">+ Text frame</button>
           <button type="button" id="bookPageEditPublish" title="Publish this page as a casewrap-page event">Publish</button>
           <button type="button" id="bookPageEditProofPdf" title="Export just this page as a PDF (single-page proof for the printer)">📄 Proof PDF</button>
@@ -5587,6 +5596,7 @@
     <div class="bookReaderHeader">
       <button type="button" class="bookReaderTocToggle" id="bookReaderTocToggle" title="Toggle table of contents">☰ TOC</button>
       <div class="bookReaderTitle" id="bookReaderTitle">Book</div>
+      <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book Reader Mode" title="Open help: Reader Mode">ⓘ</span>
       <button type="button" class="bookReaderCloseBtn" id="bookReaderCloseBtn" title="Exit Reader (Esc)">✕ Close</button>
     </div>
     <div class="bookReaderBody">
