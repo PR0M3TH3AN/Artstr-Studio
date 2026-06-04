@@ -1,0 +1,41 @@
+# Eyedropper tool (I)
+
+Samples a colour from anywhere on screen — Artstr canvas, another
+browser tab, your desktop wallpaper, anywhere. Uses the browser's
+native `window.EyeDropper` API.
+
+## Behaviour
+
+- Click the toolbar button (or press **I**) → the cursor changes to
+  a crosshair and a magnified pixel-grid follows the pointer.
+- Click anywhere on screen to sample that pixel's colour.
+- The sampled hex value lands in the **currently-active colour
+  swatch** — whichever fill / stroke / background slot last had
+  focus (right-side panel).
+- Press **Esc** to cancel without sampling.
+
+## Inline eyedropper buttons
+
+You don't need the toolbar tool to use the eyedropper — many
+colour-input fields in the right-side panels have a small ⊙ button
+next to them that triggers a one-shot sample directly into that
+specific field. Use that when you want to sample a colour for a
+specific property (e.g., stroke colour) without affecting the
+"active" slot.
+
+## Browser support
+
+- Chromium-based browsers (Chrome / Edge / Brave / Arc) — full
+  support.
+- Safari / Firefox — `window.EyeDropper` isn't implemented; the
+  button is disabled with a tooltip explaining the gap. Fall back
+  to manually entering a hex value or copying one from another tool.
+
+## Tips
+
+- The pixel-grid magnifier shows a 3×3 zoomed view around the
+  pointer so you can land on the exact pixel — useful when
+  sampling thin lines or anti-aliased edges.
+- The eyedropper is the easiest way to colour-match a logo or
+  branded element on another tab — just pop the source open
+  next to Artstr and sample directly.
