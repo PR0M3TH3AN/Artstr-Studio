@@ -4989,7 +4989,7 @@
           <button type="button" id="bookPageEditNext" title="Next page">→</button>
           <span id="bookPageEditLabel"></span>
           <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help: Book mode">ⓘ</span>
-          <button type="button" id="bookMasterAddTextFrame" title="Add a reflow text-frame to this master" style="display:none">+ Text frame</button>
+          <button type="button" id="bookMasterAddTextFrame" title="Add a text frame to this surface (master or designed page). Text frames are the boxes that chapter text flows through." style="display:none">+ Text frame</button>
           <button type="button" id="bookPageEditPublish" title="Publish this page as a casewrap-page event">Publish</button>
           <button type="button" id="bookPageEditProofPdf" title="Export just this page as a PDF (single-page proof for the printer)">📄 Proof PDF</button>
           <button type="button" id="bookCoverExportJsonBtn" title="Download just the cover spread as a portable JSON file" style="display:none">💾 Cover JSON</button>
@@ -9657,14 +9657,24 @@
       syncInputs();
       render();
     }
-    // Add a text-frame layer (Phase C4 structural placeholder) to
-    // the master currently open in the editor. Sized to fill the
-    // trim with a small inset so it reads as a "type area" out of
-    // the box; the user can resize / move like any other shape.
-    function addBookTextFrameToActiveMaster() {
+    // Add a text-frame layer to whichever book surface is currently
+    // active (master or designed page). Sized to fill the trim with
+    // a small inset so it reads as a "type area" out of the box;
+    // the user can resize / move like any other shape.
+    //
+    // Phase J2 generalisation: previously master-only. Designed
+    // pages can now host text frames too — each frame carries a
+    // stable `frameId` so future thread definitions (J3+) can
+    // reference it across saves and layer reorders.
+    function addBookTextFrame(targetOverride) {
       const book = state.book;
-      if (!book || !book.editingMasterId) return;
-      const target = `book-master:${book.editingMasterId}`;
+      if (!book) return;
+      let target = targetOverride || '';
+      if (!target) {
+        if (book.editingMasterId) target = `book-master:${book.editingMasterId}`;
+        else if (book.editingEntryId) target = `book-page:${book.editingEntryId}`;
+      }
+      if (!target) return;
       const s = book.spec;
       const trimW = Number(s.trimW) || 6;
       const trimH = Number(s.trimH) || 9;
@@ -9689,7 +9699,20 @@
         shape: defaultShapeData('text-frame'),
         fill: { type: 'none' },
         stroke: { type: 'none', color: '#60a5fa', width: 0, dash: 'solid' },
+        // Phase J2: stable frameId for thread addressing. Independent
+        // of the layer's `id` so a thread definition survives a layer
+        // delete + re-add (if the user keeps the frameId in mind, or
+        // we surface it in the inspector).
+        frameId: makeBookEntryId(),
+        // Phase J3: when threaded, points at the next frame in the
+        // chain ({ pageId, frameId }) or null for end-of-thread.
+        nextFrame: null,
       });
+    }
+    // Legacy alias kept so existing callers (the master-edit toolbar
+    // wiring + any saved keyboard shortcuts) keep working.
+    function addBookTextFrameToActiveMaster() {
+      return addBookTextFrame();
     }
 
     function setBookDefaultMaster(id) {
@@ -12778,7 +12801,10 @@
       // editingPage path
       if (prev) prev.style.display = '';
       if (next) next.style.display = '';
-      if (tfBtn) tfBtn.style.display = 'none';
+      // Phase J2: designed pages can now host text frames. The button
+      // is the same affordance as on masters — picks up the current
+      // surface from book.editingEntryId vs book.editingMasterId.
+      if (tfBtn) tfBtn.style.display = '';
       if (back) back.textContent = '← Back to Pages';
       const gateBtn = document.getElementById('bookPageEditGatingBtn');
       if (pubBtn) {
@@ -37696,7 +37722,7 @@
       });
       on('bookPageEditPrev', 'click', () => gotoBookPageRelative(-1));
       on('bookPageEditNext', 'click', () => gotoBookPageRelative(1));
-      on('bookMasterAddTextFrame', 'click', () => addBookTextFrameToActiveMaster());
+      on('bookMasterAddTextFrame', 'click', () => addBookTextFrame());
       on('bookPageEditPublish', 'click', publishBookSurface);
       on('bookPageEditGatingBtn', 'click', () => {
         const id = state.book?.editingEntryId;
