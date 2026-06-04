@@ -1888,6 +1888,64 @@
     .bookCountReadout {
       font-size: .82rem; color: var(--muted); white-space: nowrap;
     }
+
+    /* Phase J1: hide reflow-entry tiles from the Pages overview —
+       chapters now live in the dedicated Chapters tab. The data still
+       lives in book.pages for now (drag-reorder indices stay stable);
+       J2+ migrates them out into book.links / book.threads. */
+    body.template-book #bookPagesView .bookPageTile.reflowSegment {
+      display: none !important;
+    }
+
+    /* Chapters tab — list view of every reflow / linked-chapter
+       entry in the book. Each row shows kind, label, source
+       (pinned event id or live coord), and per-row actions. */
+    .bookChaptersList {
+      display: flex; flex-direction: column; gap: 8px;
+      margin-top: 10px;
+    }
+    .bookChapterRow {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px; align-items: center;
+      padding: 10px 14px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel, #fff);
+    }
+    body.dark .bookChapterRow { background: rgba(255,255,255,.03); }
+    .bookChapterRow .bookChapterIcon { font-size: 1.2rem; opacity: .8; }
+    .bookChapterRow .bookChapterMeta { min-width: 0; }
+    .bookChapterRow .bookChapterTitle {
+      font-weight: 600; font-size: .92rem;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .bookChapterRow .bookChapterSub {
+      font-size: .72rem; color: var(--muted);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .bookChapterRow .bookChapterActions {
+      display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+    }
+    .bookChapterRow .bookChapterActions button {
+      font-size: .76rem; padding: 4px 10px;
+    }
+    .bookChapterPill {
+      display: inline-block;
+      font-size: .62rem; font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase;
+      padding: 1px 6px; border-radius: 3px;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+    .bookChapterPill.live    { background: rgba(34,197,94,.18);  color: #15803d; }
+    .bookChapterPill.pinned  { background: rgba(245,158,11,.18); color: #92400e; }
+    .bookChapterPill.private { background: rgba(99,102,241,.18); color: #4338ca; }
+    .bookChapterEmpty {
+      padding: 24px; text-align: center;
+      color: var(--muted); font-size: .85rem;
+      border: 1px dashed var(--line); border-radius: 6px;
+    }
     .bookVisibilityChip {
       font-size: .76rem; padding: 2px 10px;
       border: 1px solid var(--line); background: #fff;
@@ -4754,18 +4812,18 @@
         </div>
         <div id="bookView">
           <div class="bookViewToggleBar">
-            <button type="button" id="bookViewTogglePages"  class="bookViewToggle active">Pages</button>
-            <button type="button" id="bookViewToggleCover"  class="bookViewToggle">Cover</button>
+            <button type="button" id="bookViewTogglePages"    class="bookViewToggle active">Pages</button>
+            <button type="button" id="bookViewToggleChapters" class="bookViewToggle">📎 Chapters</button>
+            <button type="button" id="bookViewToggleCover"    class="bookViewToggle">Cover</button>
             <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help: Book mode">ⓘ</span>
             <span class="bookViewSpacer"></span>
-            <span class="bookCountReadout" id="bookCountReadout">0 pages · 0 reflow</span>
+            <span class="bookCountReadout" id="bookCountReadout">0 pages · 0 chapters</span>
           </div>
           <div id="bookPagesView">
             <div class="deckSorterBar">
               <div class="buttonRow">
                 <button type="button" id="bookAddPageBtn" class="primary">+ Add page</button>
                 <button type="button" id="bookAddTenBtn">+ Add 10 pages</button>
-                <button type="button" id="bookAddChapterBtn">+ Add chapter</button>
                 <button type="button" id="bookImportPageBtn" title="Import a page from another author's book by naddr / nevent">+ Import page</button>
                 <button type="button" id="bookReaderBtn" title="Open the book in Reader Mode (full-screen page-flip)">▶ Read</button>
                 <button type="button" id="bookExportPdfBtn" title="Export this book as a PDF (interior pages + cover spread)">Export PDF…</button>
@@ -4773,7 +4831,17 @@
               </div>
             </div>
             <div class="deckSlideGrid" id="bookPagesGrid"></div>
-            <p class="hint" id="bookPagesHint" style="margin:8px 0 0">Click a designed-page tile to edit it on the canvas. Click a chapter tile to edit its markdown. PDF export is raster-only in v1 (real-text mode for embeddable fonts lands in a follow-up slice).</p>
+            <p class="hint" id="bookPagesHint" style="margin:8px 0 0">Click a designed-page tile to edit it on the canvas. Chapter text lives under the <b>📎 Chapters</b> tab. PDF export is raster-only in v1 (real-text mode for embeddable fonts lands in a follow-up slice).</p>
+          </div>
+          <div id="bookChaptersView" style="display:none">
+            <div class="deckSorterBar">
+              <div class="buttonRow">
+                <button type="button" id="bookAddChapterBtn" class="primary">+ Add chapter</button>
+                <span class="hint" style="font-size:.74rem;margin-left:6px">Chapters are NIP-23 long-form articles. Pin / live, edit, and publish each one independently — text flows through the designed pages it's threaded into. (Threading lands in Phase J3; for now chapters paginate against the active master, same as before.)</span>
+              </div>
+            </div>
+            <div id="bookChaptersList" class="bookChaptersList"></div>
+            <p class="hint" id="bookChaptersHint" style="margin:8px 0 0">Each row is a linked content file. Click <b>Edit</b> to open the markdown editor.</p>
           </div>
           <div id="bookCoverView" style="display:none">
             <div class="bookCoverSummary" id="bookCoverSummary"></div>
@@ -8848,6 +8916,8 @@
         cover: null,                       // { ref } once a cover event has been authored
         masters: [],                       // [{ ref, label }]
         pages: [],                         // discriminated union — see spec
+        links: [],                         // Phase J: project's Links panel (chapters, masters, ...)
+        threads: [],                       // Phase J: text-flow chains through frames
       };
     }
     function ensureBookState() {
@@ -8862,6 +8932,14 @@
       for (const k of Object.keys(defaults)) {
         if (state.book.spec[k] === undefined) state.book.spec[k] = defaults[k];
       }
+      // Phase J collections — links[] holds every external reference
+      // the book makes (chapters, masters, designed pages from other
+      // books, illustration sets). threads[] holds text flows. Both
+      // are scaffolded here so the rest of the codebase can assume
+      // they exist; J1 stops at scaffolding (no real migration of
+      // reflow entries yet).
+      if (!Array.isArray(state.book.links))   state.book.links   = [];
+      if (!Array.isArray(state.book.threads)) state.book.threads = [];
       return state.book;
     }
     // Physical page count — manifest entries except reflow segments,
@@ -9849,8 +9927,9 @@
       const pages = book?.pages || [];
       const readout = document.getElementById('bookCountReadout');
       if (readout) {
-        const reflowN = pages.filter(p => p.type === 'reflow').length;
-        readout.textContent = `${pages.length} page${pages.length === 1 ? '' : 's'} · ${reflowN} reflow`;
+        const designN = pages.filter(p => p.type === 'design').length;
+        const chapterN = pages.filter(p => p.type === 'reflow').length;
+        readout.textContent = `${designN} page${designN === 1 ? '' : 's'} · ${chapterN} chapter${chapterN === 1 ? '' : 's'}`;
       }
       if (!pages.length) {
         const starter = document.createElement('div');
@@ -12707,16 +12786,21 @@
     }
 
     function setBookSubView(view) {
-      const pages = document.getElementById('bookPagesView');
-      const cover = document.getElementById('bookCoverView');
-      const tPages = document.getElementById('bookViewTogglePages');
-      const tCover = document.getElementById('bookViewToggleCover');
-      const showCover = view === 'cover';
-      if (pages) pages.style.display = showCover ? 'none' : '';
-      if (cover) cover.style.display = showCover ? '' : 'none';
-      if (tPages) tPages.classList.toggle('active', !showCover);
-      if (tCover) tCover.classList.toggle('active', showCover);
-      if (showCover) renderBookCoverPreview();
+      const pages    = document.getElementById('bookPagesView');
+      const chapters = document.getElementById('bookChaptersView');
+      const cover    = document.getElementById('bookCoverView');
+      const tPages    = document.getElementById('bookViewTogglePages');
+      const tChapters = document.getElementById('bookViewToggleChapters');
+      const tCover    = document.getElementById('bookViewToggleCover');
+      const want = (view === 'cover' || view === 'chapters') ? view : 'pages';
+      if (pages)    pages.style.display    = want === 'pages'    ? '' : 'none';
+      if (chapters) chapters.style.display = want === 'chapters' ? '' : 'none';
+      if (cover)    cover.style.display    = want === 'cover'    ? '' : 'none';
+      if (tPages)    tPages.classList.toggle('active',    want === 'pages');
+      if (tChapters) tChapters.classList.toggle('active', want === 'chapters');
+      if (tCover)    tCover.classList.toggle('active',    want === 'cover');
+      if (want === 'cover')    renderBookCoverPreview();
+      if (want === 'chapters') renderBookChaptersList();
     }
 
     // Cover spread preview. Lays out back / spine / front panels with
@@ -12893,6 +12977,115 @@
           refHint.style.color = 'var(--muted)';
         }
       }
+    }
+
+    // Phase J1: dedicated Chapters tab. Reads reflow entries from
+    // book.pages for now (data model still mixes designed pages +
+    // reflow chapters); J2+ migrates them out into book.links[] and
+    // this renderer switches to reading from there.
+    function renderBookChaptersList() {
+      const list = document.getElementById('bookChaptersList');
+      if (!list) return;
+      const book = state.book ? ensureBookState() : null;
+      list.innerHTML = '';
+      if (!book) return;
+      const chapters = (book.pages || []).filter(p => p.type === 'reflow');
+      if (!chapters.length) {
+        const empty = document.createElement('div');
+        empty.className = 'bookChapterEmpty';
+        empty.innerHTML = 'No chapters yet. Click <b>+ Add chapter</b> to start one, or import a NIP-23 article by naddr.';
+        list.appendChild(empty);
+        return;
+      }
+      chapters.forEach((entry) => {
+        const row = document.createElement('div');
+        row.className = 'bookChapterRow';
+        row.dataset.entryId = entry.id;
+
+        const icon = document.createElement('div');
+        icon.className = 'bookChapterIcon';
+        icon.textContent = '📄';
+        row.appendChild(icon);
+
+        const meta = document.createElement('div');
+        meta.className = 'bookChapterMeta';
+        const title = document.createElement('div');
+        title.className = 'bookChapterTitle';
+        const pills = [];
+        const isPinned = !!entry.textPinnedEventId;
+        const isLive = !isPinned && !!entry.textRef;
+        const isPrivate = !!(entry.textRef?.encrypted);
+        if (isLive)    pills.push('<span class="bookChapterPill live">live</span>');
+        if (isPinned)  pills.push('<span class="bookChapterPill pinned">pinned</span>');
+        if (isPrivate) pills.push('<span class="bookChapterPill private">🔒 private</span>');
+        title.innerHTML = pills.join('') + escapeHtml(entry.chapterTitle || entry.label || 'Untitled chapter');
+        meta.appendChild(title);
+
+        const sub = document.createElement('div');
+        sub.className = 'bookChapterSub';
+        const md = String(entry.chapterMarkdown || '');
+        const len = md.length;
+        const sizeText = len > 1024 ? `${(len / 1024).toFixed(1)} KB` : `${len} chars`;
+        const refText = entry.textRef
+          ? `naddr · ${entry.textRef.dTag || '(no d-tag)'}`
+          : 'local draft (not yet published)';
+        sub.textContent = `${refText} · ${sizeText}`;
+        meta.appendChild(sub);
+        row.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.className = 'bookChapterActions';
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.textContent = '✏ Edit';
+        editBtn.title = 'Open the markdown editor for this chapter';
+        editBtn.addEventListener('click', () => openBookChapter(entry.id));
+        actions.appendChild(editBtn);
+
+        // Pin / live toggle — only meaningful when there's a Nostr ref.
+        if (entry.textRef) {
+          const pinBtn = document.createElement('button');
+          pinBtn.type = 'button';
+          pinBtn.textContent = isPinned ? '🔒 Unpin' : '📌 Pin to current';
+          pinBtn.title = isPinned
+            ? 'Currently locked to a specific event id — click to track the latest version'
+            : 'Currently tracks the latest version — click to lock to a specific event id';
+          pinBtn.addEventListener('click', () => {
+            pushHistory('book: toggle chapter pin');
+            if (isPinned) {
+              entry.textPinnedEventId = null;
+            } else {
+              entry.textPinnedEventId = entry.textLastEventId || entry.textRef?.lastEventId || null;
+              if (!entry.textPinnedEventId) {
+                toastError?.('No resolved event id yet to pin to — click ↻ Refresh from Nostr first.');
+                return;
+              }
+            }
+            renderBookChaptersList();
+            syncInputs();
+            render();
+          });
+          actions.appendChild(pinBtn);
+        }
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.textContent = '🗑';
+        delBtn.title = 'Remove this chapter from the book';
+        delBtn.style.cssText = 'color:#b91c1c';
+        delBtn.addEventListener('click', () => {
+          if (!confirm(`Remove "${entry.chapterTitle || 'this chapter'}" from the book? The NIP-23 event (if published) is not deleted from relays.`)) return;
+          pushHistory('book: remove chapter');
+          book.pages = book.pages.filter(p => p.id !== entry.id);
+          renderBookChaptersList();
+          syncInputs();
+          render();
+        });
+        actions.appendChild(delBtn);
+        row.appendChild(actions);
+
+        list.appendChild(row);
+      });
     }
 
     function syncBookSidebarSummary() {
@@ -17130,6 +17323,13 @@
       updateBodyClasses();
       renderDeckSorter();
       renderBookPagesGrid();
+      // Phase J1: chapters list only repaints when its tab is the
+      // active sub-view (cheap when collapsed; the chapter list can
+      // get long).
+      if (document.getElementById('bookChaptersView')?.style.display !== 'none'
+          && state.templateMode === 'book') {
+        renderBookChaptersList();
+      }
       syncBookPageEditBar();
       syncBookChapterEditor();
       // Only repaint the cover preview when its view is the active
@@ -37428,8 +37628,9 @@
       on('bookChapterEditorSourceInput', 'keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); importBookChapterFromNostr(); }
       });
-      on('bookViewTogglePages', 'click', () => setBookSubView('pages'));
-      on('bookViewToggleCover', 'click', () => setBookSubView('cover'));
+      on('bookViewTogglePages',    'click', () => setBookSubView('pages'));
+      on('bookViewToggleChapters', 'click', () => setBookSubView('chapters'));
+      on('bookViewToggleCover',    'click', () => setBookSubView('cover'));
       on('bookCoverEditBtn', 'click', openBookCover);
       on('bookCoverReplaceBtn', 'click', importBookCoverFromNostr);
       on('bookCoverImportJsonBtn', 'click', () => {
