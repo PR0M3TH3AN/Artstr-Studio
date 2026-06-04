@@ -12638,33 +12638,96 @@
         </div>
       `).join('');
 
-      // Spread preview. Scale to fit in ~720 px wide; min 200 px.
+      // Spread preview. Paint the actual cover layers into a single
+      // composite canvas the size of the full wrap-around spread,
+      // overlaid with subtle panel labels + fold-line dividers + the
+      // red trim guide. Layers are stored in panel-local space
+      // (book-cover-back / book-spine / book-cover-front, each at
+      // x=0 = left edge of that panel's trim area), so we remap each
+      // layer's target to 'canvas' and add the panel's offset within
+      // the spread + the outer bleed.
       const previewMaxPx = 720;
       const pxPerIn = totalW > 0 ? Math.min(previewMaxPx / totalW, 60) : 60;
-      const heightPx = Math.max(40, totalH * pxPerIn);
+      const renderWidth = Math.max(40, Math.round(totalW * pxPerIn));
       wrap.innerHTML = '';
 
-      const addPanel = (cls, label, widthIn, dim) => {
-        const panel = document.createElement('div');
-        panel.className = `bookCoverPanel ${cls}`;
-        panel.style.width = `${widthIn * pxPerIn}px`;
-        panel.style.height = `${heightPx}px`;
-        const lab = document.createElement('div');
-        lab.className = 'bookCoverPanelLabel';
-        lab.textContent = label;
-        panel.appendChild(lab);
-        if (dim) {
-          const dimEl = document.createElement('div');
-          dimEl.className = 'bookCoverPanelDim';
-          dimEl.textContent = dim;
-          panel.appendChild(dimEl);
-        }
-        wrap.appendChild(panel);
-      };
+      const backX  = bleed;
+      const spineX = bleed + (hasBack  ? trimW  : 0);
+      const frontX = bleed + (hasBack  ? trimW  : 0) + (hasSpine ? spineW : 0);
+      const panelY = bleed;
 
-      if (hasBack)  addPanel('back',  'Back',  trimW + bleed, `${fmt(trimW)} in`);
-      if (hasSpine && spineW > 0) addPanel('spine', 'Spine', spineW, `${fmt(spineW)} in`);
-      addPanel('front', 'Front', trimW + bleed, `${fmt(trimW)} in`);
+      const compositeLayers = [];
+      for (const l of (state.layers || [])) {
+        if (l.hidden) continue;
+        const t = String(l.target || '');
+        let xo, yo;
+        if      (t === 'book-cover-back'  && hasBack)  { xo = backX;  yo = panelY; }
+        else if (t === 'book-spine'       && hasSpine) { xo = spineX; yo = panelY; }
+        else if (t === 'book-cover-front')             { xo = frontX; yo = panelY; }
+        else continue;
+        compositeLayers.push({
+          ...l,
+          target: 'canvas',
+          x: (Number(l.x) || 0) + xo,
+          y: (Number(l.y) || 0) + yo,
+        });
+      }
+      compositeLayers.sort((a, b) => (a.z || 0) - (b.z || 0));
+
+      const container = document.createElement('div');
+      container.style.cssText = 'position:relative;display:inline-block;border:1px solid var(--line);box-shadow:0 1px 3px rgba(0,0,0,.08);background:#fff';
+      try {
+        renderCustomArtPreviewDOM(container, {
+          customArt: {
+            width:  Math.round(totalW * 96),
+            height: Math.round(totalH * 96),
+            background: book.cover?.background || s.background || '#ffffff',
+          },
+          layers: compositeLayers,
+        }, { compact: true, renderWidth });
+      } catch (err) {
+        console.warn('Cover preview paint failed:', err);
+      }
+
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:absolute;inset:0;pointer-events:none';
+
+      // Trim guide — dashed red rectangle around the printable trim.
+      const trimGuide = document.createElement('div');
+      trimGuide.style.cssText = `position:absolute;left:${(bleed / totalW) * 100}%;top:${(bleed / totalH) * 100}%;width:${((totalW - 2 * bleed) / totalW) * 100}%;height:${((totalH - 2 * bleed) / totalH) * 100}%;border:1px dashed rgba(220,38,38,.55);box-sizing:border-box`;
+      overlay.appendChild(trimGuide);
+
+      // Vertical fold lines at each visible panel boundary.
+      const addFold = (xIn) => {
+        const fold = document.createElement('div');
+        fold.style.cssText = `position:absolute;top:${(bleed / totalH) * 100}%;height:${((totalH - 2 * bleed) / totalH) * 100}%;width:0;border-left:1px dashed rgba(15,23,42,.35);left:${(xIn / totalW) * 100}%`;
+        overlay.appendChild(fold);
+      };
+      if (hasBack)  addFold(spineX);                 // back / spine boundary
+      if (hasSpine) addFold(spineX + spineW);        // spine / front boundary
+
+      // Panel labels — bottom of each panel.
+      const labelTopPct = ((bleed + trimH) / totalH) * 100 - 4;
+      const addLabel = (text, centerXIn) => {
+        const tag = document.createElement('div');
+        tag.textContent = text;
+        tag.style.cssText = `position:absolute;left:${(centerXIn / totalW) * 100}%;top:${labelTopPct}%;transform:translate(-50%, -50%);background:rgba(255,255,255,.85);color:var(--muted);font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:3px;font-family:inherit`;
+        overlay.appendChild(tag);
+      };
+      if (hasBack)  addLabel('Back',  backX  + trimW  / 2);
+      if (hasSpine && spineW > 0) addLabel('Spine', spineX + spineW / 2);
+      addLabel('Front', frontX + trimW / 2);
+
+      // Empty-state hint, centered, when no cover layers exist yet.
+      if (!compositeLayers.length) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:.85rem;text-align:center;padding:0 16px';
+        empty.textContent = 'No cover artwork yet — click Edit cover to design the spread.';
+        overlay.appendChild(empty);
+      }
+
+      container.appendChild(overlay);
+      wrap.appendChild(container);
 
       // Ref status hint — published / unpublished / publication target.
       const refHint = document.getElementById('bookCoverRefHint');
@@ -14288,6 +14351,20 @@
         document.querySelector('.printHelp').textContent = 'Paint a pixel-art sprite — publishes as its own design.';
         $('trimReadout').textContent = `${pa.width} × ${pa.height} px`;
         $('sheetReadout').textContent = 'Indexed pixel grid';
+      } else if (state.templateMode === 'book') {
+        const spec = state.book?.spec || {};
+        const tW = Number(spec.trimW) || 0;
+        const tH = Number(spec.trimH) || 0;
+        const pages = bookPageCount();
+        const editing = !!state.book?.editingCover;
+        $('projectTitle').textContent = editing ? 'Book cover spread' : 'Book';
+        document.querySelector('.printHelp').textContent = editing
+          ? `Back · spine · front laid out for ${spec.bookSize || `${fmt(tW)} × ${fmt(tH)} in`}.`
+          : `${spec.bookSize || `${fmt(tW)} × ${fmt(tH)} in`} · ${pages} page${pages === 1 ? '' : 's'}.`;
+        $('trimReadout').textContent = `Trim: ${fmt(tW)} × ${fmt(tH)} in`;
+        $('sheetReadout').textContent = editing
+          ? `Spread: ${fmt(sheetW())} × ${fmt(sheetH())} in (with bleed)`
+          : `Page: ${fmt(sheetW())} × ${fmt(sheetH())} in (with bleed)`;
       } else if (state.templateMode === 'jewel') {
         $('projectTitle').textContent = 'CD jewel insert preview';
         document.querySelector('.printHelp').textContent = 'Avery 8693 / 8943 layout: front and tray inserts on Letter paper.';
