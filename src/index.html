@@ -23932,25 +23932,31 @@
     function _bookCollectThreadChain(layer) {
       // Walk backwards to the head, then forward to the tail.
       // Returns layers in flow order (head → ... → tail).
-      const seen = new Set();
-      // Backwards: find the layer whose nextFrame.frameId equals
-      // current.frameId; loop until none exists.
+      //
+      // Bug fix: each walk needs its OWN seen-set. Sharing seen
+      // between backward and forward walks meant the forward walk
+      // tripped its cycle guard on the middle frames the backward
+      // walk had already visited. A → B → C starting from C would
+      // walk back through B + A (seen={B,A}), then the forward walk
+      // from A would find B in `seen` and break — returning chain
+      // [A] instead of [A, B, C].
       let head = layer;
+      const seenBack = new Set([layer.id]);
       let guard = 0;
       while (guard++ < 1000) {
         const prev = _findBookFrameLayer(o => o !== head && o.nextFrame?.frameId === head.frameId);
-        if (!prev || seen.has(prev.id)) break;
-        seen.add(prev.id);
+        if (!prev || seenBack.has(prev.id)) break;
+        seenBack.add(prev.id);
         head = prev;
       }
       const chain = [head];
-      seen.add(head.id);
+      const seenFwd = new Set([head.id]);
       let cursor = head;
       guard = 0;
       while (cursor.nextFrame?.frameId && guard++ < 1000) {
         const nxt = _findBookFrameLayer(o => o.frameId === cursor.nextFrame.frameId);
-        if (!nxt || seen.has(nxt.id)) break;
-        seen.add(nxt.id);
+        if (!nxt || seenFwd.has(nxt.id)) break;
+        seenFwd.add(nxt.id);
         chain.push(nxt);
         cursor = nxt;
       }
