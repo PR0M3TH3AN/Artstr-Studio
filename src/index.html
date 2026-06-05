@@ -10651,7 +10651,13 @@
           // exist).
           thumb.style.background = p.background || book.spec?.background || '#ffffff';
           const ctxToken = bookTokenContext(book, p.id, 0);
-          renderBookDesignedPageToCanvas(p, 72, ctxToken).then(canvas => {
+          // 144 dpi instead of 72 — at typical grid widths (~150 px
+          // tile) the 72 dpi raster's text scaled below ~3 px, which
+          // was illegible. 144 dpi quadruples the pixel count
+          // (~16 ms → ~60 ms per tile) but text becomes readable in
+          // the thumb. Cache by content hash is the next perf step
+          // if grids get big.
+          renderBookDesignedPageToCanvas(p, 144, ctxToken).then(canvas => {
             if (!thumb.isConnected) return;
             const img = document.createElement('img');
             img.src = canvas.toDataURL('image/png');
@@ -23332,12 +23338,17 @@
     // breaks within a frame add `paragraphSpacing` inches of gap.
     //
     // Returns { perFrame: [{ lines: [...] }, ...], hasMoreText, ... }
-    function _paginateParagraphsIntoFrames(paragraphs, chain, typography) {
+    function _paginateParagraphsIntoFrames(paragraphs, chain, fallbackTypography) {
+      // fallbackTypography is the head's typography — used when a
+      // mid-thread frame doesn't have its own. J4.d.2: each frame can
+      // override its own font, size, line-height, alignment, color,
+      // and paragraph gap. The paginator re-reads typography on every
+      // frame advance so size differences flow correctly.
       const perFrame = chain.map(() => ({ lines: [], paragraphBreaksAfter: new Set() }));
       const ctx = document.createElement('canvas').getContext('2d');
-      ctx.font = `${typography.fontSize * 96 / 72}px ${typography.fontFamily}`;
-      const lineHIn = (typography.fontSize * 96 / 72 / 96) * typography.lineHeight;
-      const paragraphGapIn = Math.max(0, typography.paragraphSpacing);
+      const typoFor = (i) => _getFrameTypography(chain[i] || null) || fallbackTypography;
+      const lineHFor = (t) => (t.fontSize * 96 / 72 / 96) * t.lineHeight;
+      const setFontFor = (t) => { ctx.font = `${t.fontSize * 96 / 72}px ${t.fontFamily}`; };
       let frameIdx = 0;
       let yCursor = 0; // inches consumed in current frame
       const advanceFrame = () => {
@@ -23346,11 +23357,16 @@
       };
       for (let pi = 0; pi < paragraphs.length; pi++) {
         if (frameIdx >= chain.length) break;
-        // Wrap paragraph into lines for the CURRENT frame's width.
+        // Wrap paragraph into lines for the CURRENT frame's width
+        // AND typography. If the paragraph spills into a frame with
+        // different typography mid-flow, the spilled lines were
+        // computed at the old width/font — minor visual artifact but
+        // they still place. (J4.d.3 would re-wrap on advance.)
         const frame = chain[frameIdx];
         const padding = Number(frame.shape?.padding) || 0;
         const innerW = Math.max(0.1, (Number(frame.w) || 0) - 2 * padding);
-        const innerH = Math.max(0.1, (Number(frame.h) || 0) - 2 * padding);
+        const startTypo = typoFor(frameIdx);
+        setFontFor(startTypo);
         const words = paragraphs[pi].split(/\s+/).filter(Boolean);
         let line = '';
         const linesForPara = [];
@@ -23366,37 +23382,38 @@
         if (line) linesForPara.push(line);
 
         // Place lines into frames, advancing as each frame fills.
+        // Line height tracks the CURRENT frame's typography — when
+        // we cross a boundary into a frame with a different size,
+        // the per-line advance picks up the new height.
+        let curLineH = lineHFor(typoFor(frameIdx));
         for (let li = 0; li < linesForPara.length; li++) {
           if (frameIdx >= chain.length) break;
-          let curFrame = chain[frameIdx];
-          let curInnerH = Math.max(0.1, (Number(curFrame.h) || 0) - 2 * (Number(curFrame.shape?.padding) || 0));
-          // Recompute line height for the current frame in case we
-          // moved across a boundary where typography changes (J4.d.2;
-          // today typography is uniform across the chain).
-          if (yCursor + lineHIn > curInnerH && perFrame[frameIdx].lines.length > 0) {
+          const curFrame = chain[frameIdx];
+          const curInnerH = Math.max(0.1, (Number(curFrame.h) || 0) - 2 * (Number(curFrame.shape?.padding) || 0));
+          if (yCursor + curLineH > curInnerH && perFrame[frameIdx].lines.length > 0) {
             advanceFrame();
             if (frameIdx >= chain.length) break;
-            // Re-wrap remaining lines if the new frame has a different
-            // width — for now we keep the same wrap (same typography),
-            // so the line just slots into the next frame.
+            curLineH = lineHFor(typoFor(frameIdx));
           }
           if (frameIdx >= chain.length) break;
           perFrame[frameIdx].lines.push(linesForPara[li]);
-          yCursor += lineHIn;
+          yCursor += curLineH;
         }
-        // Paragraph break after this paragraph — adds vertical
-        // spacing in the current frame.
+        // Paragraph break after this paragraph — gap from the
+        // typography of the frame where the break lands.
         if (pi < paragraphs.length - 1 && frameIdx < chain.length) {
           perFrame[frameIdx].paragraphBreaksAfter.add(perFrame[frameIdx].lines.length - 1);
-          yCursor += paragraphGapIn;
+          yCursor += Math.max(0, typoFor(frameIdx).paragraphSpacing);
         }
       }
-      const consumed = paragraphs.length;
-      // Compute whether any text didn't make it.
+      // Overset stats: probe against the head frame's typography
+      // + width. Approximation when typography varies per frame, but
+      // close enough for the "X of Y lines fit" warning.
       let totalLinesPlaced = 0;
       for (const pf of perFrame) totalLinesPlaced += pf.lines.length;
-      // Re-wrap full text against head width for a hasMoreText probe.
       const headFrame = chain[0];
+      const headTypo = typoFor(0);
+      setFontFor(headTypo);
       const headInnerW = Math.max(0.1, (Number(headFrame?.w) || 0) - 2 * (Number(headFrame?.shape?.padding) || 0));
       let totalLinesNeeded = 0;
       for (const p of paragraphs) {
@@ -23838,12 +23855,12 @@
         };
       }
 
-      // J4.d — typography controls. They edit the HEAD frame's
-      // typography (the whole thread inherits via _getFrameTypography
-      // in the paginator). On a mid-thread frame we still surface
-      // the head's values but disable editing — keeps state singular
-      // per thread.
-      const typo = _getFrameTypography(head);
+      // J4.d.2 — typography is now per-frame. Each frame in the
+      // chain can override its own font / size / line-height /
+      // alignment / color / paragraph gap. The chain still reads
+      // the head's typography as a fallback for any field a frame
+      // doesn't set explicitly.
+      const typo = _getFrameTypography(layer);
       const fontSel = document.getElementById('bookTextFrameFont');
       if (fontSel && !fontSel.dataset.populated) {
         // Reuse the existing font list the text tool uses.
@@ -23867,20 +23884,20 @@
       const paraIn = document.getElementById('bookTextFrameParaSpace');
       const alignSel = document.getElementById('bookTextFrameAlign');
       const typoHint = document.getElementById('bookTextFrameTypoHint');
-      const editable = isHead;
-      if (fontSel)  { fontSel.value  = typo.fontFamily; fontSel.disabled = !editable; }
-      if (sizeIn)   { sizeIn.value   = typo.fontSize;   sizeIn.disabled  = !editable; }
-      if (colorIn)  { colorIn.value  = typo.color;      colorIn.disabled = !editable; }
-      if (lhIn)     { lhIn.value     = typo.lineHeight; lhIn.disabled    = !editable; }
-      if (paraIn)   { paraIn.value   = typo.paragraphSpacing; paraIn.disabled = !editable; }
-      if (alignSel) { alignSel.value = typo.alignment;  alignSel.disabled = !editable; }
-      if (typoHint) typoHint.textContent = editable
-        ? 'Applies to every frame in this thread.'
-        : 'Edit typography on the head frame; mid-thread frames inherit.';
+      if (fontSel)  { fontSel.value  = typo.fontFamily; fontSel.disabled = false; }
+      if (sizeIn)   { sizeIn.value   = typo.fontSize;   sizeIn.disabled  = false; }
+      if (colorIn)  { colorIn.value  = typo.color;      colorIn.disabled = false; }
+      if (lhIn)     { lhIn.value     = typo.lineHeight; lhIn.disabled    = false; }
+      if (paraIn)   { paraIn.value   = typo.paragraphSpacing; paraIn.disabled = false; }
+      if (alignSel) { alignSel.value = typo.alignment;  alignSel.disabled = false; }
+      if (typoHint) typoHint.textContent = isHead
+        ? 'Applies to this frame. The head\'s typography is also the chain\'s fallback.'
+        : 'Applies to this frame only — overrides the head\'s default.';
 
       const writeTypo = (patch) => {
         pushHistory('book: edit text-frame typography');
-        head.typography = { ..._getFrameTypography(head), ...patch };
+        // Writes to THIS layer, not the head — per-frame override.
+        layer.typography = { ..._getFrameTypography(layer), ...patch };
         render();
       };
       if (fontSel)  fontSel.onchange = () => writeTypo({ fontFamily: fontSel.value });
@@ -24131,12 +24148,15 @@
             // formatting via the inspector).
             const entry = (state.book?.pages || []).find(p => p.id === head.sourceChapter);
             const paragraphs = _flattenChapterToParagraphs(entry?.chapterMarkdown || '');
-            const typography = _getFrameTypography(head); // head defines style for the thread
-            const paginated = _paginateParagraphsIntoFrames(paragraphs, chain, typography);
+            // J4.d.2: head's typography is the chain's default; each
+            // frame paints with its OWN typography (overrides allowed).
+            const fallbackTypography = _getFrameTypography(head);
+            const localTypography = _getFrameTypography(layer);
+            const paginated = _paginateParagraphsIntoFrames(paragraphs, chain, fallbackTypography);
             const sliceForThisFrame = paginated.perFrame[myIndex];
             const padding = Number(layer.shape?.padding) || 0;
             if (sliceForThisFrame && sliceForThisFrame.lines.length) {
-              _paintFrameLines(el, sliceForThisFrame, Number(layer.w) || 0, Number(layer.h) || 0, padding, typography);
+              _paintFrameLines(el, sliceForThisFrame, Number(layer.w) || 0, Number(layer.h) || 0, padding, localTypography);
               if (myIndex === chain.length - 1 && paginated.hasMoreText) {
                 const overset = document.createElement('div');
                 overset.style.cssText = 'position:absolute;bottom:6px;right:6px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:3px;padding:1px 6px;font-size:.62rem;font-weight:700;pointer-events:none;z-index:9;letter-spacing:.05em';
@@ -28964,13 +28984,16 @@
         const entry = (book.pages || []).find(p => p.id === head.sourceChapter);
         if (!entry) continue;
         const paragraphs = _flattenChapterToParagraphs(entry.chapterMarkdown || '');
-        const typography = _getFrameTypography(head);
+        // J4.d.2 — head typography is the fallback; each frame's own
+        // typography wins when present.
+        const fallbackTypography = _getFrameTypography(head);
+        const localTypography = _getFrameTypography(layer);
         let paginated;
-        try { paginated = _paginateParagraphsIntoFrames(paragraphs, chain, typography); }
+        try { paginated = _paginateParagraphsIntoFrames(paragraphs, chain, fallbackTypography); }
         catch (err) { console.warn('PDF thread paginate failed', err); continue; }
         const slice = paginated.perFrame[myIndex];
         if (!slice || !slice.lines.length) continue;
-        _drawFrameLinesToCanvas(ctx, slice, layer, dpi, bleed, typography);
+        _drawFrameLinesToCanvas(ctx, slice, layer, dpi, bleed, localTypography);
       }
       return canvas;
     }
