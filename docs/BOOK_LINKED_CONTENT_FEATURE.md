@@ -349,6 +349,34 @@ branch.
 - Bulk relink / embed all / update-available chips.
 - Cycle detection (frame A → B → A is rejected at link time).
 
+### Implementation status (working branch — `phase-j-linked-content`)
+
+| Phase | Commit | What it ships |
+|---|---|---|
+| J1.a | `1e6f2e9` | Chapters tab + Pages/Cover split; Pages overview hides reflow tiles via CSS |
+| J1.b | `961b24d` | Distinct Pages empty-state when only chapters exist |
+| J2   | `2110e72` | First-class `text-frame` on designed pages with stable `frameId` |
+| J3.a | `3cab948` | In/out ports + `⌗ <frameId>` badge on every text frame |
+| J3.b | `4afe726` | Click-to-link UX, break on linked out-port click, Esc cancel, cycle guard |
+| J3.c | `a419160` | Hover any port → thread chain highlights (head blue, rest green) |
+| J5   | `83d451d` | "📥 Place in selected frame" on each chapter row + chapter chip on each frame |
+| J4   | `2d7e757` | `paginateChapter.opts.frameOverride`; threaded text actually flows through the chain (canvas editor) |
+| J4.b | `282f5df` | Per-frame variable-geometry pagination via token cursor (`startTokenIndex` + `maxPages` + `endTokenIndex`) |
+| J4.c.1 | `9d8be7e` | Pages overview tile thumbnails show threaded text |
+| J4.c.2 | `10d9e51` | PDF export renders threaded text on designed pages via `_drawFrameBlocksToCanvas` |
+| J4.c.3 | (implicit) | Reader Mode auto-covered — it reuses `renderBookDesignedPageToCanvas`, which J4.c.2 updated |
+
+Still pending in J4: real-PDF text emission for threaded frames (so PDF
+text is selectable, not just rasterised), table blocks in threaded
+frames, perf cache for the per-frame paginate calls.
+
+Still pending in the broader arc: J6 polish; the full migration of
+legacy `type: 'reflow'` entries into `book.links[]` + `book.threads[]`
+(today the threading lives inline on text-frame layers and chapters
+still live in `book.pages` as reflow entries — the data model from
+J1's spec hasn't moved yet); the Linked Content library tab (today
+it's labelled "Chapters" and shows only chapter entries).
+
 ## What's deferred / out of scope
 
 - **Multi-column text frames.** Single-column only in v1. Phase K.
