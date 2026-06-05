@@ -11013,6 +11013,13 @@
       }
 
       // Lay blocks out into pages.
+      // J4.b: optional opts.startTokenIndex / opts.maxPages let a
+      // caller paginate one frame at a time, resuming where the
+      // previous call left off. The returned result.endTokenIndex
+      // points at the next token to process; pass it back in as
+      // startTokenIndex for the next frame in the chain.
+      const startTokenIndex = Number.isInteger(opts.startTokenIndex) ? opts.startTokenIndex : 0;
+      const maxPages = Number.isInteger(opts.maxPages) && opts.maxPages > 0 ? opts.maxPages : Infinity;
       let currentPage = { blocks: [] };
       let yCursor = 0;
       const pages = [currentPage];
@@ -11022,7 +11029,13 @@
         pages.push(currentPage);
       };
 
-      for (let i = 0; i < tokens.length; i++) {
+      let i;
+      for (i = startTokenIndex; i < tokens.length; i++) {
+        // Stop building when we've filled the requested page count.
+        // The last token successfully placed bumps `i` so the caller
+        // sees endTokenIndex = next token to process.
+        if (pages.length > maxPages) { i--; break; }
+
         const block = blockForToken(tokens[i]);
         if (!block) continue;
 
@@ -11035,6 +11048,10 @@
         }
         // Page break: doesn't fit on current page → push a new page.
         if (yCursor + block.blockH > frameH && currentPage.blocks.length > 0) {
+          // J4.b: if we're capped at maxPages and pushing would
+          // exceed it, stop instead — leave this token for the next
+          // frame in the chain.
+          if (pages.length >= maxPages) break;
           pushPage();
         }
         // keepWithNext: if this block is a heading and there's a
@@ -11045,6 +11062,7 @@
           const next = (i + 1 < tokens.length) ? blockForToken(tokens[i + 1]) : null;
           if (next && yCursor + block.blockH + next.blockH > frameH
               && currentPage.blocks.length > 0) {
+            if (pages.length >= maxPages) break;
             pushPage();
           }
         }
@@ -11052,6 +11070,8 @@
         currentPage.blocks.push(block);
         yCursor += block.blockH;
       }
+      result.endTokenIndex = i;
+      result.tokenCount = tokens.length;
 
       // Drop a trailing empty page if no blocks were laid out at all.
       if (pages.length > 1 && pages[pages.length - 1].blocks.length === 0) pages.pop();
@@ -22764,34 +22784,55 @@
       render();
     }
     // J4 — paginate a chapter's markdown into a thread's frame
-    // sequence. Builds a synthetic reflow entry from the head layer's
-    // sourceChapter and calls paginateChapter with the head's
-    // geometry as the override. Returns the pages array (one entry
-    // per frame, in chain order) plus any overflow.
-    //
-    // Limitation: v1 assumes every frame in the chain shares the head
-    // frame's geometry. Variable-geometry threads are J4.b territory
-    // (the engine would need to re-flow line breaks per frame, which
-    // means walking tokens frame-by-frame instead of all at once).
+    // sequence. Walks the chain frame-by-frame so each frame
+    // contributes its own width to line-breaking and its own height
+    // to the cap. Tokens carry over between frames via the
+    // endTokenIndex / startTokenIndex cursor added in J4.b.
     function _paginateChapterIntoThread(headLayer, book) {
-      if (!headLayer?.sourceChapter || !book) return { pages: [], chain: [headLayer] };
+      const chain = _bookCollectThreadChain(headLayer);
+      if (!headLayer?.sourceChapter || !book) return { pages: [], chain };
       const sourceEntry = (book.pages || []).find(p => p.id === headLayer.sourceChapter);
-      if (!sourceEntry || sourceEntry.type !== 'reflow') return { pages: [], chain: [headLayer] };
-      const padding = Number(headLayer.shape?.padding) || 0;
-      const result = paginateChapter(sourceEntry, book, {
-        frameOverride: {
-          x: Number(headLayer.x) || 0,
-          y: Number(headLayer.y) || 0,
-          w: Number(headLayer.w) || 0,
-          h: Number(headLayer.h) || 0,
-          padding,
-        },
-      });
+      if (!sourceEntry || sourceEntry.type !== 'reflow') return { pages: [], chain };
+
+      const pages = [];
+      const warnings = [];
+      let overflow = [];
+      let cursor = 0;
+      let tokenCount = -1;
+      for (let i = 0; i < chain.length; i++) {
+        const frame = chain[i];
+        const padding = Number(frame.shape?.padding) || 0;
+        const result = paginateChapter(sourceEntry, book, {
+          frameOverride: {
+            x: Number(frame.x) || 0,
+            y: Number(frame.y) || 0,
+            w: Number(frame.w) || 0,
+            h: Number(frame.h) || 0,
+            padding,
+          },
+          startTokenIndex: cursor,
+          maxPages: 1,
+        });
+        pages.push(result.pages?.[0] || { blocks: [] });
+        cursor = result.endTokenIndex ?? cursor;
+        tokenCount = result.tokenCount ?? tokenCount;
+        if (i === 0) {
+          // Collect warnings once from the first pass so the user
+          // doesn't see the same warning N times.
+          warnings.push(...(result.warnings || []));
+          overflow = (result.overflow || []).slice();
+        }
+        // Done if all tokens consumed.
+        if (cursor >= (tokenCount ?? 0)) break;
+      }
       return {
-        pages: result.pages || [],
-        chain: _bookCollectThreadChain(headLayer),
-        overflow: result.overflow || [],
-        warnings: result.warnings || [],
+        pages,
+        chain,
+        overflow,
+        warnings,
+        tokensConsumed: cursor,
+        totalTokens: tokenCount,
+        hasMoreText: tokenCount >= 0 && cursor < tokenCount,
       };
     }
 
@@ -23062,17 +23103,14 @@
             if (pageForThisFrame && pageForThisFrame.blocks?.length) {
               const padding = Number(layer.shape?.padding) || 0;
               _paintFrameBlocks(el, pageForThisFrame, Number(layer.w) || 0, Number(layer.h) || 0, padding);
-              // Last frame in the chain with text still left over →
-              // mark it overset so the user knows to add more frames.
-              const isLast = myIndex === paginated.pages.length - 1
-                          && paginated.pages.length === chain.length;
-              const hasMore = paginated.pages.length > chain.length
-                          || (paginated.overflow && paginated.overflow.length);
-              if (myIndex === chain.length - 1 && hasMore) {
+              // J4.b — overset is now driven by the tokens-consumed
+              // cursor. If the last frame in the chain doesn't reach
+              // the end of the chapter's token stream, mark it.
+              if (myIndex === chain.length - 1 && paginated.hasMoreText) {
                 const overset = document.createElement('div');
                 overset.style.cssText = 'position:absolute;bottom:6px;right:6px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:3px;padding:1px 6px;font-size:.62rem;font-weight:700;pointer-events:none;z-index:9;letter-spacing:.05em';
                 overset.textContent = '⊞ OVERSET';
-                overset.title = `Text wants ${paginated.pages.length} frames but the thread has ${chain.length}. Add more frames + extend the thread.`;
+                overset.title = `Chapter has ${paginated.totalTokens} markdown blocks; ${paginated.tokensConsumed} were consumed by this chain. Add more frames + extend the thread to fit the rest.`;
                 el.appendChild(overset);
               }
             } else if (!pageForThisFrame) {
