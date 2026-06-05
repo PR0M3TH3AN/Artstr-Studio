@@ -9189,6 +9189,12 @@
       // reflow entries yet).
       if (!Array.isArray(state.book.links))   state.book.links   = [];
       if (!Array.isArray(state.book.threads)) state.book.threads = [];
+      // J3-data-migration — one-time conversion of inline
+      // layer.nextFrame / layer.sourceChapter fields into the
+      // book.threads[] collection. Idempotent; only does work when
+      // legacy inline fields are present.
+      try { migrateBookThreadingToCollection(state.book); }
+      catch (err) { console.warn('book threading migration failed', err); }
       return state.book;
     }
     // Physical page count — manifest entries except reflow segments,
@@ -12788,6 +12794,15 @@
           cover: book.cover ? { ref: cleanRef(book.cover.ref) } : null,
           pages: cleanPages,
           masters: cleanMasters,
+          // J3-data-migration: thread topology lives in the manifest.
+          // Each thread = { id, sourceChapter, frames: [{ target, frameId }] }.
+          // A receiver replays threads → text flows through the chain
+          // exactly as the author intended.
+          threads: Array.isArray(book.threads) ? book.threads.map(t => ({
+            id: t.id,
+            sourceChapter: t.sourceChapter || null,
+            frames: (t.frames || []).map(f => ({ target: String(f.target || ''), frameId: f.frameId })),
+          })) : [],
         },
       };
     }
@@ -13727,7 +13742,10 @@
         const placeBtn = document.createElement('button');
         placeBtn.type = 'button';
         const selFrame = _getSelectedBookTextFrame();
-        const selIsHead = selFrame && !_findBookFrameLayer(o => o !== selFrame && o.nextFrame?.frameId === selFrame.frameId);
+        // J3-data-migration: head + current chapter read from threads[].
+        const selThread = selFrame ? _findThreadForFrame(state.book, selFrame.frameId) : null;
+        const selIsHead = !selFrame || !selThread || selThread.frames[0]?.frameId === selFrame.frameId;
+        const selSourceChapter = selThread?.sourceChapter || null;
         placeBtn.textContent = '📥 Place in selected frame';
         if (!selFrame) {
           placeBtn.disabled = true;
@@ -13735,7 +13753,7 @@
         } else if (!selIsHead) {
           placeBtn.disabled = true;
           placeBtn.title = 'The selected frame is mid-thread. Place a chapter on the head (the frame with no incoming link) to flow through the whole chain.';
-        } else if (selFrame.sourceChapter === entry.id) {
+        } else if (selSourceChapter === entry.id) {
           placeBtn.disabled = true;
           placeBtn.title = 'This chapter is already placed on the selected frame.';
         } else {
@@ -23197,6 +23215,196 @@
       ctx.restore();
     }
 
+    // J3-data-migration — thread collection API. book.threads[] is
+    // the canonical store for text-frame threading (replaces the
+    // inline layer.nextFrame + layer.sourceChapter we had through
+    // J4.d). Each thread:
+    //   { id, sourceChapter, frames: [{ target, frameId }] }
+    //
+    // sourceChapter is the entry.id of a reflow chapter that flows
+    // through this thread, or null.
+    //
+    // frames is the ordered chain — frames[0] is the head.
+    // A frame appears in at most one thread.
+    //
+    // Solo frames (no incoming or outgoing link, no chapter source)
+    // are NOT represented in book.threads[].
+    function _findThreadForFrame(book, frameId) {
+      if (!book || !frameId) return null;
+      return (book.threads || []).find(t =>
+        (t.frames || []).some(f => f.frameId === frameId)
+      ) || null;
+    }
+    function _frameIndexInThread(thread, frameId) {
+      if (!thread || !frameId) return -1;
+      return (thread.frames || []).findIndex(f => f.frameId === frameId);
+    }
+    function _layerIsThreadHead(book, layer) {
+      const t = _findThreadForFrame(book, layer?.frameId);
+      return !!(t && t.frames[0]?.frameId === layer.frameId);
+    }
+    // Set sourceFrame's outgoing link to destFrame. Both may already
+    // be in different threads; this stitches them together, splitting
+    // destFrame's old thread + truncating sourceFrame's tail. The
+    // result: a single thread that begins at sourceFrame's head and
+    // ends at destFrame's tail.
+    function setFrameOutgoing(sourceFrame, destFrame) {
+      const book = ensureBookState();
+      if (!sourceFrame.frameId) sourceFrame.frameId = makeBookEntryId();
+      if (!destFrame.frameId) destFrame.frameId = makeBookEntryId();
+      if (sourceFrame.frameId === destFrame.frameId) return;
+      // 1. Find both threads (may be the same or null).
+      const sourceThread = _findThreadForFrame(book, sourceFrame.frameId);
+      const destThread = _findThreadForFrame(book, destFrame.frameId);
+      // 2. From dest's thread: keep frames from destFrame onward.
+      //    (dest becomes the head of an orphaned tail we'll attach.)
+      let destTail = [{ target: String(destFrame.target || ''), frameId: destFrame.frameId }];
+      if (destThread) {
+        const destIdx = _frameIndexInThread(destThread, destFrame.frameId);
+        if (destIdx >= 0) destTail = destThread.frames.slice(destIdx);
+        // Trim dest's old thread to just the frames BEFORE dest.
+        if (destThread === sourceThread) {
+          // Same thread — we're going to rebuild it below.
+        } else {
+          destThread.frames = destIdx > 0 ? destThread.frames.slice(0, destIdx) : [];
+          // If the dest-side thread is now empty (and unsourced), remove it.
+          if (!destThread.frames.length && !destThread.sourceChapter) {
+            book.threads = book.threads.filter(t => t !== destThread);
+          }
+        }
+      }
+      // 3. From source's thread: keep frames up to and including sourceFrame.
+      let sourceHead = sourceThread;
+      if (!sourceHead) {
+        sourceHead = {
+          id: makeBookEntryId(),
+          sourceChapter: null,
+          frames: [{ target: String(sourceFrame.target || ''), frameId: sourceFrame.frameId }],
+        };
+        book.threads.push(sourceHead);
+      } else {
+        const srcIdx = _frameIndexInThread(sourceHead, sourceFrame.frameId);
+        if (srcIdx >= 0) sourceHead.frames = sourceHead.frames.slice(0, srcIdx + 1);
+      }
+      // 4. Append destTail.
+      for (const f of destTail) sourceHead.frames.push(f);
+    }
+    // Clear sourceFrame's outgoing link by truncating its thread
+    // after sourceFrame. The downstream tail becomes its own thread
+    // (orphaned head = the first frame that was downstream).
+    function clearFrameOutgoing(sourceFrame) {
+      const book = ensureBookState();
+      const thread = _findThreadForFrame(book, sourceFrame.frameId);
+      if (!thread) return;
+      const idx = _frameIndexInThread(thread, sourceFrame.frameId);
+      if (idx < 0) return;
+      const tail = thread.frames.slice(idx + 1);
+      thread.frames = thread.frames.slice(0, idx + 1);
+      // Tail becomes its own thread (no chapter source — that lives
+      // on the original head).
+      if (tail.length) {
+        book.threads.push({
+          id: makeBookEntryId(),
+          sourceChapter: null,
+          frames: tail,
+        });
+      }
+      // Single-frame, unsourced thread → drop it.
+      if (thread.frames.length <= 1 && !thread.sourceChapter) {
+        book.threads = book.threads.filter(t => t !== thread);
+      }
+    }
+    // Set the chapter source on the thread containing headFrame.
+    // Only meaningful on the head (frames[0]). If the frame isn't in
+    // a thread yet, create a single-frame thread to hold the source.
+    function setFrameSourceChapter(headFrame, chapterEntryId) {
+      const book = ensureBookState();
+      if (!headFrame.frameId) headFrame.frameId = makeBookEntryId();
+      let thread = _findThreadForFrame(book, headFrame.frameId);
+      if (!thread) {
+        thread = {
+          id: makeBookEntryId(),
+          sourceChapter: null,
+          frames: [{ target: String(headFrame.target || ''), frameId: headFrame.frameId }],
+        };
+        book.threads.push(thread);
+      }
+      // Source only applies to the head.
+      if (thread.frames[0]?.frameId !== headFrame.frameId) return false;
+      thread.sourceChapter = chapterEntryId || null;
+      // If the thread is now empty of meaning, drop it.
+      if (!thread.sourceChapter && thread.frames.length <= 1) {
+        book.threads = book.threads.filter(t => t !== thread);
+      }
+      return true;
+    }
+
+    // One-time migrator: convert legacy inline layer.nextFrame +
+    // layer.sourceChapter into book.threads[]. Idempotent — runs from
+    // ensureBookState; if there's nothing to migrate (no inline data
+    // present on any text frame), it's a no-op.
+    function migrateBookThreadingToCollection(book) {
+      if (!book) return;
+      if (!Array.isArray(book.threads)) book.threads = [];
+      const frames = (state.layers || []).filter(l =>
+        l.type === 'shape' && l.shape?.kind === 'text-frame');
+      if (!frames.length) return;
+      // Anything to migrate? Look for either inline field.
+      let needs = false;
+      for (const l of frames) {
+        if (l.nextFrame || l.sourceChapter) { needs = true; break; }
+      }
+      if (!needs) return;
+      // Build a set of frameIds already represented in threads so we
+      // don't duplicate.
+      const alreadyInThreads = new Set();
+      for (const t of book.threads) {
+        for (const f of (t.frames || [])) alreadyInThreads.add(f.frameId);
+      }
+      const processed = new Set(alreadyInThreads);
+      for (const layer of frames) {
+        if (!layer.frameId) layer.frameId = makeBookEntryId();
+        if (processed.has(layer.frameId)) continue;
+        // Walk back to head via inline links.
+        let head = layer;
+        const seenBack = new Set([layer.id]);
+        while (true) {
+          const prev = frames.find(o => o !== head && o.nextFrame?.frameId === head.frameId);
+          if (!prev || seenBack.has(prev.id)) break;
+          seenBack.add(prev.id);
+          head = prev;
+        }
+        // Walk forward from head.
+        const chain = [head];
+        const seenFwd = new Set([head.id]);
+        let cursor = head;
+        while (cursor.nextFrame?.frameId) {
+          const nxt = frames.find(o => o.frameId === cursor.nextFrame.frameId);
+          if (!nxt || seenFwd.has(nxt.id)) break;
+          seenFwd.add(nxt.id);
+          chain.push(nxt);
+          cursor = nxt;
+        }
+        // Only materialize a thread when the chain is non-trivial
+        // (more than one frame) OR the head holds a chapter source.
+        const hasSource = !!head.sourceChapter;
+        const hasChain = chain.length > 1;
+        if (hasSource || hasChain) {
+          book.threads.push({
+            id: makeBookEntryId(),
+            sourceChapter: head.sourceChapter || null,
+            frames: chain.map(f => ({ target: String(f.target || ''), frameId: f.frameId })),
+          });
+        }
+        for (const f of chain) processed.add(f.frameId);
+      }
+      // Clear inline fields — book.threads[] is now the source of truth.
+      for (const layer of frames) {
+        if ('nextFrame' in layer) delete layer.nextFrame;
+        if ('sourceChapter' in layer) delete layer.sourceChapter;
+      }
+    }
+
     // Phase J3 — module-level state for the port "loaded cursor"
     // pattern. When the user clicks an empty out-port we store its
     // layer reference here and flip a body class so the cursor +
@@ -23214,14 +23422,20 @@
     // Cycle detection — walking from `startLayer` along nextFrame
     // refs, does the chain ever hit `targetFrameId`? Used to refuse
     // links that would create a loop (A → B → C, then linking C → A).
-    function _bookFrameChainContains(startLayer, targetFrameId, depth = 0) {
-      if (!startLayer || depth > 1000) return false;
-      if (startLayer.frameId === targetFrameId) return true;
-      const next = startLayer.nextFrame;
-      if (!next?.frameId) return false;
-      const nextLayer = _findBookFrameLayer(l => l.frameId === next.frameId);
-      if (!nextLayer) return false;
-      return _bookFrameChainContains(nextLayer, targetFrameId, depth + 1);
+    function _bookFrameChainContains(startLayer, targetFrameId) {
+      // J3-data-migration: cycle guard now reads from book.threads[].
+      // True if targetFrameId is anywhere from startLayer onward in
+      // its thread (used by the inspector dropdowns to refuse
+      // self-loops).
+      if (!startLayer || !targetFrameId) return false;
+      const thread = _findThreadForFrame(state.book, startLayer.frameId);
+      if (!thread) return startLayer.frameId === targetFrameId;
+      const startIdx = _frameIndexInThread(thread, startLayer.frameId);
+      if (startIdx < 0) return false;
+      for (let i = startIdx; i < thread.frames.length; i++) {
+        if (thread.frames[i].frameId === targetFrameId) return true;
+      }
+      return false;
     }
 
     function _startBookPortLoad(layer) {
@@ -23249,19 +23463,20 @@
         return;
       }
       pushHistory('book: link text frames');
-      sourceLayer.nextFrame = {
-        target: String(targetLayer.target || ''),
-        frameId: targetLayer.frameId,
-      };
+      setFrameOutgoing(sourceLayer, targetLayer);
       _bookPortLoading = null;
       document.body.classList.remove('book-port-loading');
       toastSuccess?.('Frames threaded.');
       render();
     }
     function _breakBookFrameLink(layer) {
-      if (!layer?.nextFrame) return;
+      // True only when this frame has a downstream link in its thread.
+      const thread = _findThreadForFrame(state.book, layer?.frameId);
+      if (!thread) return;
+      const idx = _frameIndexInThread(thread, layer.frameId);
+      if (idx < 0 || idx >= thread.frames.length - 1) return;
       pushHistory('book: break text-frame thread');
-      layer.nextFrame = null;
+      clearFrameOutgoing(layer);
       render();
     }
     // J4.d — strip markdown formatting and collapse to a flat list
@@ -23513,9 +23728,11 @@
         if (layer.type !== 'shape' || layer.shape?.kind !== 'text-frame') continue;
         const chain = _bookCollectThreadChain(layer);
         const head = chain[0];
-        if (!head?.sourceChapter) continue;
+        const headThread = head ? _findThreadForFrame(book, head.frameId) : null;
+        const headSourceChapter = headThread?.sourceChapter || null;
+        if (!headSourceChapter) continue;
         const myIndex = chain.indexOf(layer);
-        const entry = (book.pages || []).find(p => p.id === head.sourceChapter);
+        const entry = (book.pages || []).find(p => p.id === headSourceChapter);
         if (!entry) continue;
         const paragraphs = _flattenChapterToParagraphs(entry.chapterMarkdown || '');
         const typography = _getFrameTypography(head);
@@ -23703,15 +23920,23 @@
       const head = chain[0];
       const myIndex = chain.indexOf(layer);
       const isHead = layer === head;
+      // J3-data-migration: derive thread refs once, used below by
+      // the chapter dropdown + the incoming/outgoing dropdowns.
+      const myThread = _findThreadForFrame(book, layer.frameId);
+      const myIdxInThread = myThread ? _frameIndexInThread(myThread, layer.frameId) : -1;
       const status = document.getElementById('bookTextFrameStatus');
       if (status) {
         // Diagnostic detail: chain summary so we can spot when the
         // walk doesn't find a downstream frame (e.g., frame across
         // pages that wasn't resolved or has a stale ref).
         let detail = '';
-        if (head?.sourceChapter) {
+        // J3-data-migration: chapter source comes from the head's
+        // thread in book.threads[].
+        const headThreadForDiag = head ? _findThreadForFrame(book, head.frameId) : null;
+        const headSourceChapterForDiag = headThreadForDiag?.sourceChapter || null;
+        if (headSourceChapterForDiag) {
           try {
-            const entry = (book.pages || []).find(p => p.id === head.sourceChapter);
+            const entry = (book.pages || []).find(p => p.id === headSourceChapterForDiag);
             if (entry) {
               const paragraphs = _flattenChapterToParagraphs(entry.chapterMarkdown || '');
               const typo = _getFrameTypography(head);
@@ -23728,16 +23953,17 @@
         } else {
           status.textContent = `Solo frame — link in or out to extend into a thread.${detail}`;
         }
-        // Warn the user (and the console) when the chain walk drops
-        // a downstream frame. Most common cause: a stale nextFrame
-        // ref pointing at a frameId that no longer exists (page or
-        // frame was deleted).
-        const expectedNext = layer.nextFrame?.frameId;
-        if (expectedNext && !chain.includes(layer.nextFrame ? _findBookFrameLayer(o => o.frameId === expectedNext) : null)) {
-          const found = _findBookFrameLayer(o => o.frameId === expectedNext);
-          if (!found) {
-            console.warn('[book threading] nextFrame ref points at a missing frameId:', expectedNext, '— clearing the broken link from layer', layer.id);
-            status.textContent += ` ⚠ outgoing link is broken (target frame not found).`;
+        // J3-data-migration: warn when a thread references a
+        // frameId that doesn't exist in state.layers anymore (page or
+        // frame deleted, leaving a stale entry in book.threads[]).
+        if (myThread) {
+          for (let i = 0; i < myThread.frames.length; i++) {
+            const ref = myThread.frames[i];
+            if (!_findBookFrameLayer(o => o.frameId === ref.frameId)) {
+              console.warn('[book threading] thread refers to missing frameId:', ref.frameId);
+              status.textContent += ` ⚠ thread has a broken link (missing frame ⌗${String(ref.frameId).slice(0,6)}).`;
+              break;
+            }
           }
         }
       }
@@ -23761,12 +23987,14 @@
           opt.textContent = e.chapterTitle || e.label || 'Untitled chapter';
           chapterSel.appendChild(opt);
         }
-        chapterSel.value = (isHead ? (layer.sourceChapter || '') : (head?.sourceChapter || ''));
+        // J3-data-migration: chapter source comes from the thread,
+        // not inline layer fields.
+        chapterSel.value = (myThread?.sourceChapter || '');
         chapterSel.disabled = !isHead;
         chapterSel.onchange = () => {
           if (!isHead) return;
           pushHistory('book: assign chapter source');
-          layer.sourceChapter = chapterSel.value || null;
+          setFrameSourceChapter(layer, chapterSel.value || null);
           render();
           renderBookChaptersList();
         };
@@ -23798,25 +24026,26 @@
         sel.value = currentFrameId || '';
       };
 
+      // J3-data-migration: incoming + outgoing derived from
+      // book.threads[]. myThread + myIdxInThread are hoisted above.
+      const incomingRef = myThread && myIdxInThread > 0 ? myThread.frames[myIdxInThread - 1] : null;
+      const outgoingRef = myThread && myIdxInThread >= 0 && myIdxInThread < myThread.frames.length - 1
+        ? myThread.frames[myIdxInThread + 1] : null;
+      const currentInbound = incomingRef ? _findBookFrameLayer(o => o.frameId === incomingRef.frameId) : null;
+
       const inSel = document.getElementById('bookTextFrameInLink');
-      const currentInbound = _findBookFrameLayer(o => o !== layer && o.nextFrame?.frameId === layer.frameId);
       if (inSel) {
-        // Candidate predicate: a frame F can link TO `layer` if doing
-        // so wouldn't put F inside the chain that descends from
-        // `layer` (which would mean layer → ... → F → layer = cycle).
         fillFrameOptions(inSel, currentInbound?.frameId || '', (f) => {
-          // F.nextFrame = layer.frameId would create a cycle if
-          // `layer` already reaches F through its forward chain.
           return !_bookFrameChainContains(layer, f.frameId);
         });
         inSel.onchange = () => {
           pushHistory('book: change incoming link');
-          // Clear any previous incoming pointer to this frame.
-          if (currentInbound && currentInbound !== layer) currentInbound.nextFrame = null;
+          // Clear any current incoming link (truncate predecessor's thread).
+          if (currentInbound && currentInbound !== layer) clearFrameOutgoing(currentInbound);
           const newFrameId = inSel.value || '';
           if (newFrameId) {
             const src = allFrames.find(f => f.frameId === newFrameId);
-            if (src) src.layer.nextFrame = { target: layer.target, frameId: layer.frameId };
+            if (src) setFrameOutgoing(src.layer, layer);
           }
           render();
         };
@@ -23824,32 +24053,17 @@
 
       const outSel = document.getElementById('bookTextFrameOutLink');
       if (outSel) {
-        // Candidate predicate: layer can link OUT to F if F isn't
-        // already reachable from layer through its forward chain
-        // (i.e., F can't be on the chain that descends from layer).
-        fillFrameOptions(outSel, layer.nextFrame?.frameId || '', (f) => {
-          // Reject if F is already in the head→tail chain that
-          // includes layer (cycle), but allow F if F is the head and
-          // we're a tail — that's still a cycle. The cleanest check:
-          // simulate the link and walk forward, refuse if we loop.
+        fillFrameOptions(outSel, outgoingRef?.frameId || '', (f) => {
           return !_bookFrameChainContains(f.layer, layer.frameId);
         });
         outSel.onchange = () => {
           pushHistory('book: change outgoing link');
           const newFrameId = outSel.value || '';
           if (!newFrameId) {
-            layer.nextFrame = null;
+            clearFrameOutgoing(layer);
           } else {
             const dest = allFrames.find(f => f.frameId === newFrameId);
-            if (dest) {
-              // If dest already has an incoming link from someone
-              // other than us, clear it so we don't end up with two
-              // frames pointing at the same destination.
-              const otherIncoming = _findBookFrameLayer(o =>
-                o !== layer && o !== dest.layer && o.nextFrame?.frameId === dest.frameId);
-              if (otherIncoming) otherIncoming.nextFrame = null;
-              layer.nextFrame = { target: dest.target, frameId: dest.frameId };
-            }
+            if (dest) setFrameOutgoing(layer, dest.layer);
           }
           render();
         };
@@ -23926,15 +24140,16 @@
     function _placeChapterIntoSelectedFrame(chapterEntryId) {
       const frame = _getSelectedBookTextFrame();
       if (!frame) { toastError?.('Select a text-frame layer on the canvas first.'); return; }
-      // Refuse if the selected frame is mid-thread.
-      const incoming = _findBookFrameLayer(o => o !== frame && o.nextFrame?.frameId === frame.frameId);
-      if (incoming) {
+      // J3-data-migration: head test reads from book.threads[].
+      const thread = _findThreadForFrame(state.book, frame.frameId);
+      const isMidThread = thread && thread.frames[0]?.frameId !== frame.frameId;
+      if (isMidThread) {
         toastError?.('Selected frame is mid-thread. Place the chapter on the head frame (no incoming link).');
         return;
       }
       pushHistory('book: place chapter into frame');
-      frame.sourceChapter = chapterEntryId;
-      toastSuccess?.('Chapter placed. Real text flow lands in J4 — for now the frame shows a placeholder.');
+      setFrameSourceChapter(frame, chapterEntryId);
+      toastSuccess?.('Chapter placed.');
       renderBookChaptersList();
       render();
     }
@@ -23960,37 +24175,18 @@
       });
     }
     function _bookCollectThreadChain(layer) {
-      // Walk backwards to the head, then forward to the tail.
-      // Returns layers in flow order (head → ... → tail).
-      //
-      // Bug fix: each walk needs its OWN seen-set. Sharing seen
-      // between backward and forward walks meant the forward walk
-      // tripped its cycle guard on the middle frames the backward
-      // walk had already visited. A → B → C starting from C would
-      // walk back through B + A (seen={B,A}), then the forward walk
-      // from A would find B in `seen` and break — returning chain
-      // [A] instead of [A, B, C].
-      let head = layer;
-      const seenBack = new Set([layer.id]);
-      let guard = 0;
-      while (guard++ < 1000) {
-        const prev = _findBookFrameLayer(o => o !== head && o.nextFrame?.frameId === head.frameId);
-        if (!prev || seenBack.has(prev.id)) break;
-        seenBack.add(prev.id);
-        head = prev;
+      // J3-data-migration: chain now reads from book.threads[]
+      // directly. Solo frames (not in any thread) return as a
+      // single-element chain.
+      if (!layer) return [];
+      const thread = _findThreadForFrame(state.book, layer.frameId);
+      if (!thread || !(thread.frames || []).length) return [layer];
+      const out = [];
+      for (const ref of thread.frames) {
+        const l = _findBookFrameLayer(o => o.frameId === ref.frameId);
+        if (l) out.push(l);
       }
-      const chain = [head];
-      const seenFwd = new Set([head.id]);
-      let cursor = head;
-      guard = 0;
-      while (cursor.nextFrame?.frameId && guard++ < 1000) {
-        const nxt = _findBookFrameLayer(o => o.frameId === cursor.nextFrame.frameId);
-        if (!nxt || seenFwd.has(nxt.id)) break;
-        seenFwd.add(nxt.id);
-        chain.push(nxt);
-        cursor = nxt;
-      }
-      return chain;
+      return out.length ? out : [layer];
     }
 
     function _bookPortOnClick(layer, portKind, ev) {
@@ -24026,12 +24222,14 @@
       // J2 — give it a frameId on the fly so the ports work.
       if (!layer.frameId) layer.frameId = makeBookEntryId();
       const myFrameId = layer.frameId;
-      // Has this frame been linked OUT to a next frame?
-      const linkedOut = !!(layer.nextFrame && layer.nextFrame.frameId);
-      // Has any other text-frame's nextFrame pointed AT this frame?
-      const incoming = _findBookFrameLayer(other =>
-        other !== layer && other.nextFrame?.frameId === myFrameId);
-      const linkedIn = !!incoming;
+      // J3-data-migration: derive link state from book.threads[].
+      const myThread = _findThreadForFrame(state.book, myFrameId);
+      const myIdxInThread = myThread ? _frameIndexInThread(myThread, myFrameId) : -1;
+      const linkedIn = !!(myThread && myIdxInThread > 0);
+      const linkedOut = !!(myThread && myIdxInThread >= 0 && myIdxInThread < myThread.frames.length - 1);
+      const nextRef = linkedOut ? myThread.frames[myIdxInThread + 1] : null;
+      const incomingRef = linkedIn ? myThread.frames[myIdxInThread - 1] : null;
+      const incoming = incomingRef ? _findBookFrameLayer(o => o.frameId === incomingRef.frameId) : null;
       const isLoadingSource = _bookPortLoading?.layerId === layer.id;
 
       // J3.b fix: stop pointerdown on the port from bubbling to the
@@ -24092,9 +24290,12 @@
         : [layer];
       const head = chain[0];
       const myIndex = chain.indexOf(layer);
-      if (head?.sourceChapter) {
+      // J3-data-migration: chapter source lives on the thread.
+      const headThread = head ? _findThreadForFrame(state.book, head.frameId) : null;
+      const headSourceChapter = headThread?.sourceChapter || null;
+      if (headSourceChapter) {
         const book = state.book;
-        const entry = (book?.pages || []).find(p => p.id === head.sourceChapter);
+        const entry = (book?.pages || []).find(p => p.id === headSourceChapter);
         if (entry) {
           const chip = document.createElement('div');
           chip.className = 'bookFrameSourceChip';
@@ -24125,7 +24326,7 @@
               ev.preventDefault();
               ev.stopPropagation();
               pushHistory('book: unplace chapter from frame');
-              head.sourceChapter = null;
+              setFrameSourceChapter(head, null);
               render();
               renderBookChaptersList();
             });
@@ -24146,7 +24347,7 @@
             // whole blocks jumping; markdown headings / lists /
             // bold-italic become regular prose (designer applies
             // formatting via the inspector).
-            const entry = (state.book?.pages || []).find(p => p.id === head.sourceChapter);
+            const entry = (state.book?.pages || []).find(p => p.id === headSourceChapter);
             const paragraphs = _flattenChapterToParagraphs(entry?.chapterMarkdown || '');
             // J4.d.2: head's typography is the chain's default; each
             // frame paints with its OWN typography (overrides allowed).
@@ -28066,6 +28267,9 @@
           pages:   book.pages   || [],
           masters: book.masters || [],
           cover:   book.cover   || {},
+          // J3-data-migration: thread topology survives the
+          // whole-book JSON round-trip.
+          threads: Array.isArray(book.threads) ? book.threads : [],
         },
         layerGroups: { ...ensureLayerGroups() },
         layers: nonGeneratedLayers().filter(l => {
@@ -28979,9 +29183,11 @@
         if (layer.type !== 'shape' || layer.shape?.kind !== 'text-frame') continue;
         const chain = _bookCollectThreadChain(layer);
         const head = chain[0];
-        if (!head?.sourceChapter) continue;
+        const headThread = head ? _findThreadForFrame(book, head.frameId) : null;
+        const headSourceChapter = headThread?.sourceChapter || null;
+        if (!headSourceChapter) continue;
         const myIndex = chain.indexOf(layer);
-        const entry = (book.pages || []).find(p => p.id === head.sourceChapter);
+        const entry = (book.pages || []).find(p => p.id === headSourceChapter);
         if (!entry) continue;
         const paragraphs = _flattenChapterToParagraphs(entry.chapterMarkdown || '');
         // J4.d.2 — head typography is the fallback; each frame's own
@@ -30875,6 +31081,18 @@
             cover: book.cover || null,
             masters: Array.isArray(book.masters) ? book.masters.map(m => ({ ...m })) : [],
             pages: Array.isArray(book.pages) ? book.pages.map(p => ({ ...p })) : [],
+            // J3-data-migration: thread topology restored from
+            // manifest / whole-book JSON.
+            threads: Array.isArray(book.threads)
+              ? book.threads.map(t => ({
+                  id: t.id || makeBookEntryId(),
+                  sourceChapter: t.sourceChapter || null,
+                  frames: Array.isArray(t.frames)
+                    ? t.frames.map(f => ({ target: String(f.target || ''), frameId: f.frameId }))
+                    : [],
+                }))
+              : [],
+            links: Array.isArray(book.links) ? book.links.slice() : [],
             editingEntryId: null,
             editingMasterId: null,
             editingChapterId: null,
