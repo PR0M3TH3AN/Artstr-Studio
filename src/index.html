@@ -29140,7 +29140,7 @@
     // Render one designed page (master underlay + page layers) to a
     // print-DPI canvas. Token substitution is applied to master text
     // layers so `{page-number}` etc resolve correctly per page.
-    async function renderBookDesignedPageToCanvas(entry, dpi, ctxToken) {
+    async function renderBookDesignedPageToCanvas(entry, dpi, ctxToken, textOps = null, fontWarnings = null) {
       const book = state.book || {};
       const spec = book.spec || {};
       const trimW = Number(spec.trimW) || 6;
@@ -29200,7 +29200,7 @@
         catch (err) { console.warn('PDF thread paginate failed', err); continue; }
         const slice = paginated.perFrame[myIndex];
         if (!slice || !slice.lines.length) continue;
-        _drawFrameLinesToCanvas(ctx, slice, layer, dpi, bleed, localTypography);
+        _drawFrameLinesToCanvas(ctx, slice, layer, dpi, bleed, localTypography, textOps, fontWarnings);
       }
       return canvas;
     }
@@ -29209,7 +29209,14 @@
     // _paintFrameLines but writes onto a Canvas2D context (the PDF
     // export's per-page raster). Coordinates: frame is sheet-relative
     // (includes bleed); canvas is trim-only, so subtract bleed.
-    function _drawFrameLinesToCanvas(ctx, frameSlice, frameLayer, dpi, bleed, typography) {
+    //
+    // J4.e (#4): when `textOps` is provided (PDF export path), also
+    // emit selectable + searchable real-text descriptors that
+    // exportBookToPdf overlays on top of the raster via pdf-lib's
+    // drawText. This is what the reflow path has been doing — now
+    // threaded frames participate too. `fontWarnings` collects
+    // unsupported font families for user feedback.
+    function _drawFrameLinesToCanvas(ctx, frameSlice, frameLayer, dpi, bleed, typography, textOps = null, fontWarnings = null) {
       const padding = Number(frameLayer.shape?.padding) || 0;
       const innerX = (Number(frameLayer.x) || 0) + padding - bleed;
       const innerY = (Number(frameLayer.y) || 0) + padding - bleed;
@@ -29224,14 +29231,42 @@
                   : typography.alignment === 'right'  ? 'right'  : 'left';
       const lines = frameSlice.lines || [];
       const breaksAfter = frameSlice.paragraphBreaksAfter || new Set();
+      // J4.e: probe font + record warning. Typography defaults to
+      // 'Georgia, serif'; that lacks bold/italic flags here — threaded
+      // typography doesn't carry per-frame weights yet, so we pass
+      // false/false. Bold/italic per-line is a later enhancement.
+      const collect = Array.isArray(textOps);
+      const fontKey = collect ? _resolveStandardFontKey(typography.fontFamily, false, false) : null;
+      if (collect && !fontKey && fontWarnings) fontWarnings.add(typography.fontFamily);
+      const lineHIn = lineH / dpi;
+      const innerYIn = innerY;
       let yPx = innerY * dpi;
+      let yLineIdx = 0; // independent of breaks for textOps positioning
       for (let i = 0; i < lines.length; i++) {
         let xPx;
         if (typography.alignment === 'center')      xPx = (innerX + innerW / 2) * dpi;
         else if (typography.alignment === 'right')  xPx = (innerX + innerW) * dpi;
         else                                        xPx = innerX * dpi;
         ctx.fillText(lines[i], xPx, yPx);
+        // Real-text op for the PDF text layer. Coords are inches
+        // from the trim corner (exportBookToPdf converts to pdf-lib's
+        // bottom-up point grid). Empty lines skipped — no glyphs.
+        if (collect && fontKey && lines[i] && lines[i].trim()) {
+          const topInchesFromTrim = innerYIn + (yPx - innerY * dpi) / dpi;
+          textOps.push({
+            text: lines[i],
+            fontKey,
+            sizePt: typography.fontSize,
+            color: typography.color,
+            align: typography.alignment === 'center' ? 'center' :
+                   typography.alignment === 'right'  ? 'right'  : 'left',
+            leftIn: innerX,
+            widthIn: innerW,
+            topInchesFromTrim,
+          });
+        }
         yPx += lineH;
+        yLineIdx++;
         if (breaksAfter.has(i)) yPx += paragraphGapPx;
       }
     }
@@ -29589,7 +29624,11 @@
             textOps = [];
             canvas = await renderBookReflowPhysicalPageToCanvas(entry, pag, slot.indexInEntry, dpi, ctxToken, textOps, fallbackFontFamilies);
           } else {
-            canvas = await renderBookDesignedPageToCanvas(entry, dpi, ctxToken);
+            // J4.e: designed-page export also collects textOps for
+            // any threaded text frames on the page — overlaid as
+            // selectable/searchable PDF text on top of the raster.
+            textOps = [];
+            canvas = await renderBookDesignedPageToCanvas(entry, dpi, ctxToken, textOps, fallbackFontFamilies);
           }
         } catch (err) {
           warnings.push(`Page ${(slot.pageNumber != null) ? slot.pageNumber : '?'}: ${err.message || err}`);
