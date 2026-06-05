@@ -10767,34 +10767,54 @@
         : (entry.masterId || book?.spec?.defaultMasterId || null);
       result.masterId = masterId;
 
-      // Locate the text-frame layer on the master.
-      let frame = null;
-      if (masterId) {
-        const target = `book-master:${masterId}`;
-        for (const l of state.layers || []) {
-          if (l.target !== target) continue;
-          if (l.type === 'shape' && l.shape?.kind === 'text-frame') {
-            frame = l;
-            break;
+      // J4: `opts.frameOverride` lets the thread paginator skip the
+      // master-frame lookup and pour text into whatever frame
+      // geometry the caller specifies. Shape: { x, y, w, h, padding }
+      // in canvas-inch space. Used by threaded text frames whose
+      // geometry is independent of any master.
+      let padding, frameW, frameH;
+      if (opts.frameOverride) {
+        const fo = opts.frameOverride;
+        padding = Number(fo.padding) || 0;
+        frameW = Math.max(0.5, (Number(fo.w) || 0) - 2 * padding);
+        frameH = Math.max(0.5, (Number(fo.h) || 0) - 2 * padding);
+        result.frame = {
+          x: Number(fo.x) || 0,
+          y: Number(fo.y) || 0,
+          w: Number(fo.w) || 0,
+          h: Number(fo.h) || 0,
+          padding,
+        };
+      } else {
+        // Locate the text-frame layer on the master.
+        let frame = null;
+        if (masterId) {
+          const target = `book-master:${masterId}`;
+          for (const l of state.layers || []) {
+            if (l.target !== target) continue;
+            if (l.type === 'shape' && l.shape?.kind === 'text-frame') {
+              frame = l;
+              break;
+            }
           }
         }
+        if (!frame) {
+          result.warnings.push(masterId
+            ? 'Master has no text-frame layer. Add one in master-edit mode to paginate.'
+            : 'No master selected for this chapter.');
+          return result;
+        }
+        padding = Number(frame.shape?.padding) || 0;
+        frameW = Math.max(0.5, (Number(frame.w) || 0) - 2 * padding);
+        frameH = Math.max(0.5, (Number(frame.h) || 0) - 2 * padding);
+        result.frame = {
+          x: Number(frame.x) || 0,
+          y: Number(frame.y) || 0,
+          w: Number(frame.w) || 0,
+          h: Number(frame.h) || 0,
+          padding,
+        };
       }
-      if (!frame) {
-        result.warnings.push(masterId
-          ? 'Master has no text-frame layer. Add one in master-edit mode to paginate.'
-          : 'No master selected for this chapter.');
-        return result;
-      }
-      const padding = Number(frame.shape?.padding) || 0;
-      const frameW = Math.max(0.5, (Number(frame.w) || 0) - 2 * padding);
-      const frameH = Math.max(0.5, (Number(frame.h) || 0) - 2 * padding);
-      result.frame = {
-        x: Number(frame.x) || 0,
-        y: Number(frame.y) || 0,
-        w: Number(frame.w) || 0,
-        h: Number(frame.h) || 0,
-        padding,
-      };
 
       const tokens = window.marked.lexer(md, { gfm: true, breaks: false });
 
@@ -22743,6 +22763,91 @@
       layer.nextFrame = null;
       render();
     }
+    // J4 — paginate a chapter's markdown into a thread's frame
+    // sequence. Builds a synthetic reflow entry from the head layer's
+    // sourceChapter and calls paginateChapter with the head's
+    // geometry as the override. Returns the pages array (one entry
+    // per frame, in chain order) plus any overflow.
+    //
+    // Limitation: v1 assumes every frame in the chain shares the head
+    // frame's geometry. Variable-geometry threads are J4.b territory
+    // (the engine would need to re-flow line breaks per frame, which
+    // means walking tokens frame-by-frame instead of all at once).
+    function _paginateChapterIntoThread(headLayer, book) {
+      if (!headLayer?.sourceChapter || !book) return { pages: [], chain: [headLayer] };
+      const sourceEntry = (book.pages || []).find(p => p.id === headLayer.sourceChapter);
+      if (!sourceEntry || sourceEntry.type !== 'reflow') return { pages: [], chain: [headLayer] };
+      const padding = Number(headLayer.shape?.padding) || 0;
+      const result = paginateChapter(sourceEntry, book, {
+        frameOverride: {
+          x: Number(headLayer.x) || 0,
+          y: Number(headLayer.y) || 0,
+          w: Number(headLayer.w) || 0,
+          h: Number(headLayer.h) || 0,
+          padding,
+        },
+      });
+      return {
+        pages: result.pages || [],
+        chain: _bookCollectThreadChain(headLayer),
+        overflow: result.overflow || [],
+        warnings: result.warnings || [],
+      };
+    }
+
+    // J4 — paint one paginated page's blocks directly into a
+    // freeLayer wrapper (the rendered text frame's own element).
+    // Coordinates are relative to the frame's own bounding box, NOT
+    // the whole page like paintReflowPageOverlay. Simpler — no
+    // frame.x/y translation needed.
+    function _paintFrameBlocks(el, page, frameWIn, frameHIn, paddingIn) {
+      if (!page || !page.blocks?.length) return;
+      const padding = Number(paddingIn) || 0;
+      const innerW = Math.max(0.1, frameWIn - 2 * padding);
+      const innerH = Math.max(0.1, frameHIn - 2 * padding);
+      const overlay = document.createElement('div');
+      const padPct = (padding / Math.max(frameWIn, 0.001)) * 100;
+      const padPctY = (padding / Math.max(frameHIn, 0.001)) * 100;
+      overlay.style.cssText = [
+        'position:absolute',
+        `left:${padPct}%`,
+        `top:${padPctY}%`,
+        `width:${100 - 2 * padPct}%`,
+        `height:${100 - 2 * padPctY}%`,
+        'pointer-events:none',
+        'overflow:hidden',
+        'z-index:6',
+      ].join(';');
+      // Scale = pixels per inch in the rendered frame. Use the
+      // freeLayer's actual width if available, else fall back to a
+      // 96 dpi assumption.
+      const pxW = el.offsetWidth || (frameWIn * 96);
+      const scale = pxW / (frameWIn * 96);
+      for (const block of page.blocks) {
+        const style = block.style || {};
+        const fs = Number(style.fontSize) || 11;
+        const blk = document.createElement('div');
+        blk.style.cssText = [
+          'position:absolute',
+          `left:${((Number(style.marginLeft) || 0) / innerW) * 100}%`,
+          `right:${((Number(style.marginRight) || 0) / innerW) * 100}%`,
+          `top:${(block.y / innerH) * 100}%`,
+          `font-family:${style.fontFamily || 'Georgia, serif'}`,
+          `font-size:${fs * scale}px`,
+          `font-weight:${style.fontWeight || 400}`,
+          `font-style:${style.fontStyle || 'normal'}`,
+          `line-height:${style.lineHeight || 1.5}`,
+          `color:${style.color || '#111111'}`,
+          `text-align:${style.alignment || 'left'}`,
+          style.background ? `background:${style.background}` : '',
+          'white-space:pre-wrap',
+        ].filter(Boolean).join(';');
+        blk.textContent = (block.lines || []).join('\n');
+        overlay.appendChild(blk);
+      }
+      el.appendChild(overlay);
+    }
+
     // J5 — return the user's currently selected layer if it's a
     // text-frame in book mode, else null. Used by the Chapters tab
     // 'Place into selected frame' affordance.
@@ -22946,14 +23051,48 @@
           }
           el.appendChild(chip);
 
-          // Placeholder body — real pagination + line layout into
-          // this frame's bounding box lands in J4.
-          const pending = document.createElement('div');
-          pending.className = 'bookFrameSourcePending';
-          pending.textContent = chain.length > 1
-            ? `(text flows through frames ${myIndex + 1} / ${chain.length} — J4 pours it)`
-            : '(text will flow here — J4 pours it)';
-          el.appendChild(pending);
+          // J4 — paginate the chapter into the thread's frame
+          // sequence and paint THIS frame's slice. Re-runs on every
+          // render; perf-sensitive book renders can add a cache
+          // keyed by (head.id, sourceChapter id, frame dimensions,
+          // chapterMarkdown length) in a later pass.
+          try {
+            const paginated = _paginateChapterIntoThread(head, state.book);
+            const pageForThisFrame = paginated.pages[myIndex];
+            if (pageForThisFrame && pageForThisFrame.blocks?.length) {
+              const padding = Number(layer.shape?.padding) || 0;
+              _paintFrameBlocks(el, pageForThisFrame, Number(layer.w) || 0, Number(layer.h) || 0, padding);
+              // Last frame in the chain with text still left over →
+              // mark it overset so the user knows to add more frames.
+              const isLast = myIndex === paginated.pages.length - 1
+                          && paginated.pages.length === chain.length;
+              const hasMore = paginated.pages.length > chain.length
+                          || (paginated.overflow && paginated.overflow.length);
+              if (myIndex === chain.length - 1 && hasMore) {
+                const overset = document.createElement('div');
+                overset.style.cssText = 'position:absolute;bottom:6px;right:6px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:3px;padding:1px 6px;font-size:.62rem;font-weight:700;pointer-events:none;z-index:9;letter-spacing:.05em';
+                overset.textContent = '⊞ OVERSET';
+                overset.title = `Text wants ${paginated.pages.length} frames but the thread has ${chain.length}. Add more frames + extend the thread.`;
+                el.appendChild(overset);
+              }
+            } else if (!pageForThisFrame) {
+              // No content for this frame slot — chapter ran out of
+              // text upstream. Light placeholder so the user knows
+              // the frame is part of the thread but unused.
+              const empty = document.createElement('div');
+              empty.className = 'bookFrameSourcePending';
+              empty.style.color = 'rgba(71,85,105,.5)';
+              empty.textContent = '(thread continues — but the chapter ended on an earlier frame)';
+              el.appendChild(empty);
+            }
+          } catch (err) {
+            console.warn('thread paginate failed', err);
+            const errEl = document.createElement('div');
+            errEl.className = 'bookFrameSourcePending';
+            errEl.style.color = '#b91c1c';
+            errEl.textContent = `(pagination error: ${err.message || 'unknown'})`;
+            el.appendChild(errEl);
+          }
         }
       }
     }
