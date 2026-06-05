@@ -2050,24 +2050,38 @@
     .bookStarterCardDesc  { font-size: .76rem; color: var(--ink); margin-top: 8px; line-height: 1.35; }
 
     /* Phase J3: in / out ports for threaded text frames. The ports
-       are small square handles at the corners of every text-frame
-       layer; clicking out → in links the frames so chapter text
-       flows from one to the next. Colour signals state:
+       sit OUTSIDE the layer's bounding box on the top and bottom
+       edges (centered) so they don't collide with the 8 corner /
+       edge / rotation resize handles or the per-target controls
+       layered on the frame. Click out → click another in to thread.
+       Colour signals state:
          empty  (slate)  → unlinked
          linked (green)  → part of a thread
          overset (red)   → end of thread with overflow text */
     .bookFramePort {
       position: absolute;
-      width: 12px; height: 12px;
+      width: 14px; height: 14px;
       background: #fff;
       border: 1.5px solid #475569;
       box-sizing: border-box;
       cursor: crosshair;
-      z-index: 50;
+      z-index: 60;
       pointer-events: auto;
+      left: 50%;
+      transform: translateX(-50%);
     }
-    .bookFramePort.in  { top: -7px;    left: -7px;   border-radius: 0; }
-    .bookFramePort.out { bottom: -7px; right: -7px;  border-radius: 0; }
+    .bookFramePort.in  { top: -22px;    border-radius: 0 0 7px 7px; }
+    .bookFramePort.out { bottom: -22px; border-radius: 7px 7px 0 0; }
+    .bookFramePort::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      width: 0; height: 8px;
+      border-left: 1.5px dashed #475569;
+      transform: translateX(-50%);
+    }
+    .bookFramePort.in::before  { top: 100%; }
+    .bookFramePort.out::before { bottom: 100%; }
     .bookFramePort.linked  { background: #16a34a; border-color: #15803d; }
     .bookFramePort.overset { background: #dc2626; border-color: #991b1b; }
     .bookFramePort:hover { box-shadow: 0 0 0 2px rgba(96,165,250,.6); }
@@ -2103,13 +2117,14 @@
       outline-color: rgba(59,130,246,.85);
     }
     .bookFrameIdBadge {
-      position: absolute; bottom: 4px; left: 4px;
-      font-size: .58rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      color: rgba(71,85,105,.65);
-      background: rgba(255,255,255,.7);
-      padding: 1px 4px; border-radius: 2px;
+      position: absolute; top: -16px; right: -2px;
+      font-size: .56rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: rgba(71,85,105,.55);
+      background: rgba(255,255,255,.85);
+      padding: 0 4px; border-radius: 2px;
       pointer-events: none;
       user-select: none;
+      z-index: 7;
     }
 
     /* J5: source-chapter chip on threaded text frames. Shows which
@@ -23076,6 +23091,11 @@
       const linkedIn = !!incoming;
       const isLoadingSource = _bookPortLoading?.layerId === layer.id;
 
+      // J3.b fix: stop pointerdown on the port from bubbling to the
+      // freeLayer's startLayerDrag handler — otherwise the drag
+      // starts and the click never fires.
+      const stopPointerDown = (ev) => { ev.stopPropagation(); };
+
       const inPort = document.createElement('div');
       inPort.className = 'bookFramePort in' + (linkedIn ? ' linked' : '');
       inPort.title = linkedIn
@@ -23085,6 +23105,8 @@
             : 'In port — empty. Click an "out" port elsewhere first to load a thread, then click this.');
       inPort.dataset.framePort = 'in';
       inPort.dataset.frameId = myFrameId;
+      inPort.addEventListener('pointerdown', stopPointerDown);
+      inPort.addEventListener('mousedown', stopPointerDown);
       inPort.addEventListener('click', (ev) => _bookPortOnClick(layer, 'in', ev));
       if (linkedIn || linkedOut) {
         inPort.addEventListener('mouseenter', () => _bookHighlightThread(layer));
@@ -23103,6 +23125,8 @@
             : 'Out port — text ends here. Click to load and then click another frame\'s in port to link.');
       outPort.dataset.framePort = 'out';
       outPort.dataset.frameId = myFrameId;
+      outPort.addEventListener('pointerdown', stopPointerDown);
+      outPort.addEventListener('mousedown', stopPointerDown);
       outPort.addEventListener('click', (ev) => _bookPortOnClick(layer, 'out', ev));
       if (linkedIn || linkedOut) {
         outPort.addEventListener('mouseenter', () => _bookHighlightThread(layer));
@@ -23140,6 +23164,11 @@
           lab.textContent = `📄 ${title}${positionTag}`;
           lab.title = `Chapter placed on this thread's head frame. ${chain.length > 1 ? `This is frame ${myIndex + 1} of ${chain.length} in the chain.` : 'Solo frame — link more frames with the out port to extend the thread.'}`;
           chip.appendChild(lab);
+          // J3.b fix: same pointerdown shield as ports — the chip
+          // sits on top of the freeLayer, so its events would
+          // otherwise start a drag.
+          chip.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+          chip.addEventListener('mousedown',   (ev) => ev.stopPropagation());
           // Only the head shows the clear (X) — clearing on a
           // mid-chain frame would be ambiguous.
           if (layer === head) {
@@ -23147,6 +23176,8 @@
             clearBtn.className = 'bookFrameSourceClear';
             clearBtn.textContent = '×';
             clearBtn.title = 'Unplace this chapter from the thread.';
+            clearBtn.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+            clearBtn.addEventListener('mousedown',   (ev) => ev.stopPropagation());
             clearBtn.addEventListener('click', (ev) => {
               ev.preventDefault();
               ev.stopPropagation();
