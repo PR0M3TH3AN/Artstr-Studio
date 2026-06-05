@@ -10189,6 +10189,10 @@
               },
               layers: composed,
             }, { compact: true });
+            // J4.c.1: paint threaded chapter text into any text-frame
+            // layers on this page that hold a placed chapter. Each
+            // frame gets its slice from the chain pagination.
+            _paintThreadedFramesOnThumb(thumb, pageLayers, book, trimW, trimH);
           } catch (err) {
             console.warn('book page thumb render failed', err);
           }
@@ -22834,6 +22838,69 @@
         totalTokens: tokenCount,
         hasMoreText: tokenCount >= 0 && cursor < tokenCount,
       };
+    }
+
+    // J4.c.1 — after a designed-page thumbnail is painted, overlay
+    // threaded chapter text into any text-frame layers that hold a
+    // placed chapter. The thumb's canvas div is the first child of
+    // `thumb` (per renderCustomArtPreviewDOM); we position absolute
+    // overlays inside it at each frame's coordinates.
+    //
+    // Note on geometry: the thumb canvas is sized at trim-only (no
+    // bleed). Layer coords are sheet-relative (include bleed). So we
+    // translate by subtracting `bleed` from x/y when computing the
+    // frame's percentage position. This matches what
+    // renderCustomArtPreviewDOM does for other layers — see how the
+    // current page-tile painter just hands its layers to the preview
+    // helper, which uses (layer.x / wIn) * 100% with wIn = trimW;
+    // the bleed offset is visible but consistent across all layers.
+    function _paintThreadedFramesOnThumb(thumb, pageLayers, book, trimW, trimH) {
+      if (!thumb || !book) return;
+      const canvas = thumb.firstChild;
+      if (!canvas) return;
+      const bleed = Number(book.spec?.bleed) || 0;
+      // The thumb canvas spans (0..trimW, 0..trimH) in inches.
+      // Sheet-coord origin is at (-bleed, -bleed) in that space.
+      for (const layer of pageLayers) {
+        if (layer.type !== 'shape' || layer.shape?.kind !== 'text-frame') continue;
+        const chain = _bookCollectThreadChain(layer);
+        const head = chain[0];
+        if (!head?.sourceChapter) continue;
+        const myIndex = chain.indexOf(layer);
+        let paginated;
+        try {
+          paginated = _paginateChapterIntoThread(head, book);
+        } catch (err) {
+          console.warn('thumb thread paginate failed', err);
+          continue;
+        }
+        const page = paginated.pages[myIndex];
+        if (!page || !page.blocks?.length) continue;
+        // Place an overlay sized to this frame's bounding box,
+        // expressed as a percentage of the trim-only thumb canvas.
+        const fx = (Number(layer.x) || 0) - bleed;
+        const fy = (Number(layer.y) || 0) - bleed;
+        const fw = Number(layer.w) || 0;
+        const fh = Number(layer.h) || 0;
+        if (fw <= 0 || fh <= 0) continue;
+        const overlay = document.createElement('div');
+        overlay.style.cssText = [
+          'position:absolute',
+          `left:${(fx / trimW) * 100}%`,
+          `top:${(fy / trimH) * 100}%`,
+          `width:${(fw / trimW) * 100}%`,
+          `height:${(fh / trimH) * 100}%`,
+          'pointer-events:none',
+          'overflow:hidden',
+          'z-index:6',
+        ].join(';');
+        canvas.appendChild(overlay);
+        const padding = Number(layer.shape?.padding) || 0;
+        // _paintFrameBlocks expects to write into an element sized
+        // to the FRAME's inches (it computes padPct from the frame
+        // dimensions). overlay is sized to the frame, so it fits.
+        _paintFrameBlocks(overlay, page, fw, fh, padding);
+      }
     }
 
     // J4 — paint one paginated page's blocks directly into a
