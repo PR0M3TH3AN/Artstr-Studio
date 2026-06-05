@@ -1853,6 +1853,19 @@
     }
     body.template-book.editing-book-page #bookPageEditBar,
     body.template-book.editing-book-cover #bookPageEditBar { display: flex; }
+    /* Push the sheet down so the floating page-edit bar doesn't
+       overlap its top edge. Reverts during print + canvas export
+       so the printed output isn't shifted. */
+    body.template-book.editing-book-page  .previewShell,
+    body.template-book.editing-book-cover .previewShell { padding-top: 60px; }
+    @media print {
+      body.template-book.editing-book-page  .previewShell,
+      body.template-book.editing-book-cover .previewShell { padding-top: 24px; }
+      #bookPageEditBar { display: none !important; }
+    }
+    body.exporting #bookPageEditBar { display: none !important; }
+    body.exporting.template-book.editing-book-page  .previewShell,
+    body.exporting.template-book.editing-book-cover .previewShell { padding-top: 24px; }
     #bookPageEditBack {
       border: 0; background: var(--accent); color: #fff;
       cursor: pointer; border-radius: 999px;
