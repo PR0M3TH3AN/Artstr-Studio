@@ -2111,6 +2111,48 @@
       pointer-events: none;
       user-select: none;
     }
+
+    /* J5: source-chapter chip on threaded text frames. Shows which
+       chapter is placed into this thread + where this frame sits in
+       the chain. The X clears the source. Real text rendering lands
+       in J4 (separate commit); this is the placeholder UX. */
+    .bookFrameSourceChip {
+      position: absolute;
+      top: 6px; left: 6px; right: 6px;
+      padding: 4px 6px;
+      background: rgba(96,165,250,.16);
+      border: 1px dashed rgba(59,130,246,.5);
+      border-radius: 4px;
+      font-size: .68rem; color: #1e3a8a;
+      font-family: inherit;
+      display: flex; align-items: center; gap: 6px;
+      pointer-events: auto;
+      z-index: 8;
+    }
+    body.dark .bookFrameSourceChip {
+      background: rgba(96,165,250,.25);
+      color: #bfdbfe;
+    }
+    .bookFrameSourceChip .bookFrameSourceLabel {
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .bookFrameSourceChip .bookFrameSourceClear {
+      cursor: pointer; padding: 0 4px;
+      font-weight: 700;
+      color: rgba(30,58,138,.6);
+    }
+    .bookFrameSourceChip .bookFrameSourceClear:hover { color: #b91c1c; }
+    .bookFrameSourcePending {
+      position: absolute;
+      inset: 36px 8px 8px 8px;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center;
+      font-size: .72rem; font-style: italic;
+      color: rgba(30,58,138,.55);
+      pointer-events: none;
+      user-select: none;
+    }
     .bookPageTile {
       position: relative;
       border: 1px solid var(--line); background: #fff;
@@ -13160,6 +13202,31 @@
         editBtn.addEventListener('click', () => openBookChapter(entry.id));
         actions.appendChild(editBtn);
 
+        // J5: place chapter into the currently-selected text frame.
+        // The button is enabled only when (a) a text-frame layer is
+        // selected and (b) it's not already mid-thread (place only on
+        // the head of a chain — non-head frames inherit via the
+        // thread walk).
+        const placeBtn = document.createElement('button');
+        placeBtn.type = 'button';
+        const selFrame = _getSelectedBookTextFrame();
+        const selIsHead = selFrame && !_findBookFrameLayer(o => o !== selFrame && o.nextFrame?.frameId === selFrame.frameId);
+        placeBtn.textContent = '📥 Place in selected frame';
+        if (!selFrame) {
+          placeBtn.disabled = true;
+          placeBtn.title = 'Select a text-frame layer on the canvas first, then click here to assign this chapter to its thread.';
+        } else if (!selIsHead) {
+          placeBtn.disabled = true;
+          placeBtn.title = 'The selected frame is mid-thread. Place a chapter on the head (the frame with no incoming link) to flow through the whole chain.';
+        } else if (selFrame.sourceChapter === entry.id) {
+          placeBtn.disabled = true;
+          placeBtn.title = 'This chapter is already placed on the selected frame.';
+        } else {
+          placeBtn.title = 'Assign this chapter as the text source for the selected frame\'s thread. Real text flow lands in J4; for now the frame shows a placeholder chip.';
+        }
+        placeBtn.addEventListener('click', () => _placeChapterIntoSelectedFrame(entry.id));
+        actions.appendChild(placeBtn);
+
         // Pin / live toggle — only meaningful when there's a Nostr ref.
         if (entry.textRef) {
           const pinBtn = document.createElement('button');
@@ -22676,6 +22743,37 @@
       layer.nextFrame = null;
       render();
     }
+    // J5 — return the user's currently selected layer if it's a
+    // text-frame in book mode, else null. Used by the Chapters tab
+    // 'Place into selected frame' affordance.
+    function _getSelectedBookTextFrame() {
+      if (state.templateMode !== 'book') return null;
+      const id = state.selectedLayerId;
+      if (!id) return null;
+      const l = (state.layers || []).find(x => x.id === id);
+      if (!l || l.type !== 'shape' || l.shape?.kind !== 'text-frame') return null;
+      return l;
+    }
+    // J5 — assign a chapter (book.pages reflow entry) as the source
+    // for the head text-frame's thread. Only meaningful on a head
+    // frame (no incoming link); mid-thread frames inherit from the
+    // head via the thread walk.
+    function _placeChapterIntoSelectedFrame(chapterEntryId) {
+      const frame = _getSelectedBookTextFrame();
+      if (!frame) { toastError?.('Select a text-frame layer on the canvas first.'); return; }
+      // Refuse if the selected frame is mid-thread.
+      const incoming = _findBookFrameLayer(o => o !== frame && o.nextFrame?.frameId === frame.frameId);
+      if (incoming) {
+        toastError?.('Selected frame is mid-thread. Place the chapter on the head frame (no incoming link).');
+        return;
+      }
+      pushHistory('book: place chapter into frame');
+      frame.sourceChapter = chapterEntryId;
+      toastSuccess?.('Chapter placed. Real text flow lands in J4 — for now the frame shows a placeholder.');
+      renderBookChaptersList();
+      render();
+    }
+
     // J3.c — walk forward + backward along nextFrame refs from
     // `layer` and tag every chain member's freeLayer wrapper. The
     // head of the thread (first frame, no incoming link) gets a
@@ -22803,6 +22901,61 @@
       badge.className = 'bookFrameIdBadge';
       badge.textContent = '⌗ ' + String(myFrameId).slice(0, 6);
       el.appendChild(badge);
+
+      // J5: source-chapter chip. Walks back to the head of the
+      // thread; if the head has a sourceChapter, paint a chip with
+      // the chapter title + this frame's position in the chain.
+      // Real text flow lands in J4 — the body of this frame shows
+      // an italic placeholder until then.
+      const chain = (linkedIn || linkedOut)
+        ? _bookCollectThreadChain(layer)
+        : [layer];
+      const head = chain[0];
+      const myIndex = chain.indexOf(layer);
+      if (head?.sourceChapter) {
+        const book = state.book;
+        const entry = (book?.pages || []).find(p => p.id === head.sourceChapter);
+        if (entry) {
+          const chip = document.createElement('div');
+          chip.className = 'bookFrameSourceChip';
+          const title = entry.chapterTitle || entry.label || 'Untitled chapter';
+          const positionTag = chain.length > 1
+            ? ` · frame ${myIndex + 1} / ${chain.length}`
+            : '';
+          const lab = document.createElement('span');
+          lab.className = 'bookFrameSourceLabel';
+          lab.textContent = `📄 ${title}${positionTag}`;
+          lab.title = `Chapter placed on this thread's head frame. ${chain.length > 1 ? `This is frame ${myIndex + 1} of ${chain.length} in the chain.` : 'Solo frame — link more frames with the out port to extend the thread.'}`;
+          chip.appendChild(lab);
+          // Only the head shows the clear (X) — clearing on a
+          // mid-chain frame would be ambiguous.
+          if (layer === head) {
+            const clearBtn = document.createElement('span');
+            clearBtn.className = 'bookFrameSourceClear';
+            clearBtn.textContent = '×';
+            clearBtn.title = 'Unplace this chapter from the thread.';
+            clearBtn.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              pushHistory('book: unplace chapter from frame');
+              head.sourceChapter = null;
+              render();
+              renderBookChaptersList();
+            });
+            chip.appendChild(clearBtn);
+          }
+          el.appendChild(chip);
+
+          // Placeholder body — real pagination + line layout into
+          // this frame's bounding box lands in J4.
+          const pending = document.createElement('div');
+          pending.className = 'bookFrameSourcePending';
+          pending.textContent = chain.length > 1
+            ? `(text flows through frames ${myIndex + 1} / ${chain.length} — J4 pours it)`
+            : '(text will flow here — J4 pours it)';
+          el.appendChild(pending);
+        }
+      }
     }
 
     function renderLayers() {
