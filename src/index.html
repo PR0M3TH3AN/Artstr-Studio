@@ -1946,6 +1946,58 @@
       color: var(--muted); font-size: .85rem;
       border: 1px dashed var(--line); border-radius: 6px;
     }
+
+    /* Manifest Links panel — book's "Links panel". Shows every
+       external event referenced (cover / master / page / chapter).
+       Each row has an icon, label, coord (truncated), status pill,
+       and action buttons (refresh + copy naddr). */
+    .bookManifestLinksList {
+      display: flex; flex-direction: column; gap: 6px;
+      max-height: 320px; overflow-y: auto;
+      padding: 4px; margin-top: 6px;
+      border: 1px solid var(--line); border-radius: 4px;
+    }
+    .bookManifestLinkRow {
+      display: grid;
+      grid-template-columns: auto 1fr auto auto;
+      gap: 8px; align-items: center;
+      padding: 6px 8px;
+      border-radius: 4px;
+      background: rgba(0,0,0,.02);
+      font-size: .78rem;
+    }
+    body.dark .bookManifestLinkRow { background: rgba(255,255,255,.04); }
+    .bookManifestLinkRow .icon { font-size: 1rem; opacity: .85; }
+    .bookManifestLinkRow .meta { min-width: 0; }
+    .bookManifestLinkRow .title {
+      font-weight: 600; font-size: .82rem;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .bookManifestLinkRow .coord {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: .68rem; color: var(--muted);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .bookManifestLinkRow .status {
+      font-size: .62rem; font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 3px;
+      white-space: nowrap;
+    }
+    .bookManifestLinkRow .status.resolved   { background: rgba(34,197,94,.18);  color: #15803d; }
+    .bookManifestLinkRow .status.pending    { background: rgba(245,158,11,.18); color: #92400e; }
+    .bookManifestLinkRow .status.unresolved { background: rgba(220,38,38,.18);  color: #991b1b; }
+    .bookManifestLinkRow .status.private    { background: rgba(99,102,241,.18); color: #4338ca; }
+    .bookManifestLinkRow .status.local      { background: rgba(148,163,184,.18); color: #475569; }
+    .bookManifestLinkRow .status.unpub      { background: rgba(148,163,184,.18); color: #475569; }
+    .bookManifestLinkRow .actions { display: flex; gap: 4px; }
+    .bookManifestLinkRow .actions button {
+      font-size: .72rem; padding: 2px 8px;
+    }
+    .bookManifestLinkEmpty {
+      padding: 14px; text-align: center;
+      color: var(--muted); font-size: .8rem;
+    }
     .bookVisibilityChip {
       font-size: .76rem; padding: 2px 10px;
       border: 1px solid var(--line); background: #fff;
@@ -5902,6 +5954,15 @@
         </div>
       </fieldset>
 
+      <details id="bookSettingsManifestLinksDetails" style="margin-top:14px" open>
+        <summary style="cursor:pointer;font-size:.85rem;font-weight:600">Manifest links <span id="bookSettingsManifestLinksSummary" style="font-weight:400;color:var(--muted);font-size:.78rem;margin-left:4px"></span></summary>
+        <p class="hint" style="margin:6px 0 8px">Every external event this book references — cover spread, masters, designed pages, chapter articles. Like InDesign's Links panel.</p>
+        <div id="bookSettingsManifestLinksList" class="bookManifestLinksList"></div>
+        <div class="buttonRow" style="margin-top:8px;justify-content:flex-end;gap:8px">
+          <button type="button" id="bookSettingsManifestRefreshBtn" title="Re-fetch every referenced sidecar (same as the sidebar's ↻ Refresh from Nostr)">↻ Refresh all</button>
+        </div>
+      </details>
+
       <details id="bookSettingsTypographyDetails" style="margin-top:14px">
         <summary style="cursor:pointer;font-size:.85rem;font-weight:600">Typography (chapter text styles)</summary>
         <p class="hint" style="margin:6px 0 8px">Overrides the v1 markdown stylesheet for reflow chapters. Empty fields fall back to defaults.</p>
@@ -9147,6 +9208,168 @@
 
     // Open the Document settings modal. Fills inputs from the live
     // state.book.spec; "Apply" copies values back. Cancel discards.
+    // Document settings → Manifest links panel. Lists every external
+    // event the book references — cover spread, masters, designed
+    // pages, chapter articles. Status pill reflects what we know
+    // about each ref: resolved (data in state), local-only (draft
+    // chapter not yet published), private (encrypted ref), or
+    // unresolved (ref set but no data fetched yet).
+    function renderBookManifestLinks() {
+      const list = document.getElementById('bookSettingsManifestLinksList');
+      const summary = document.getElementById('bookSettingsManifestLinksSummary');
+      if (!list) return;
+      const book = state.book ? ensureBookState() : null;
+      list.innerHTML = '';
+      if (!book) return;
+      const rows = [];
+      const pushRow = (icon, title, ref, status, statusClass, getResolvedFn) => {
+        rows.push({ icon, title, ref, status, statusClass, getResolved: getResolvedFn });
+      };
+      // Cover.
+      if (book.cover?.ref) {
+        const ref = book.cover.ref;
+        const resolved = (state.layers || []).some(l => /^book-cover-|^book-spine$/.test(String(l.target || '')));
+        const isPrivate = !!ref.encrypted;
+        pushRow('🏷', 'Cover spread', ref,
+          isPrivate ? '🔒 private' : (resolved ? 'resolved' : 'unresolved'),
+          isPrivate ? 'private' : (resolved ? 'resolved' : 'unresolved'));
+      } else if ((state.layers || []).some(l => /^book-cover-|^book-spine$/.test(String(l.target || '')))) {
+        pushRow('🏷', 'Cover spread', null, 'unpublished', 'unpub');
+      }
+      // Masters.
+      for (const m of (book.masters || [])) {
+        const label = `Master · ${m.label || 'Untitled'}`;
+        if (m.ref) {
+          const isPrivate = !!m.ref.encrypted;
+          const resolved = (state.layers || []).some(l => l.target === `book-master:${m.id}`);
+          pushRow('🎨', label, m.ref,
+            isPrivate ? '🔒 private' : (resolved ? 'resolved' : 'unresolved'),
+            isPrivate ? 'private' : (resolved ? 'resolved' : 'unresolved'));
+        } else {
+          pushRow('🎨', label, null, 'unpublished', 'unpub');
+        }
+      }
+      // Pages + chapters.
+      const designedPages = (book.pages || []).filter(p => p.type === 'design');
+      designedPages.forEach((p, idx) => {
+        const label = `Page ${idx + 1}${p.label ? ' — ' + p.label : ''}`;
+        if (p.ref) {
+          const isPrivate = !!p.ref.encrypted;
+          const resolved = (state.layers || []).some(l => l.target === `book-page:${p.id}`);
+          pushRow('📐', label, p.ref,
+            isPrivate ? '🔒 private' : (resolved ? 'resolved' : 'unresolved'),
+            isPrivate ? 'private' : (resolved ? 'resolved' : 'unresolved'));
+        } else {
+          // Only flag as unpublished if any layers exist on the page;
+          // a brand-new blank page with no content isn't "unpublished",
+          // it's just empty.
+          const hasLayers = (state.layers || []).some(l => l.target === `book-page:${p.id}`);
+          if (hasLayers) pushRow('📐', label, null, 'unpublished', 'unpub');
+        }
+      });
+      for (const p of (book.pages || [])) {
+        if (p.type !== 'reflow') continue;
+        const label = `Chapter · ${p.chapterTitle || p.label || 'Untitled'}`;
+        if (p.textRef) {
+          const isPrivate = !!p.textRef.encrypted;
+          const resolved = !!String(p.chapterMarkdown || '').trim();
+          pushRow('📄', label, p.textRef,
+            isPrivate ? '🔒 private' : (resolved ? 'resolved' : 'unresolved'),
+            isPrivate ? 'private' : (resolved ? 'resolved' : 'unresolved'));
+        } else {
+          const hasContent = !!String(p.chapterMarkdown || '').trim();
+          pushRow('📄', label, null, hasContent ? 'local draft' : 'empty', 'local');
+        }
+      }
+      // Manifest itself, if known.
+      if (book.manifestRef) {
+        const ref = book.manifestRef;
+        pushRow('📚', 'Manifest (this book)', ref, ref.encrypted ? '🔒 private' : 'resolved', ref.encrypted ? 'private' : 'resolved');
+      }
+
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'bookManifestLinkEmpty';
+        empty.textContent = 'No external links yet. Publish the cover / pages / masters / chapters and the manifest to mint Nostr events for each.';
+        list.appendChild(empty);
+        if (summary) summary.textContent = '0 links';
+        return;
+      }
+
+      const resolvedCount = rows.filter(r => r.statusClass === 'resolved' || r.statusClass === 'private').length;
+      if (summary) summary.textContent = `${rows.length} link${rows.length === 1 ? '' : 's'} · ${resolvedCount} resolved`;
+
+      const truncate = (s, n) => (s && s.length > n) ? (s.slice(0, n) + '…') : (s || '');
+      for (const row of rows) {
+        const r = document.createElement('div');
+        r.className = 'bookManifestLinkRow';
+        const icon = document.createElement('div');
+        icon.className = 'icon';
+        icon.textContent = row.icon;
+        r.appendChild(icon);
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const title = document.createElement('div');
+        title.className = 'title';
+        title.textContent = row.title;
+        meta.appendChild(title);
+        const coord = document.createElement('div');
+        coord.className = 'coord';
+        if (row.ref) {
+          coord.textContent = `${row.ref.kind || 30078}:${truncate(row.ref.pubkey, 8)}…:${row.ref.dTag || '(no d)'}`;
+        } else {
+          coord.textContent = '(not yet published)';
+        }
+        meta.appendChild(coord);
+        r.appendChild(meta);
+        const status = document.createElement('span');
+        status.className = `status ${row.statusClass}`;
+        status.textContent = row.status;
+        r.appendChild(status);
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        if (row.ref) {
+          const copyBtn = document.createElement('button');
+          copyBtn.type = 'button';
+          copyBtn.textContent = '📋';
+          copyBtn.title = 'Copy naddr to clipboard';
+          copyBtn.addEventListener('click', async () => {
+            try {
+              const naddr = encodeNaddr({
+                kind: row.ref.kind || 30078,
+                pubkey: row.ref.pubkey,
+                dTag: row.ref.dTag,
+                relays: row.ref.relays || [],
+              });
+              await navigator.clipboard.writeText(naddr);
+              toastSuccess?.('naddr copied.');
+            } catch (err) {
+              toastError?.('Couldn\'t encode naddr.');
+            }
+          });
+          actions.appendChild(copyBtn);
+          const refreshBtn = document.createElement('button');
+          refreshBtn.type = 'button';
+          refreshBtn.textContent = '↻';
+          refreshBtn.title = 'Force re-fetch this sidecar from your relays';
+          refreshBtn.addEventListener('click', async () => {
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = '…';
+            try {
+              await resolveBookSidecars(state.book, { force: true });
+              renderBookManifestLinks();
+            } finally {
+              refreshBtn.disabled = false;
+              refreshBtn.textContent = '↻';
+            }
+          });
+          actions.appendChild(refreshBtn);
+        }
+        r.appendChild(actions);
+        list.appendChild(r);
+      }
+    }
+
     function openBookDocumentSettings() {
       const book = ensureBookState();
       const spec = book.spec;
@@ -9176,6 +9399,7 @@
       _syncBookSettingsSpineNote();
       _syncBookSettingsPresetLock();
       renderBookTypographyEditor(spec.textStyles);
+      renderBookManifestLinks();
       modal.style.display = 'flex';
       modal.setAttribute('aria-hidden', 'false');
       if (typeof bringModalToFront === 'function') bringModalToFront(modal);
@@ -39274,6 +39498,23 @@
       _checkDocsHash();
 
       on('bookDocumentSettingsBtn', 'click', openBookDocumentSettings);
+      on('bookSettingsManifestRefreshBtn', 'click', async () => {
+        const btn = document.getElementById('bookSettingsManifestRefreshBtn');
+        if (!btn) return;
+        btn.disabled = true;
+        const orig = btn.textContent;
+        btn.textContent = 'Refreshing…';
+        try {
+          await resolveBookSidecars(state.book, { force: true });
+          renderBookManifestLinks();
+          toastSuccess?.('Manifest links refreshed.');
+        } catch (err) {
+          toastError?.('Refresh failed: ' + (err?.message || 'unknown'));
+        } finally {
+          btn.disabled = false;
+          btn.textContent = orig;
+        }
+      });
       on('bookImportManifestNostrBtn', 'click', importBookManifestFromNostr);
       on('bookImportManifestJsonBtn', 'click', () => {
         const input = document.getElementById('bookImportManifestJsonFile');
