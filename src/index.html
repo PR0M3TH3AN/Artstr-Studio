@@ -23675,10 +23675,40 @@
       const isHead = layer === head;
       const status = document.getElementById('bookTextFrameStatus');
       if (status) {
+        // Diagnostic detail: chain summary so we can spot when the
+        // walk doesn't find a downstream frame (e.g., frame across
+        // pages that wasn't resolved or has a stale ref).
+        let detail = '';
+        if (head?.sourceChapter) {
+          try {
+            const entry = (book.pages || []).find(p => p.id === head.sourceChapter);
+            if (entry) {
+              const paragraphs = _flattenChapterToParagraphs(entry.chapterMarkdown || '');
+              const typo = _getFrameTypography(head);
+              const pag = _paginateParagraphsIntoFrames(paragraphs, chain, typo);
+              const lineCounts = pag.perFrame.map(pf => pf.lines.length).join(' · ');
+              const myCount = pag.perFrame[myIndex]?.lines.length || 0;
+              detail = ` · ${myCount} lines here; chain: [${lineCounts}]`;
+              if (pag.hasMoreText) detail += ` · overset (${pag.totalLinesPlaced} of ${pag.totalLinesNeeded} fit)`;
+            }
+          } catch {}
+        }
         if (chain.length > 1) {
-          status.textContent = `Frame ${myIndex + 1} of ${chain.length} in this thread.${isHead ? ' (Head — chapter source goes here.)' : ''}`;
+          status.textContent = `Frame ${myIndex + 1} of ${chain.length} in this thread.${isHead ? ' (Head — chapter source goes here.)' : ''}${detail}`;
         } else {
-          status.textContent = 'Solo frame — link in or out to extend into a thread.';
+          status.textContent = `Solo frame — link in or out to extend into a thread.${detail}`;
+        }
+        // Warn the user (and the console) when the chain walk drops
+        // a downstream frame. Most common cause: a stale nextFrame
+        // ref pointing at a frameId that no longer exists (page or
+        // frame was deleted).
+        const expectedNext = layer.nextFrame?.frameId;
+        if (expectedNext && !chain.includes(layer.nextFrame ? _findBookFrameLayer(o => o.frameId === expectedNext) : null)) {
+          const found = _findBookFrameLayer(o => o.frameId === expectedNext);
+          if (!found) {
+            console.warn('[book threading] nextFrame ref points at a missing frameId:', expectedNext, '— clearing the broken link from layer', layer.id);
+            status.textContent += ` ⚠ outgoing link is broken (target frame not found).`;
+          }
         }
       }
 
