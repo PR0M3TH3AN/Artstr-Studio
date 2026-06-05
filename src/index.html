@@ -5234,23 +5234,48 @@
             <p class="toolOptHint">Click the canvas to place a text box. With a text box selected, these controls restyle it.</p>
           </div>
 
-          <!-- Phase J3.b polish: per-text-frame inspector. Visible
-               whenever the primary selected layer is a text-frame in
-               book mode, regardless of active tool. Dropdowns expose
-               the threading + chapter assignment that the in/out
-               ports do through clicks — but discoverable. -->
+          <!-- Phase J3.b polish + J4.d typography: per-text-frame
+               inspector. Visible whenever the primary selected layer
+               is a text-frame in book mode, regardless of active
+               tool. Dropdowns expose the threading + chapter
+               assignment; typography controls apply to the thread's
+               head frame and propagate via the line paginator. -->
           <div id="bookTextFrameOptions" style="display:none">
             <h4>Text frame <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help">ⓘ</span></h4>
             <p class="toolOptHint" id="bookTextFrameStatus" style="margin:0 0 8px"></p>
+
             <label for="bookTextFrameChapter">Chapter source</label>
             <select id="bookTextFrameChapter"></select>
             <p class="toolOptHint" id="bookTextFrameChapterHint" style="margin:2px 0 8px;font-size:.68rem;color:var(--muted)"></p>
+
             <label for="bookTextFrameInLink">Incoming from</label>
             <select id="bookTextFrameInLink"></select>
             <label for="bookTextFrameOutLink" style="margin-top:6px">Outgoing to</label>
             <select id="bookTextFrameOutLink"></select>
+
+            <div id="bookTextFrameTypography" style="margin-top:12px;padding-top:8px;border-top:1px solid var(--line)">
+              <div class="toolOptHint" style="font-size:.72rem;font-weight:600;margin-bottom:6px">Typography</div>
+              <label for="bookTextFrameFont">Font</label>
+              <select id="bookTextFrameFont"></select>
+              <div class="toolOptRow" style="margin-top:4px">
+                <div><label for="bookTextFrameSize">Size (pt)</label><input type="number" id="bookTextFrameSize" min="4" max="96" step="0.5" value="11" /></div>
+                <div><label for="bookTextFrameColor">Color</label><input type="color" id="bookTextFrameColor" value="#111111" /></div>
+              </div>
+              <div class="toolOptRow" style="margin-top:4px">
+                <div><label for="bookTextFrameLineHeight">Line height</label><input type="number" id="bookTextFrameLineHeight" min="0.8" max="3" step="0.05" value="1.5" /></div>
+                <div><label for="bookTextFrameParaSpace">¶ gap (in)</label><input type="number" id="bookTextFrameParaSpace" min="0" max="2" step="0.025" value="0.1" /></div>
+              </div>
+              <label for="bookTextFrameAlign" style="margin-top:4px">Alignment</label>
+              <select id="bookTextFrameAlign">
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+              <p class="toolOptHint" id="bookTextFrameTypoHint" style="margin-top:6px;font-size:.68rem;color:var(--muted)"></p>
+            </div>
+
             <p class="toolOptHint" style="margin-top:8px;font-size:.7rem">
-              Tip: you can also drag-link by clicking the small tabs above and below the frame on the canvas.
+              Chapter markdown is stripped to plain paragraphs before flowing — apply formatting here, not in the chapter source.
               Cycles are refused automatically.
             </p>
           </div>
@@ -9848,6 +9873,17 @@
         // Phase J3: when threaded, points at the next frame in the
         // chain ({ pageId, frameId }) or null for end-of-thread.
         nextFrame: null,
+        // Phase J4.d: frame typography. Authors strip markdown
+        // formatting on import; styling applies here in the design
+        // phase. Defaults to a reasonable book body style.
+        typography: {
+          fontFamily: 'Georgia, serif',
+          fontSize: 11,
+          lineHeight: 1.5,
+          alignment: 'left',
+          color: '#111111',
+          paragraphSpacing: 0.1,
+        },
       });
     }
     // Legacy alias kept so existing callers (the master-edit toolbar
@@ -22827,6 +22863,166 @@
       layer.nextFrame = null;
       render();
     }
+    // J4.d — strip markdown formatting and collapse to a flat list
+    // of plain-text paragraphs. Headings, bold, italics, list bullets
+    // — all gone. The designer applies styling via the text-frame
+    // inspector instead. This matches the InDesign pattern: content
+    // (paragraphs) is independent of presentation (frame styles).
+    //
+    // Returns a string[] of paragraph texts. Blank paragraphs are
+    // preserved so the author's intentional vertical rhythm survives.
+    function _flattenChapterToParagraphs(md) {
+      const text = String(md || '');
+      // Lines first; group consecutive non-blank lines into paragraphs.
+      // Markdown markers stripped per-line, but we keep the line
+      // content; bullets become regular lines (no marker prefix).
+      const lines = text.split('\n');
+      const paragraphs = [];
+      let buf = [];
+      const flush = () => {
+        const merged = buf.join(' ').replace(/\s+/g, ' ').trim();
+        if (merged) paragraphs.push(merged);
+        buf = [];
+      };
+      for (const raw of lines) {
+        let line = raw;
+        // Blank line → paragraph break.
+        if (!line.trim()) { flush(); continue; }
+        // Strip leading ATX heading marks (# ## ###).
+        line = line.replace(/^\s{0,3}#{1,6}\s+/, '');
+        // Strip blockquote prefix.
+        line = line.replace(/^\s{0,3}>\s?/, '');
+        // Strip list markers (-, *, +, 1.).
+        line = line.replace(/^\s{0,3}([*+\-]|\d+\.)\s+/, '');
+        // Strip horizontal-rule lines.
+        if (/^\s{0,3}(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flush(); continue; }
+        // Strip fenced code-block fences but keep the inner text.
+        if (/^\s{0,3}```/.test(line)) continue;
+        // Strip inline markdown emphasis / code markers, link syntax.
+        line = line
+          .replace(/\*\*([^*]+)\*\*/g, '$1')
+          .replace(/\*([^*]+)\*/g,     '$1')
+          .replace(/__([^_]+)__/g,     '$1')
+          .replace(/_([^_]+)_/g,       '$1')
+          .replace(/`([^`]+)`/g,       '$1')
+          .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+          .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1');
+        buf.push(line.trim());
+      }
+      flush();
+      return paragraphs;
+    }
+
+    // J4.d — read frame typography from the layer, falling back to
+    // sane defaults. These fields are set by the text-frame inspector
+    // (or default-seeded when a new text frame is added). Independent
+    // of book.spec.textStyles — that styles legacy reflow entries.
+    function _getFrameTypography(layer) {
+      const t = layer?.typography || {};
+      return {
+        fontFamily: t.fontFamily || 'Georgia, serif',
+        fontSize:   Number(t.fontSize)   || 11,
+        lineHeight: Number(t.lineHeight) || 1.5,
+        alignment:  t.alignment  || 'left',
+        color:      t.color      || '#111111',
+        paragraphSpacing: Number(t.paragraphSpacing) || 0.1, // inches between paragraphs
+      };
+    }
+
+    // J4.d — line-by-line pagination through a thread of frames.
+    // Replaces the block-based paginateChapter path for threaded
+    // text frames. Each paragraph wraps to the current frame's
+    // width using the head frame's typography; when a frame fills,
+    // the NEXT line moves to the next frame in the chain. Paragraph
+    // breaks within a frame add `paragraphSpacing` inches of gap.
+    //
+    // Returns { perFrame: [{ lines: [...] }, ...], hasMoreText, ... }
+    function _paginateParagraphsIntoFrames(paragraphs, chain, typography) {
+      const perFrame = chain.map(() => ({ lines: [], paragraphBreaksAfter: new Set() }));
+      const ctx = document.createElement('canvas').getContext('2d');
+      ctx.font = `${typography.fontSize * 96 / 72}px ${typography.fontFamily}`;
+      const lineHIn = (typography.fontSize * 96 / 72 / 96) * typography.lineHeight;
+      const paragraphGapIn = Math.max(0, typography.paragraphSpacing);
+      let frameIdx = 0;
+      let yCursor = 0; // inches consumed in current frame
+      const advanceFrame = () => {
+        frameIdx++;
+        yCursor = 0;
+      };
+      for (let pi = 0; pi < paragraphs.length; pi++) {
+        if (frameIdx >= chain.length) break;
+        // Wrap paragraph into lines for the CURRENT frame's width.
+        const frame = chain[frameIdx];
+        const padding = Number(frame.shape?.padding) || 0;
+        const innerW = Math.max(0.1, (Number(frame.w) || 0) - 2 * padding);
+        const innerH = Math.max(0.1, (Number(frame.h) || 0) - 2 * padding);
+        const words = paragraphs[pi].split(/\s+/).filter(Boolean);
+        let line = '';
+        const linesForPara = [];
+        for (const w of words) {
+          const candidate = line ? line + ' ' + w : w;
+          if (ctx.measureText(candidate).width / 96 > innerW && line) {
+            linesForPara.push(line);
+            line = w;
+          } else {
+            line = candidate;
+          }
+        }
+        if (line) linesForPara.push(line);
+
+        // Place lines into frames, advancing as each frame fills.
+        for (let li = 0; li < linesForPara.length; li++) {
+          if (frameIdx >= chain.length) break;
+          let curFrame = chain[frameIdx];
+          let curInnerH = Math.max(0.1, (Number(curFrame.h) || 0) - 2 * (Number(curFrame.shape?.padding) || 0));
+          // Recompute line height for the current frame in case we
+          // moved across a boundary where typography changes (J4.d.2;
+          // today typography is uniform across the chain).
+          if (yCursor + lineHIn > curInnerH && perFrame[frameIdx].lines.length > 0) {
+            advanceFrame();
+            if (frameIdx >= chain.length) break;
+            // Re-wrap remaining lines if the new frame has a different
+            // width — for now we keep the same wrap (same typography),
+            // so the line just slots into the next frame.
+          }
+          if (frameIdx >= chain.length) break;
+          perFrame[frameIdx].lines.push(linesForPara[li]);
+          yCursor += lineHIn;
+        }
+        // Paragraph break after this paragraph — adds vertical
+        // spacing in the current frame.
+        if (pi < paragraphs.length - 1 && frameIdx < chain.length) {
+          perFrame[frameIdx].paragraphBreaksAfter.add(perFrame[frameIdx].lines.length - 1);
+          yCursor += paragraphGapIn;
+        }
+      }
+      const consumed = paragraphs.length;
+      // Compute whether any text didn't make it.
+      let totalLinesPlaced = 0;
+      for (const pf of perFrame) totalLinesPlaced += pf.lines.length;
+      // Re-wrap full text against head width for a hasMoreText probe.
+      const headFrame = chain[0];
+      const headInnerW = Math.max(0.1, (Number(headFrame?.w) || 0) - 2 * (Number(headFrame?.shape?.padding) || 0));
+      let totalLinesNeeded = 0;
+      for (const p of paragraphs) {
+        const words = p.split(/\s+/).filter(Boolean);
+        let l = '';
+        for (const w of words) {
+          const c = l ? l + ' ' + w : w;
+          if (ctx.measureText(c).width / 96 > headInnerW && l) { totalLinesNeeded++; l = w; }
+          else l = c;
+        }
+        if (l) totalLinesNeeded++;
+      }
+      return {
+        perFrame,
+        chain,
+        hasMoreText: totalLinesPlaced < totalLinesNeeded,
+        totalLinesNeeded,
+        totalLinesPlaced,
+      };
+    }
+
     // J4 — paginate a chapter's markdown into a thread's frame
     // sequence. Walks the chain frame-by-frame so each frame
     // contributes its own width to line-breaking and its own height
@@ -22907,17 +23103,19 @@
         const head = chain[0];
         if (!head?.sourceChapter) continue;
         const myIndex = chain.indexOf(layer);
+        const entry = (book.pages || []).find(p => p.id === head.sourceChapter);
+        if (!entry) continue;
+        const paragraphs = _flattenChapterToParagraphs(entry.chapterMarkdown || '');
+        const typography = _getFrameTypography(head);
         let paginated;
         try {
-          paginated = _paginateChapterIntoThread(head, book);
+          paginated = _paginateParagraphsIntoFrames(paragraphs, chain, typography);
         } catch (err) {
           console.warn('thumb thread paginate failed', err);
           continue;
         }
-        const page = paginated.pages[myIndex];
-        if (!page || !page.blocks?.length) continue;
-        // Place an overlay sized to this frame's bounding box,
-        // expressed as a percentage of the trim-only thumb canvas.
+        const slice = paginated.perFrame[myIndex];
+        if (!slice || !slice.lines.length) continue;
         const fx = (Number(layer.x) || 0) - bleed;
         const fy = (Number(layer.y) || 0) - bleed;
         const fw = Number(layer.w) || 0;
@@ -22936,11 +23134,47 @@
         ].join(';');
         canvas.appendChild(overlay);
         const padding = Number(layer.shape?.padding) || 0;
-        // _paintFrameBlocks expects to write into an element sized
-        // to the FRAME's inches (it computes padPct from the frame
-        // dimensions). overlay is sized to the frame, so it fits.
-        _paintFrameBlocks(overlay, page, fw, fh, padding);
+        _paintFrameLines(overlay, slice, fw, fh, padding, typography);
       }
+    }
+
+    // J4.d — paint a frame's slice of plain-text paragraph lines.
+    // Replaces _paintFrameBlocks for threaded text. Uses the frame's
+    // own typography (font, size, color, line-height, alignment) —
+    // no master-frame style cascade, no markdown header sizes.
+    function _paintFrameLines(el, frameSlice, frameWIn, frameHIn, paddingIn, typography) {
+      const padding = Number(paddingIn) || 0;
+      const padPctX = (padding / Math.max(frameWIn, 0.001)) * 100;
+      const padPctY = (padding / Math.max(frameHIn, 0.001)) * 100;
+      const overlay = document.createElement('div');
+      overlay.style.cssText = [
+        'position:absolute',
+        `left:${padPctX}%`,
+        `top:${padPctY}%`,
+        `width:${100 - 2 * padPctX}%`,
+        `height:${100 - 2 * padPctY}%`,
+        'pointer-events:none',
+        'overflow:hidden',
+        'z-index:6',
+        `font-family:${typography.fontFamily}`,
+        `font-size:${typography.fontSize}pt`,
+        `line-height:${typography.lineHeight}`,
+        `color:${typography.color}`,
+        `text-align:${typography.alignment}`,
+        'white-space:pre',
+      ].join(';');
+      const lines = frameSlice?.lines || [];
+      const breaksAfter = frameSlice?.paragraphBreaksAfter || new Set();
+      const paragraphGapPx = (typography.paragraphSpacing || 0.1) * 96;
+      for (let i = 0; i < lines.length; i++) {
+        const div = document.createElement('div');
+        div.textContent = lines[i];
+        if (breaksAfter.has(i)) {
+          div.style.marginBottom = `${paragraphGapPx}px`;
+        }
+        overlay.appendChild(div);
+      }
+      el.appendChild(overlay);
     }
 
     // J4 — paint one paginated page's blocks directly into a
@@ -23178,6 +23412,58 @@
           render();
         };
       }
+
+      // J4.d — typography controls. They edit the HEAD frame's
+      // typography (the whole thread inherits via _getFrameTypography
+      // in the paginator). On a mid-thread frame we still surface
+      // the head's values but disable editing — keeps state singular
+      // per thread.
+      const typo = _getFrameTypography(head);
+      const fontSel = document.getElementById('bookTextFrameFont');
+      if (fontSel && !fontSel.dataset.populated) {
+        // Reuse the existing font list the text tool uses.
+        const list = typeof fontFamilies === 'object' && Array.isArray(fontFamilies)
+          ? fontFamilies
+          : ['Georgia, serif', 'Helvetica, Arial, sans-serif', 'Times New Roman, serif', 'Courier New, monospace', 'Verdana, sans-serif', 'Tahoma, sans-serif'];
+        fontSel.innerHTML = '';
+        for (const f of list) {
+          const opt = document.createElement('option');
+          opt.value = f;
+          opt.textContent = (typeof f === 'string') ? f.split(',')[0] : (f.label || f.value || String(f));
+          if (typeof f === 'object' && f.value) opt.value = f.value;
+          if (typeof f === 'object' && f.label) opt.textContent = f.label;
+          fontSel.appendChild(opt);
+        }
+        fontSel.dataset.populated = '1';
+      }
+      const sizeIn = document.getElementById('bookTextFrameSize');
+      const colorIn = document.getElementById('bookTextFrameColor');
+      const lhIn = document.getElementById('bookTextFrameLineHeight');
+      const paraIn = document.getElementById('bookTextFrameParaSpace');
+      const alignSel = document.getElementById('bookTextFrameAlign');
+      const typoHint = document.getElementById('bookTextFrameTypoHint');
+      const editable = isHead;
+      if (fontSel)  { fontSel.value  = typo.fontFamily; fontSel.disabled = !editable; }
+      if (sizeIn)   { sizeIn.value   = typo.fontSize;   sizeIn.disabled  = !editable; }
+      if (colorIn)  { colorIn.value  = typo.color;      colorIn.disabled = !editable; }
+      if (lhIn)     { lhIn.value     = typo.lineHeight; lhIn.disabled    = !editable; }
+      if (paraIn)   { paraIn.value   = typo.paragraphSpacing; paraIn.disabled = !editable; }
+      if (alignSel) { alignSel.value = typo.alignment;  alignSel.disabled = !editable; }
+      if (typoHint) typoHint.textContent = editable
+        ? 'Applies to every frame in this thread.'
+        : 'Edit typography on the head frame; mid-thread frames inherit.';
+
+      const writeTypo = (patch) => {
+        pushHistory('book: edit text-frame typography');
+        head.typography = { ..._getFrameTypography(head), ...patch };
+        render();
+      };
+      if (fontSel)  fontSel.onchange = () => writeTypo({ fontFamily: fontSel.value });
+      if (sizeIn)   sizeIn.oninput   = () => writeTypo({ fontSize: Number(sizeIn.value) || 11 });
+      if (colorIn)  colorIn.oninput  = () => writeTypo({ color: colorIn.value });
+      if (lhIn)     lhIn.oninput     = () => writeTypo({ lineHeight: Number(lhIn.value) || 1.5 });
+      if (paraIn)   paraIn.oninput   = () => writeTypo({ paragraphSpacing: Number(paraIn.value) || 0 });
+      if (alignSel) alignSel.onchange = () => writeTypo({ alignment: alignSel.value });
     }
 
     // J5 — return the user's currently selected layer if it's a
@@ -23405,25 +23691,29 @@
           // keyed by (head.id, sourceChapter id, frame dimensions,
           // chapterMarkdown length) in a later pass.
           try {
-            const paginated = _paginateChapterIntoThread(head, state.book);
-            const pageForThisFrame = paginated.pages[myIndex];
-            if (pageForThisFrame && pageForThisFrame.blocks?.length) {
-              const padding = Number(layer.shape?.padding) || 0;
-              _paintFrameBlocks(el, pageForThisFrame, Number(layer.w) || 0, Number(layer.h) || 0, padding);
-              // J4.b — overset is now driven by the tokens-consumed
-              // cursor. If the last frame in the chain doesn't reach
-              // the end of the chapter's token stream, mark it.
+            // J4.d — flatten markdown to plain paragraphs, paginate
+            // line-by-line through the chain using THIS frame's
+            // typography. Replaces the block-based J4 path. Result:
+            // lines spill across frames one at a time instead of
+            // whole blocks jumping; markdown headings / lists /
+            // bold-italic become regular prose (designer applies
+            // formatting via the inspector).
+            const entry = (state.book?.pages || []).find(p => p.id === head.sourceChapter);
+            const paragraphs = _flattenChapterToParagraphs(entry?.chapterMarkdown || '');
+            const typography = _getFrameTypography(head); // head defines style for the thread
+            const paginated = _paginateParagraphsIntoFrames(paragraphs, chain, typography);
+            const sliceForThisFrame = paginated.perFrame[myIndex];
+            const padding = Number(layer.shape?.padding) || 0;
+            if (sliceForThisFrame && sliceForThisFrame.lines.length) {
+              _paintFrameLines(el, sliceForThisFrame, Number(layer.w) || 0, Number(layer.h) || 0, padding, typography);
               if (myIndex === chain.length - 1 && paginated.hasMoreText) {
                 const overset = document.createElement('div');
                 overset.style.cssText = 'position:absolute;bottom:6px;right:6px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:3px;padding:1px 6px;font-size:.62rem;font-weight:700;pointer-events:none;z-index:9;letter-spacing:.05em';
                 overset.textContent = '⊞ OVERSET';
-                overset.title = `Chapter has ${paginated.totalTokens} markdown blocks; ${paginated.tokensConsumed} were consumed by this chain. Add more frames + extend the thread to fit the rest.`;
+                overset.title = `Chapter has ${paginated.totalLinesNeeded} lines at this typography; ${paginated.totalLinesPlaced} fit in the chain. Add more frames + extend the thread to fit the rest.`;
                 el.appendChild(overset);
               }
-            } else if (!pageForThisFrame) {
-              // No content for this frame slot — chapter ran out of
-              // text upstream. Light placeholder so the user knows
-              // the frame is part of the thread but unused.
+            } else if (!sliceForThisFrame || !sliceForThisFrame.lines.length) {
               const empty = document.createElement('div');
               empty.className = 'bookFrameSourcePending';
               empty.style.color = 'rgba(71,85,105,.5)';
@@ -28230,25 +28520,59 @@
         .slice().sort((a, b) => (a.z || 0) - (b.z || 0));
       const subPage = applyBookTokensToLayers(pageLayers, ctxToken);
       for (const l of subPage) await drawLayerToCanvas(ctx, l, dpi, offX, offY);
-      // J4.c.2 — threaded chapter text: for any text-frame layer on
-      // this page that participates in a chain whose head has a
-      // sourceChapter, paint its slice of the chapter's pagination
-      // on top of everything else (above the frame outline, below
-      // any layer the user explicitly placed over it).
+      // J4.c.2 + J4.d — threaded chapter text: walk page layers, find
+      // text-frames whose thread head holds a placed chapter, then
+      // rasterise this frame's slice of the line-paginated content
+      // (flattened-to-paragraph + per-frame typography from J4.d).
       for (const layer of pageLayers) {
         if (layer.type !== 'shape' || layer.shape?.kind !== 'text-frame') continue;
         const chain = _bookCollectThreadChain(layer);
         const head = chain[0];
         if (!head?.sourceChapter) continue;
         const myIndex = chain.indexOf(layer);
+        const entry = (book.pages || []).find(p => p.id === head.sourceChapter);
+        if (!entry) continue;
+        const paragraphs = _flattenChapterToParagraphs(entry.chapterMarkdown || '');
+        const typography = _getFrameTypography(head);
         let paginated;
-        try { paginated = _paginateChapterIntoThread(head, book); }
+        try { paginated = _paginateParagraphsIntoFrames(paragraphs, chain, typography); }
         catch (err) { console.warn('PDF thread paginate failed', err); continue; }
-        const page = paginated.pages[myIndex];
-        if (!page || !page.blocks?.length) continue;
-        _drawFrameBlocksToCanvas(ctx, page, layer, dpi, bleed);
+        const slice = paginated.perFrame[myIndex];
+        if (!slice || !slice.lines.length) continue;
+        _drawFrameLinesToCanvas(ctx, slice, layer, dpi, bleed, typography);
       }
       return canvas;
+    }
+
+    // J4.d — canvas rasteriser for line-based threaded text. Mirrors
+    // _paintFrameLines but writes onto a Canvas2D context (the PDF
+    // export's per-page raster). Coordinates: frame is sheet-relative
+    // (includes bleed); canvas is trim-only, so subtract bleed.
+    function _drawFrameLinesToCanvas(ctx, frameSlice, frameLayer, dpi, bleed, typography) {
+      const padding = Number(frameLayer.shape?.padding) || 0;
+      const innerX = (Number(frameLayer.x) || 0) + padding - bleed;
+      const innerY = (Number(frameLayer.y) || 0) + padding - bleed;
+      const innerW = Math.max(0.1, (Number(frameLayer.w) || 0) - 2 * padding);
+      const fontPx = typography.fontSize * (dpi / 72);
+      const lineH = fontPx * typography.lineHeight;
+      const paragraphGapPx = (typography.paragraphSpacing || 0.1) * dpi;
+      ctx.font = `${fontPx}px ${typography.fontFamily}`;
+      ctx.fillStyle = typography.color;
+      ctx.textBaseline = 'top';
+      ctx.textAlign = typography.alignment === 'center' ? 'center'
+                  : typography.alignment === 'right'  ? 'right'  : 'left';
+      const lines = frameSlice.lines || [];
+      const breaksAfter = frameSlice.paragraphBreaksAfter || new Set();
+      let yPx = innerY * dpi;
+      for (let i = 0; i < lines.length; i++) {
+        let xPx;
+        if (typography.alignment === 'center')      xPx = (innerX + innerW / 2) * dpi;
+        else if (typography.alignment === 'right')  xPx = (innerX + innerW) * dpi;
+        else                                        xPx = innerX * dpi;
+        ctx.fillText(lines[i], xPx, yPx);
+        yPx += lineH;
+        if (breaksAfter.has(i)) yPx += paragraphGapPx;
+      }
     }
 
     // J4.c.2 — paint a paginated frame's blocks onto a PDF-export
