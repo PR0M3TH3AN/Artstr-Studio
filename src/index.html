@@ -27990,7 +27990,74 @@
         .slice().sort((a, b) => (a.z || 0) - (b.z || 0));
       const subPage = applyBookTokensToLayers(pageLayers, ctxToken);
       for (const l of subPage) await drawLayerToCanvas(ctx, l, dpi, offX, offY);
+      // J4.c.2 — threaded chapter text: for any text-frame layer on
+      // this page that participates in a chain whose head has a
+      // sourceChapter, paint its slice of the chapter's pagination
+      // on top of everything else (above the frame outline, below
+      // any layer the user explicitly placed over it).
+      for (const layer of pageLayers) {
+        if (layer.type !== 'shape' || layer.shape?.kind !== 'text-frame') continue;
+        const chain = _bookCollectThreadChain(layer);
+        const head = chain[0];
+        if (!head?.sourceChapter) continue;
+        const myIndex = chain.indexOf(layer);
+        let paginated;
+        try { paginated = _paginateChapterIntoThread(head, book); }
+        catch (err) { console.warn('PDF thread paginate failed', err); continue; }
+        const page = paginated.pages[myIndex];
+        if (!page || !page.blocks?.length) continue;
+        _drawFrameBlocksToCanvas(ctx, page, layer, dpi, bleed);
+      }
       return canvas;
+    }
+
+    // J4.c.2 — paint a paginated frame's blocks onto a PDF-export
+    // canvas at the frame's coordinates. Stripped-down counterpart
+    // to the block-painting loop in renderBookReflowPhysicalPageToCanvas
+    // (no tables, no real-PDF textOps emission yet — both can land
+    // in J4.b2 / J4.c follow-ups). For now: paragraphs, headings,
+    // lists, blockquotes, code blocks, hr, plain text — same things
+    // _paintFrameBlocks paints in the editor.
+    function _drawFrameBlocksToCanvas(ctx, page, frameLayer, dpi, bleed) {
+      const padding = Number(frameLayer.shape?.padding) || 0;
+      // Frame x/y are sheet-relative (bleed-inclusive). Subtract bleed
+      // to get trim-relative inches, matching the canvas's coordinate
+      // system (canvas covers trim only).
+      const innerX = (Number(frameLayer.x) || 0) + padding - bleed;
+      const innerY = (Number(frameLayer.y) || 0) + padding - bleed;
+      const innerW = Math.max(0.1, (Number(frameLayer.w) || 0) - 2 * padding);
+      for (const block of (page.blocks || [])) {
+        const style = block.style || {};
+        const fontSizePt = Number(style.fontSize) || 11;
+        const fontPx = fontSizePt * (dpi / 72);
+        const family = style.fontFamily || 'Georgia, serif';
+        const weight = Number(style.fontWeight) || 400;
+        const styleAttr = style.fontStyle || 'normal';
+        const marginLeftIn = Number(style.marginLeft) || 0;
+        const marginRightIn = Number(style.marginRight) || 0;
+        const innerW2 = Math.max(0.1, innerW - marginLeftIn - marginRightIn);
+        const xStartIn = innerX + marginLeftIn;
+        const lineHIn = fontSizePt * (Number(style.lineHeight) || 1.5) / 72;
+        const align = style.alignment || 'left';
+        const color = style.color || '#111';
+        // Skip table blocks for now — they render to raster via the
+        // existing engine's paintReflowPageOverlay; threaded-PDF
+        // table support follows in a J4.b2 cleanup.
+        if (block.tokenType === 'table') continue;
+        ctx.font = `${styleAttr} ${weight} ${fontPx}px ${family}`;
+        ctx.fillStyle = color;
+        ctx.textBaseline = 'top';
+        ctx.textAlign = align === 'center' ? 'center' : align === 'right' ? 'right' : 'left';
+        const blockYPx = (innerY * dpi) + (Number(block.y) || 0) * dpi;
+        const lineH = fontPx * (Number(style.lineHeight) || 1.5);
+        for (let i = 0; i < (block.lines || []).length; i++) {
+          let xPx;
+          if (align === 'center') xPx = (xStartIn + innerW2 / 2) * dpi;
+          else if (align === 'right') xPx = (xStartIn + innerW2) * dpi;
+          else xPx = xStartIn * dpi;
+          ctx.fillText(block.lines[i], xPx, blockYPx + i * lineH);
+        }
+      }
     }
     // Render one physical page of a reflow segment: master underlay
     // (with the text-frame outline stripped) + paginated text blocks
