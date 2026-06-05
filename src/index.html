@@ -5233,6 +5233,27 @@
             </div>
             <p class="toolOptHint">Click the canvas to place a text box. With a text box selected, these controls restyle it.</p>
           </div>
+
+          <!-- Phase J3.b polish: per-text-frame inspector. Visible
+               whenever the primary selected layer is a text-frame in
+               book mode, regardless of active tool. Dropdowns expose
+               the threading + chapter assignment that the in/out
+               ports do through clicks — but discoverable. -->
+          <div id="bookTextFrameOptions" style="display:none">
+            <h4>Text frame <span class="docsHelpIcon" data-help="book" role="button" aria-label="Open help: Book" title="Open help">ⓘ</span></h4>
+            <p class="toolOptHint" id="bookTextFrameStatus" style="margin:0 0 8px"></p>
+            <label for="bookTextFrameChapter">Chapter source</label>
+            <select id="bookTextFrameChapter"></select>
+            <p class="toolOptHint" id="bookTextFrameChapterHint" style="margin:2px 0 8px;font-size:.68rem;color:var(--muted)"></p>
+            <label for="bookTextFrameInLink">Incoming from</label>
+            <select id="bookTextFrameInLink"></select>
+            <label for="bookTextFrameOutLink" style="margin-top:6px">Outgoing to</label>
+            <select id="bookTextFrameOutLink"></select>
+            <p class="toolOptHint" style="margin-top:8px;font-size:.7rem">
+              Tip: you can also drag-link by clicking the small tabs above and below the frame on the canvas.
+              Cycles are refused automatically.
+            </p>
+          </div>
         </div>
 
       <div class="canvasToolbar" id="canvasToolbar">
@@ -17574,6 +17595,10 @@
           && state.templateMode === 'book') {
         renderBookChaptersList();
       }
+      // Phase J3.b polish: text-frame inspector — visible when a
+      // text-frame layer is selected on the canvas, regardless of
+      // tool. Self-hides when selection isn't a text-frame.
+      renderBookTextFrameInspector();
       syncBookPageEditBar();
       syncBookChapterEditor();
       // Only repaint the cover preview when its view is the active
@@ -22969,6 +22994,190 @@
         overlay.appendChild(blk);
       }
       el.appendChild(overlay);
+    }
+
+    // J3.b polish — enumerate every text-frame layer in the book
+    // (any page or master target). Returns rich entries used by the
+    // text-frame inspector's Incoming / Outgoing dropdowns.
+    function _enumerateBookTextFrames(book) {
+      if (!book) return [];
+      const out = [];
+      const pageById = new Map((book.pages || []).map((p, i) => [p.id, { entry: p, index: i }]));
+      const masterById = new Map((book.masters || []).map(m => [m.id, m]));
+      for (const l of (state.layers || [])) {
+        if (l.type !== 'shape' || l.shape?.kind !== 'text-frame') continue;
+        const t = String(l.target || '');
+        let context = '';
+        if (t.startsWith('book-page:')) {
+          const pageId = t.slice('book-page:'.length);
+          const ref = pageById.get(pageId);
+          if (ref) {
+            const numbered = (book.pages || []).filter(p => p.type === 'design').findIndex(p => p.id === pageId);
+            context = numbered >= 0 ? `Page ${numbered + 1}` : 'Page';
+          } else { context = 'Page (orphan)'; }
+        } else if (t.startsWith('book-master:')) {
+          const masterId = t.slice('book-master:'.length);
+          const m = masterById.get(masterId);
+          context = m ? `Master · ${m.label || 'Untitled'}` : 'Master (orphan)';
+        }
+        out.push({
+          layer: l,
+          frameId: l.frameId,
+          target: t,
+          label: `${context} · ⌗${String(l.frameId || '').slice(0, 6)}`,
+        });
+      }
+      return out;
+    }
+
+    // J3.b polish — render the right-panel text-frame inspector. Reads
+    // selection from state.selectedLayerId; the section is hidden when
+    // the selected layer isn't a text-frame in book mode. Wires
+    // dropdown change handlers each time so the closures always see
+    // the current frame.
+    function renderBookTextFrameInspector() {
+      const root = document.getElementById('bookTextFrameOptions');
+      const outer = document.getElementById('toolOptions');
+      if (!root) return;
+      const layer = _getSelectedBookTextFrame();
+      if (!layer || state.templateMode !== 'book') {
+        root.style.display = 'none';
+        return;
+      }
+      // Force the outer #toolOptions panel visible — the normal
+      // toggling in syncToolPaletteUI hides it for non-drawing tools
+      // (e.g., Select). With a text-frame selected we want the
+      // inspector regardless of active tool.
+      if (outer && outer.style.display === 'none') outer.style.display = '';
+      root.style.display = '';
+      const book = state.book || {};
+
+      // Status line: where in the chain is this frame?
+      const chain = _bookCollectThreadChain(layer);
+      const head = chain[0];
+      const myIndex = chain.indexOf(layer);
+      const isHead = layer === head;
+      const status = document.getElementById('bookTextFrameStatus');
+      if (status) {
+        if (chain.length > 1) {
+          status.textContent = `Frame ${myIndex + 1} of ${chain.length} in this thread.${isHead ? ' (Head — chapter source goes here.)' : ''}`;
+        } else {
+          status.textContent = 'Solo frame — link in or out to extend into a thread.';
+        }
+      }
+
+      // Source chapter dropdown — only meaningful on the head; the
+      // mid-chain frames inherit the chapter via the walk. We still
+      // show the dropdown but disable it when this isn't the head,
+      // and surface where the source actually lives.
+      const chapterSel = document.getElementById('bookTextFrameChapter');
+      const chapterHint = document.getElementById('bookTextFrameChapterHint');
+      if (chapterSel) {
+        const reflowEntries = (book.pages || []).filter(p => p.type === 'reflow');
+        chapterSel.innerHTML = '';
+        const noneOpt = document.createElement('option');
+        noneOpt.value = '';
+        noneOpt.textContent = '(none)';
+        chapterSel.appendChild(noneOpt);
+        for (const e of reflowEntries) {
+          const opt = document.createElement('option');
+          opt.value = e.id;
+          opt.textContent = e.chapterTitle || e.label || 'Untitled chapter';
+          chapterSel.appendChild(opt);
+        }
+        chapterSel.value = (isHead ? (layer.sourceChapter || '') : (head?.sourceChapter || ''));
+        chapterSel.disabled = !isHead;
+        chapterSel.onchange = () => {
+          if (!isHead) return;
+          pushHistory('book: assign chapter source');
+          layer.sourceChapter = chapterSel.value || null;
+          render();
+          renderBookChaptersList();
+        };
+        if (chapterHint) {
+          chapterHint.textContent = isHead
+            ? (reflowEntries.length ? 'Chapter feeds this thread.' : 'No chapters yet. Add one in the Chapters tab.')
+            : 'Mid-thread frames inherit the chapter from the head.';
+        }
+      }
+
+      // Incoming / Outgoing dropdowns enumerate every other text-frame
+      // in the book, label them by page / master + frameId, and only
+      // include candidates whose link wouldn't create a cycle.
+      const allFrames = _enumerateBookTextFrames(book);
+      const fillFrameOptions = (sel, currentFrameId, candidatePredicate) => {
+        sel.innerHTML = '';
+        const none = document.createElement('option');
+        none.value = '';
+        none.textContent = '(none)';
+        sel.appendChild(none);
+        for (const f of allFrames) {
+          if (f.layer === layer) continue;
+          if (!candidatePredicate(f)) continue;
+          const opt = document.createElement('option');
+          opt.value = f.frameId;
+          opt.textContent = f.label;
+          sel.appendChild(opt);
+        }
+        sel.value = currentFrameId || '';
+      };
+
+      const inSel = document.getElementById('bookTextFrameInLink');
+      const currentInbound = _findBookFrameLayer(o => o !== layer && o.nextFrame?.frameId === layer.frameId);
+      if (inSel) {
+        // Candidate predicate: a frame F can link TO `layer` if doing
+        // so wouldn't put F inside the chain that descends from
+        // `layer` (which would mean layer → ... → F → layer = cycle).
+        fillFrameOptions(inSel, currentInbound?.frameId || '', (f) => {
+          // F.nextFrame = layer.frameId would create a cycle if
+          // `layer` already reaches F through its forward chain.
+          return !_bookFrameChainContains(layer, f.frameId);
+        });
+        inSel.onchange = () => {
+          pushHistory('book: change incoming link');
+          // Clear any previous incoming pointer to this frame.
+          if (currentInbound && currentInbound !== layer) currentInbound.nextFrame = null;
+          const newFrameId = inSel.value || '';
+          if (newFrameId) {
+            const src = allFrames.find(f => f.frameId === newFrameId);
+            if (src) src.layer.nextFrame = { target: layer.target, frameId: layer.frameId };
+          }
+          render();
+        };
+      }
+
+      const outSel = document.getElementById('bookTextFrameOutLink');
+      if (outSel) {
+        // Candidate predicate: layer can link OUT to F if F isn't
+        // already reachable from layer through its forward chain
+        // (i.e., F can't be on the chain that descends from layer).
+        fillFrameOptions(outSel, layer.nextFrame?.frameId || '', (f) => {
+          // Reject if F is already in the head→tail chain that
+          // includes layer (cycle), but allow F if F is the head and
+          // we're a tail — that's still a cycle. The cleanest check:
+          // simulate the link and walk forward, refuse if we loop.
+          return !_bookFrameChainContains(f.layer, layer.frameId);
+        });
+        outSel.onchange = () => {
+          pushHistory('book: change outgoing link');
+          const newFrameId = outSel.value || '';
+          if (!newFrameId) {
+            layer.nextFrame = null;
+          } else {
+            const dest = allFrames.find(f => f.frameId === newFrameId);
+            if (dest) {
+              // If dest already has an incoming link from someone
+              // other than us, clear it so we don't end up with two
+              // frames pointing at the same destination.
+              const otherIncoming = _findBookFrameLayer(o =>
+                o !== layer && o !== dest.layer && o.nextFrame?.frameId === dest.frameId);
+              if (otherIncoming) otherIncoming.nextFrame = null;
+              layer.nextFrame = { target: dest.target, frameId: dest.frameId };
+            }
+          }
+          render();
+        };
+      }
     }
 
     // J5 — return the user's currently selected layer if it's a
