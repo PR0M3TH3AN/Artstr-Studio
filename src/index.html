@@ -2171,6 +2171,10 @@
     .bookPageTile {
       position: relative;
       border: 1px solid var(--line); background: #fff;
+      /* Aspect ratio defaults to US Trade (2/3 ≈ 6:9). The tile
+         painter overrides this inline from the book's actual trim
+         ratio (Square 8×8 → 1/1, A4 → ~0.71, etc) so the tile shape
+         matches the printed page. */
       aspect-ratio: 2 / 3;
       display: flex; flex-direction: column;
       align-items: center; justify-content: center;
@@ -10224,9 +10228,26 @@
        // the target onto the cloned layer just for the preview.
       const trimW = Number(book.spec?.trimW) || 6;
       const trimH = Number(book.spec?.trimH) || 9;
+      // Layer coords are sheet-relative (include bleed). The tile
+      // is sized trim-only, so subtract bleed when composing layers
+      // for the preview helper — otherwise everything renders
+      // shifted right + down by bleed inches. Same fix the PDF
+      // export raster uses (renderBookDesignedPageToCanvas:
+      // offX = -bleed * dpi).
+      const bleedIn = Number(book.spec?.bleed) || 0;
+      const offsetForThumb = (l) => ({
+        ...l,
+        x: (Number(l.x) || 0) - bleedIn,
+        y: (Number(l.y) || 0) - bleedIn,
+      });
+      // Aspect ratio reflects the book's actual trim (not the
+       // default 2:3 in CSS) so tile shape matches the printed page
+       // for square books, A4, etc.
+      const tileAspect = `${trimW} / ${trimH}`;
       pages.forEach((p, idx) => {
         const tile = document.createElement('div');
         tile.className = `bookPageTile ${p.type === 'reflow' ? 'reflowSegment' : 'designedPage'}`;
+        tile.style.aspectRatio = tileAspect;
         tile.dataset.entryId = p.id;
         tile.dataset.index = String(idx);
         tile.draggable = true;
@@ -10239,18 +10260,26 @@
           // helper's flat-canvas filter accepts them. Master text
           // layers run through token substitution so `{page-number}`
           // et al resolve against this page's place in the manifest.
+          // J6 accuracy: subtract bleed from each layer's x/y so the
+          // tile (trim-only canvas) matches what would print. Also
+          // strip text-frame dashed outlines — they're an authoring
+          // affordance, not a print element. Threaded chapter text
+          // still paints over the bare frame area via
+          // _paintThreadedFramesOnThumb below.
           const pageTarget = `book-page:${p.id}`;
           const masterId = effectiveMasterIdForPage(p);
           const masterTarget = masterId ? `book-master:${masterId}` : null;
+          const isPrintLayer = (l) => !(l.type === 'shape' && l.shape?.kind === 'text-frame');
           const masterLayersRaw = masterTarget
-            ? (state.layers || []).filter(l => l.target === masterTarget && !l.hidden)
+            ? (state.layers || []).filter(l => l.target === masterTarget && !l.hidden && isPrintLayer(l))
             : [];
           const ctx = bookTokenContext(book, p.id, 0);
           const masterLayers = applyBookTokensToLayers(masterLayersRaw, ctx);
           const pageLayers = (state.layers || []).filter(l => l.target === pageTarget && !l.hidden);
+          const pageLayersForThumb = pageLayers.filter(isPrintLayer);
           const composed = [
-            ...masterLayers.map((l, i) => ({ ...l, target: 'canvas', z: -1e6 + i })),
-            ...pageLayers.map(l => ({ ...l, target: 'canvas' })),
+            ...masterLayers.map((l, i) => ({ ...offsetForThumb(l), target: 'canvas', z: -1e6 + i })),
+            ...pageLayersForThumb.map(l => ({ ...offsetForThumb(l), target: 'canvas' })),
           ];
           try {
             renderCustomArtPreviewDOM(thumb, {
@@ -10284,7 +10313,9 @@
             : [];
           const ctx = bookTokenContext(book, p.id, 0);
           const masterLayers = applyBookTokensToLayers(masterLayersRaw, ctx);
-          const composed = masterLayers.map((l, i) => ({ ...l, target: 'canvas', z: -1e6 + i }));
+          // Same bleed offset the designed-page path uses — sheet
+          // coords → trim coords for the trim-only thumb canvas.
+          const composed = masterLayers.map((l, i) => ({ ...offsetForThumb(l), target: 'canvas', z: -1e6 + i }));
           try {
             renderCustomArtPreviewDOM(thumb, {
               customArt: {
