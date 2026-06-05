@@ -10620,48 +10620,34 @@
         thumb.className = 'bookPageTileThumb';
         tile.appendChild(thumb);
         if (p.type === 'design') {
-          // Designed page thumb: master layers underneath, then the
-          // page's own. Both remapped to 'canvas' so the preview
-          // helper's flat-canvas filter accepts them. Master text
-          // layers run through token substitution so `{page-number}`
-          // et al resolve against this page's place in the manifest.
-          // J6 accuracy: subtract bleed from each layer's x/y so the
-          // tile (trim-only canvas) matches what would print. Also
-          // strip text-frame dashed outlines — they're an authoring
-          // affordance, not a print element. Threaded chapter text
-          // still paints over the bare frame area via
-          // _paintThreadedFramesOnThumb below.
-          const pageTarget = `book-page:${p.id}`;
-          const masterId = effectiveMasterIdForPage(p);
-          const masterTarget = masterId ? `book-master:${masterId}` : null;
-          const isPrintLayer = (l) => !(l.type === 'shape' && l.shape?.kind === 'text-frame');
-          const masterLayersRaw = masterTarget
-            ? (state.layers || []).filter(l => l.target === masterTarget && !l.hidden && isPrintLayer(l))
-            : [];
-          const ctx = bookTokenContext(book, p.id, 0);
-          const masterLayers = applyBookTokensToLayers(masterLayersRaw, ctx);
-          const pageLayers = (state.layers || []).filter(l => l.target === pageTarget && !l.hidden);
-          const pageLayersForThumb = pageLayers.filter(isPrintLayer);
-          const composed = [
-            ...masterLayers.map((l, i) => ({ ...offsetForThumb(l), target: 'canvas', z: -1e6 + i })),
-            ...pageLayersForThumb.map(l => ({ ...offsetForThumb(l), target: 'canvas' })),
-          ];
-          try {
-            renderCustomArtPreviewDOM(thumb, {
-              customArt: {
-                width: trimW * 96,
-                height: trimH * 96,
-                background: p.background || book.spec?.background || '#ffffff',
-              },
-              layers: composed,
-            }, { compact: true });
-            // J4.c.1: paint threaded chapter text into any text-frame
-            // layers on this page that hold a placed chapter. Each
-            // frame gets its slice from the chain pagination.
-            _paintThreadedFramesOnThumb(thumb, pageLayers, book, trimW, trimH);
-          } catch (err) {
-            console.warn('book page thumb render failed', err);
-          }
+          // J6 accuracy: render the tile through the same canvas
+          // pipeline that produces the PDF — renderBookDesignedPageToCanvas.
+          // The DOM-based preview helper drifted from the editor in
+          // a handful of subtle ways (linked-design async resolve,
+          // z-order with threaded text, clip-path serialisation,
+          // group transforms) and was never going to match exactly.
+          // Routing through the PDF rasteriser guarantees the tile
+          // shows whatever the print + Reader Mode would.
+          //
+          // Stage 1 is a cheap placeholder (background colour so the
+          // grid doesn't shift). Stage 2 awaits the canvas + swaps
+          // in an <img>. The thumb's `.isConnected` check guards
+          // against late completions for tiles that have since been
+          // re-rendered (the grid clears + rebuilds on every render
+          // call, so the old element is detached when fresh tiles
+          // exist).
+          thumb.style.background = p.background || book.spec?.background || '#ffffff';
+          const ctxToken = bookTokenContext(book, p.id, 0);
+          renderBookDesignedPageToCanvas(p, 72, ctxToken).then(canvas => {
+            if (!thumb.isConnected) return;
+            const img = document.createElement('img');
+            img.src = canvas.toDataURL('image/png');
+            img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block';
+            thumb.innerHTML = '';
+            thumb.appendChild(img);
+          }).catch(err => {
+            console.warn('book page thumb canvas paint failed', err);
+          });
         } else if (p.type === 'reflow') {
           // Reflow tile: same master underlay as designed pages,
           // then the first paginated page of the chapter rendered
