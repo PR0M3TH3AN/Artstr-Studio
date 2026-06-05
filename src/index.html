@@ -4108,6 +4108,11 @@
           <button type="button" id="bookManageMastersBtn">Manage masters…</button>
           <button type="button" id="bookResolveBtn" title="Re-fetch every referenced page / master / cover / chapter event from your relays">↻ Refresh from Nostr</button>
         </div>
+        <div class="buttonRow" style="margin-top:8px">
+          <button type="button" id="bookImportManifestNostrBtn" title="Paste an naddr / nevent pointing at a casewrap-book manifest to load the whole book + every referenced sidecar">📥 Import book from Nostr…</button>
+          <button type="button" id="bookImportManifestJsonBtn" title="Load a whole-book JSON file (the format Save Project writes in book mode)">📁 Import book from JSON…</button>
+          <input type="file" id="bookImportManifestJsonFile" accept="application/json,.json" style="display:none">
+        </div>
         <p class="hint" id="bookResolveStatus" style="margin-top:6px;font-size:.74rem"></p>
         <div id="bookVisibilityRow" style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span style="font-size:.78rem;color:var(--muted)">Publish visibility:</span>
@@ -9669,6 +9674,142 @@
       } catch (err) {
         console.warn('book: importBookCoverFromNostr failed', err);
         toastError && toastError('Import failed: ' + (err?.message || 'unknown error'));
+      }
+    }
+
+    // Import a whole book by pasting an naddr / nevent that points
+    // at a casewrap-book manifest event. The manifest is lean — just
+    // refs to cover / pages / masters / chapters — so once we feed
+    // its payload to loadProjectFromText the existing book branch
+    // restores state.book + kicks off resolveBookSidecars in the
+    // background. Status reports back into #bookResolveStatus.
+    async function importBookManifestFromNostr() {
+      const raw = (typeof prompt === 'function')
+        ? prompt('Paste an naddr / nevent pointing at a casewrap-book manifest event:')
+        : '';
+      if (!raw) return;
+      const decoded = decodeNostrId(raw.trim());
+      if (!decoded) { toastError && toastError('Could not decode that id.'); return; }
+      const status = document.getElementById('bookResolveStatus');
+      const setStatus = (text, kind) => {
+        if (!status) return;
+        status.textContent = text || '';
+        status.style.color = kind === 'error' ? '#b91c1c' : kind === 'ok' ? '#15803d' : 'var(--muted)';
+      };
+      setStatus('Resolving manifest event…');
+      const decodedForResolver = decoded.type === 'naddr'
+        ? decoded
+        : { type: 'nevent', eventId: decoded.eventId, relays: decoded.relays || [], author: decoded.author || '', kind: decoded.kind || null };
+      try {
+        const ev = await _resolveEmbedEvent(decodedForResolver);
+        if (!ev) { setStatus('No event found on your relays.', 'error'); toastError?.('No event found.'); return; }
+        if (ev.kind !== 30078) { setStatus(`Event is kind ${ev.kind}, not a casewrap-book.`, 'error'); toastError?.('Wrong event kind.'); return; }
+        // Try decrypt-first (private manifest), then plain JSON.
+        let payload = null;
+        try {
+          const decrypted = await _decryptBookSidecarEvent(ev);
+          if (decrypted) payload = decrypted;
+        } catch {}
+        if (!payload) {
+          try { payload = JSON.parse(ev.content || ''); } catch {}
+        }
+        if (!payload?.book) { setStatus('Event payload does not contain a book manifest.', 'error'); toastError?.('Not a book manifest.'); return; }
+        // Inject the publish ref so future "Publish manifest" replaces
+        // this event in place, and the encrypted flag so visibility
+        // rides through correctly.
+        const dTag = (ev.tags || []).find(t => t[0] === 'd' && t[1])?.[1] || (decoded.dTag || '');
+        if (dTag) {
+          payload.book = payload.book || {};
+          payload.book.manifestRef = {
+            kind: 30078, pubkey: ev.pubkey, dTag,
+            relays: (decoded.relays || []).slice(0, 4),
+            encrypted: (ev.tags || []).some(t => t[0] === 'encrypted') || undefined,
+          };
+        }
+        if ((ev.tags || []).some(t => t[0] === 'encrypted')) {
+          payload.visibility = 'private';
+          payload.privateDTag = dTag || '';
+        }
+        if (typeof loadProjectFromText === 'function') {
+          loadProjectFromText(JSON.stringify(payload));
+        }
+        setStatus(`Manifest loaded. Resolving sidecars…`);
+        // resolveBookSidecars already fires from the book branch of
+        // loadProjectFromText (setTimeout 0). Surface a summary when
+        // it settles.
+        setTimeout(async () => {
+          try {
+            const summary = await resolveBookSidecars(state.book);
+            const total = (summary?.resolved || 0) + (summary?.failed || 0);
+            const ok = summary?.resolved || 0;
+            const failed = summary?.failed || 0;
+            setStatus(
+              failed
+                ? `Resolved ${ok} / ${total} sidecars; ${failed} failed (check relays).`
+                : (total ? `Resolved ${ok} / ${total} sidecars.` : 'Manifest loaded.'),
+              failed ? 'error' : 'ok'
+            );
+          } catch (err) {
+            setStatus('Resolver error — open DevTools for details.', 'error');
+          }
+        }, 100);
+        toastSuccess?.('Book manifest loaded — sidecars resolving in background.');
+      } catch (err) {
+        console.warn('importBookManifestFromNostr failed', err);
+        setStatus('Import failed: ' + (err?.message || 'unknown error'), 'error');
+      }
+    }
+
+    // Import a whole book from a local JSON file. Accepts the format
+    // bookPayload() emits (Save Project in book mode) — has
+    // templateMode === 'book' + a `book` field at the top level.
+    async function importBookManifestFromJsonFile(file) {
+      if (!file) return;
+      let parsed;
+      try {
+        const text = await file.text();
+        parsed = JSON.parse(text);
+      } catch (err) {
+        toastError && toastError('Not a valid JSON file.');
+        return;
+      }
+      if (parsed?.templateMode !== 'book' || !parsed?.book) {
+        toastError && toastError('Not a book project JSON (expected templateMode "book").');
+        return;
+      }
+      const status = document.getElementById('bookResolveStatus');
+      const setStatus = (text, kind) => {
+        if (!status) return;
+        status.textContent = text || '';
+        status.style.color = kind === 'error' ? '#b91c1c' : kind === 'ok' ? '#15803d' : 'var(--muted)';
+      };
+      try {
+        loadProjectFromText(JSON.stringify(parsed));
+        // The whole-book JSON inlines page / master / cover layers
+        // already (it's a backup format), so the resolver has less
+        // network work — but still call it to pull any chapter
+        // markdown that comes via textRef.
+        setStatus('Book loaded from JSON. Resolving any referenced sidecars…');
+        setTimeout(async () => {
+          try {
+            const summary = await resolveBookSidecars(state.book);
+            const total = (summary?.resolved || 0) + (summary?.failed || 0);
+            const ok = summary?.resolved || 0;
+            const failed = summary?.failed || 0;
+            setStatus(
+              total
+                ? (failed ? `Resolved ${ok} / ${total} sidecars; ${failed} failed.` : `Resolved ${ok} / ${total} sidecars.`)
+                : 'Book loaded.',
+              failed ? 'error' : 'ok'
+            );
+          } catch (err) {
+            setStatus('Resolver error — open DevTools for details.', 'error');
+          }
+        }, 100);
+        toastSuccess?.('Book loaded from JSON.');
+      } catch (err) {
+        console.warn('importBookManifestFromJsonFile failed', err);
+        toastError && toastError('Load failed: ' + (err?.message || 'unknown error'));
       }
     }
 
@@ -39133,6 +39274,16 @@
       _checkDocsHash();
 
       on('bookDocumentSettingsBtn', 'click', openBookDocumentSettings);
+      on('bookImportManifestNostrBtn', 'click', importBookManifestFromNostr);
+      on('bookImportManifestJsonBtn', 'click', () => {
+        const input = document.getElementById('bookImportManifestJsonFile');
+        if (input) input.click();
+      });
+      on('bookImportManifestJsonFile', 'change', async (e) => {
+        const file = e.target?.files?.[0];
+        e.target.value = '';
+        if (file) await importBookManifestFromJsonFile(file);
+      });
       on('bookVisibilityChip', 'click', toggleBookVisibility);
       on('bookResolveBtn', 'click', async () => {
         const status = document.getElementById('bookResolveStatus');
