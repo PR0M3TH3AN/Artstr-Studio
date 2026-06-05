@@ -10255,12 +10255,9 @@
         stroke: { type: 'none', color: '#60a5fa', width: 0, dash: 'solid' },
         // Phase J2: stable frameId for thread addressing. Independent
         // of the layer's `id` so a thread definition survives a layer
-        // delete + re-add (if the user keeps the frameId in mind, or
-        // we surface it in the inspector).
+        // delete + re-add. Thread membership + chapter source live on
+        // book.threads[] (J3-data-migration), not inline on the layer.
         frameId: makeBookEntryId(),
-        // Phase J3: when threaded, points at the next frame in the
-        // chain ({ pageId, frameId }) or null for end-of-thread.
-        nextFrame: null,
         // Phase J4.d: frame typography. Authors strip markdown
         // formatting on import; styling applies here in the design
         // phase. Defaults to a reasonable book body style.
@@ -24193,8 +24190,12 @@
       ev.preventDefault();
       ev.stopPropagation();
       if (portKind === 'out') {
+        // J3-data-migration: linked-out check reads from threads[].
+        const thread = _findThreadForFrame(state.book, layer.frameId);
+        const idx = thread ? _frameIndexInThread(thread, layer.frameId) : -1;
+        const isLinkedOut = thread && idx >= 0 && idx < thread.frames.length - 1;
         // Already linked? Click breaks the thread at this point.
-        if (layer.nextFrame?.frameId) {
+        if (isLinkedOut) {
           _breakBookFrameLink(layer);
           return;
         }
@@ -24260,7 +24261,7 @@
         + (linkedOut ? ' linked' : '')
         + (isLoadingSource ? ' loadingSource' : '');
       outPort.title = linkedOut
-        ? `Out port — text continues into frame ⌗${String(layer.nextFrame.frameId).slice(0,6)}. Click to break the thread.`
+        ? `Out port — text continues into frame ⌗${String(nextRef?.frameId || '').slice(0,6)}. Click to break the thread.`
         : (isLoadingSource
             ? 'Out port — loaded; click an in port elsewhere to link, or click this again / press Esc to cancel.'
             : 'Out port — text ends here. Click to load and then click another frame\'s in port to link.');
