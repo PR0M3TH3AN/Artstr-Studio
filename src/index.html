@@ -31413,6 +31413,77 @@
       });
     }
 
+    async function resolvePremiumPayloadForRepublish(row) {
+      if (!row?.premium && !isPremiumEvent(row?.e)) {
+        throw new Error('This is not a Premium 2.0 design.');
+      }
+      const address = row?.premium?.address || premiumAddressCoord(row.e);
+      const cached = findUnlockedEntry(row.e?.id, address);
+      if (cached?.payload) return cached.payload;
+      const envelope = row?.premium?.envelope || JSON.parse(row.e?.content || '{}');
+      return await Premium.decryptPayload(envelope, {
+        creatorPubkey: row.e?.pubkey || '',
+        dTag: row?.premium?.dTag || premiumEventDTag(row.e),
+        schemaVersion: envelope?.payloadSchemaVersion || 5,
+      });
+    }
+
+    async function republishPremiumUnderCurrentEpoch(row) {
+      if (!rowIsOwnedByMe(row) || !rowDTag(row)) {
+        toastError('Only the creator can refresh a premium listing epoch.');
+        return;
+      }
+      if (!row?.premium && !isPremiumEvent(row?.e)) {
+        toastError('This is not a premium listing.');
+        return;
+      }
+      const ok = confirm(
+        'Republish this premium listing under the current Artstr premium epoch?\n\n' +
+        'This replaces the public storefront event using the latest admin policy. Existing buyers keep their private purchased snapshots.'
+      );
+      if (!ok) return;
+      let payload;
+      try {
+        payload = await resolvePremiumPayloadForRepublish(row);
+      } catch (err) {
+        toastError(`Could not decrypt this premium design for republish: ${err?.message || err}`);
+        return;
+      }
+      const mode = normalizeTemplateMode(payload);
+      try {
+        if (mode === 'disc-design') {
+          importDiscDesignFromPayload(payload, 'a', { openDesigner: true });
+        } else {
+          loadProjectFromText(JSON.stringify(payload));
+        }
+      } catch (err) {
+        toastError(`Could not load this design for republish: ${err?.message || err}`);
+        return;
+      }
+      enterEditMode({
+        dTag: rowDTag(row),
+        kind: row.e?.kind || 30078,
+        eventId: row.e?.id || '',
+        title: row.title || payload?.meta?.title || 'Untitled design',
+      });
+      state.visibility = 'public';
+      state.publish = {
+        ...(state.publish || {}),
+        zapGate: true,
+        zapMin: getZapMin(row.e) || state.publish?.zapMin || 100,
+      };
+      $('nostrModal')?.classList.remove('open');
+      const profileModalEl = $('profileModal');
+      if (profileModalEl && profileModalEl.getAttribute('aria-hidden') === 'false') {
+        closeProfilePage({ popState: false });
+      }
+      toast('Premium listing loaded. Review and publish the epoch refresh.', { duration: 5000 });
+      setTimeout(() => {
+        const publishBtn = mode === 'disc-design' ? $('designerPublishBtn') : $('communityPublishBtn');
+        publishBtn?.click();
+      }, 0);
+    }
+
     // ---- Publish-confirm modal: preview + metadata review before posting ----
 
     const MODE_LABELS_PRETTY = {
@@ -35187,9 +35258,11 @@
       }
       const tipBtn = makeFeedCardTipButton(row);
       const editBtn = makeFeedCardEditButton(row);
+      const refreshEpochBtn = makeFeedCardRefreshEpochButton(row);
       const isMine = rowIsOwnedByMe(row);
       actions.append(makeReactionBtn(row), btn);
       if (editBtn) actions.appendChild(editBtn);
+      if (refreshEpochBtn) actions.appendChild(refreshEpochBtn);
       const moreMenu = makeActionMenu([
         blockAuthorAction(row, 'card'),
         reportTemplateAction(row)
@@ -35221,6 +35294,19 @@
       btn.addEventListener('click', e => {
         e.stopPropagation();
         startEditFromRow(row);
+      });
+      return btn;
+    }
+
+    function makeFeedCardRefreshEpochButton(row) {
+      if (!rowIsOwnedByMe(row) || !rowDTag(row) || !row?.premium) return null;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Refresh epoch';
+      btn.title = 'Republish this premium listing under the current Artstr premium policy without changing the design';
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        republishPremiumUnderCurrentEpoch(row);
       });
       return btn;
     }
@@ -36077,6 +36163,15 @@
         editBtn.title = 'Edit this design and publish an update (replaces the original)';
         editBtn.addEventListener('click', () => startEditFromRow(row));
         actionsDiv.insertBefore(editBtn, saveJsonBtn);
+
+        if (row.premium) {
+          const refreshEpochBtn = document.createElement('button');
+          refreshEpochBtn.type = 'button';
+          refreshEpochBtn.textContent = 'Refresh epoch';
+          refreshEpochBtn.title = 'Republish this premium listing under the current Artstr premium policy without changing the design';
+          refreshEpochBtn.addEventListener('click', () => republishPremiumUnderCurrentEpoch(row));
+          actionsDiv.insertBefore(refreshEpochBtn, saveJsonBtn);
+        }
 
         // Owner-only Visibility toggle — flip a published design between
         // public (feed-listed) and private (encrypted) in place.

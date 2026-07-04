@@ -153,6 +153,18 @@ test('index page refreshes the Purchased tab after a successful Premium 2.0 purc
   assert.match(html, /refreshPurchasedTabIfVisible\(\{ force: false \}\)/);
 });
 
+test('index page exposes creator premium epoch refresh for existing listings', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /async function republishPremiumUnderCurrentEpoch\(row\)/);
+  assert.match(html, /async function resolvePremiumPayloadForRepublish\(row\)/);
+  assert.match(html, /makeFeedCardRefreshEpochButton\(row\)/);
+  assert.match(html, /btn\.textContent = 'Refresh epoch'/);
+  assert.match(html, /state\.publish = \{\n\s+\.\.\.\(state\.publish \|\| \{\}\),\n\s+zapGate: true,/);
+  assert.match(html, /publishBtn\?\.click\(\)/);
+  assert.match(html, /Existing buyers keep their private purchased snapshots/);
+});
+
 test('index page exposes Premium 2.0 purchase repair workflow', async () => {
   const html = await indexHtml();
 

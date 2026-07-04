@@ -547,10 +547,28 @@ Recommended defaults:
 Claim windows should never be described as cryptographic expiry.
 
 If an epoch is manually closed and a creator wants an old public listing to
-be purchasable again, the creator should update/republish the listing under
-the current active policy. The new public event gets the new active epoch and
-becomes a fresh storefront. Existing buyers keep their older private purchase
-copies as snapshots of what they bought.
+be purchasable again, the creator should use the owner-only `Refresh epoch`
+action or otherwise update/republish the listing under the current active
+policy. The new public event reuses the same replaceable-event `d` tag, gets
+the new active epoch, and becomes the current storefront for that address.
+Existing buyers keep their older private purchase copies as snapshots of what
+they bought.
+
+The `Refresh epoch` action does not silently publish. It:
+
+1. decrypts the creator's existing premium payload;
+2. loads it into the editor without requiring design edits;
+3. enters normal edit/update mode for the original `d` tag;
+4. enables Premium with the existing price;
+5. opens the standard publish confirmation;
+6. publishes through the normal Premium path, which stamps the current admin
+   policy and encrypts with the current soft-gate epoch.
+
+If old epoch crypto has been reverse-engineered, that old derivation should
+not unlock the refreshed listing because the refreshed event has a newly
+encrypted payload under the active epoch. This is still a static-client
+soft gate, not hard DRM, but it prevents old-epoch bypass tooling from
+automatically carrying forward to the refreshed storefront.
 
 ---
 
