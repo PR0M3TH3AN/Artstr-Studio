@@ -89,6 +89,19 @@ test('index page migrates legacy inline vault purchases to private copies', asyn
   assert.match(html, /await migrateLegacyVaultPrivateCopies\(\{ silent: false \}\)/);
 });
 
+test('index page exposes Premium 2.0 purchase repair workflow', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /async function repairPremiumPurchases/);
+  assert.match(html, /const pending = await retryPendingVaultWrites\(\{ silent: true \}\)/);
+  assert.match(html, /const migrated = await migrateLegacyVaultPrivateCopies\(\{ silent: true \}\)/);
+  assert.match(html, /await _loadPurchaseCopyPayload\(item\.privateCopy\)/);
+  assert.match(html, /status = pending\.failed \|\| migrated\.failed \|\| unrecoverable \? 'needs_attention' : missing \? 'repairable' : 'clean'/);
+  assert.match(html, /repairBtn\.textContent = 'Repair purchases'/);
+  assert.match(html, /const result = await repairPremiumPurchases\(\{ silent: false \}\)/);
+  assert.match(html, /Purchase repair found everything clean/);
+});
+
 test('vault item stubs preserve Premium 2.0 private-copy fields', async () => {
   const html = await indexHtml();
   const stubStart = html.indexOf('function _vaultItemStub(item)');

@@ -8389,6 +8389,48 @@
       return { attempted: legacyItems.length, migrated: migratedItems.length, failed };
     }
 
+    async function repairPremiumPurchases({ silent = false } = {}) {
+      if (!_supportsVault() || !state.community?.myPubkey) {
+        return { status: 'unavailable', pending: null, migrated: null, checked: 0, ok: 0, missing: 0, unrecoverable: 0 };
+      }
+      const pending = await retryPendingVaultWrites({ silent: true });
+      const migrated = await migrateLegacyVaultPrivateCopies({ silent: true });
+      const vault = await loadPurchaseVault({ force: true });
+      let checked = 0;
+      let ok = 0;
+      let missing = 0;
+      let unrecoverable = 0;
+      for (const item of vault?.items || []) {
+        if (item.privateCopy) {
+          checked++;
+          try {
+            await _loadPurchaseCopyPayload(item.privateCopy);
+            ok++;
+          } catch (err) {
+            missing++;
+            if (!item.payload) unrecoverable++;
+            console.warn('[vault] repair private-copy validation failed', item.privateCopy, err);
+          }
+        } else if (item.payload) {
+          missing++;
+        } else {
+          unrecoverable++;
+        }
+      }
+      const status = pending.failed || migrated.failed || unrecoverable ? 'needs_attention' : missing ? 'repairable' : 'clean';
+      const result = { status, pending, migrated, checked, ok, missing, unrecoverable };
+      if (!silent) {
+        if (status === 'clean') {
+          toastSuccess('Purchase repair found everything clean ✓');
+        } else if (status === 'repairable') {
+          toast('Purchase repair found legacy purchases that can still be saved as private copies.');
+        } else {
+          toastError(`Purchase repair needs attention: ${unrecoverable} unrecoverable, ${pending.failed + migrated.failed} failed retry/migration.`);
+        }
+      }
+      return result;
+    }
+
     function _buildVaultItemForUnlock({ row, totalSats, creatorSats, platformSats, creatorPreimage, platformPreimage, payload }) {
       return {
         a: row.premium?.address || '',
@@ -9349,6 +9391,23 @@
         });
         actions.appendChild(migrateBtn);
       }
+      const repairBtn = document.createElement('button');
+      repairBtn.type = 'button';
+      repairBtn.textContent = 'Repair purchases';
+      repairBtn.title = 'Check private copies, retry pending saves, and migrate recoverable legacy purchases.';
+      repairBtn.addEventListener('click', async () => {
+        repairBtn.disabled = true;
+        repairBtn.textContent = 'Repairing…';
+        try {
+          const result = await repairPremiumPurchases({ silent: false });
+          await loadPurchasedDesignsIntoWall(wall, { force: true });
+          console.info('[vault] repair result', result);
+        } finally {
+          repairBtn.disabled = false;
+          repairBtn.textContent = 'Repair purchases';
+        }
+      });
+      actions.appendChild(repairBtn);
       const refreshBtn = document.createElement('button');
       refreshBtn.type = 'button';
       refreshBtn.textContent = '↻ Refresh';
