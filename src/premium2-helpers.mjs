@@ -1,5 +1,7 @@
 export const PREMIUM_POLICY_D_TAG = 'artstr:premium-policy:v1';
 export const PURCHASE_COPY_PREFIX = 'artstr:purchase-copy:';
+export const PREMIUM_MODE_V15 = 'softgate-v1.5';
+export const PRIVATE_SNAPSHOT_ACTION = 'private-snapshot-required';
 
 export function tagValue(event, name) {
   const tag = (event?.tags || []).find((t) => Array.isArray(t) && t[0] === name);
@@ -32,6 +34,56 @@ export function validatePremiumPolicyEvent(event, { platformPubkey } = {}) {
     return { ok: false, reason: 'missing_required_fields' };
   }
   return { ok: true, policy };
+}
+
+export function buildPremiumPublishStamp(policy, {
+  now = Math.floor(Date.now() / 1000),
+  supportedSoftgateEpochs = [],
+} = {}) {
+  if (!policy || typeof policy !== 'object' || policy.v !== 1) {
+    throw new TypeError('Premium policy v1 is required.');
+  }
+  const softgateEpoch = policy.activeSoftgateEpoch || '';
+  const claimEpoch = policy.activeClaimEpoch || '';
+  const epochConfig = policy.epochs?.[softgateEpoch];
+  if (!softgateEpoch || !claimEpoch || !epochConfig) {
+    throw new Error('Premium policy is missing the active epoch configuration.');
+  }
+  if (epochConfig.status === 'closed') {
+    throw new Error(`Premium policy epoch ${softgateEpoch} is closed for new publishes.`);
+  }
+  if (supportedSoftgateEpochs.length && !supportedSoftgateEpochs.includes(softgateEpoch)) {
+    throw new Error(`Premium policy epoch ${softgateEpoch} is not supported by this client.`);
+  }
+  const minDays = Math.max(1, Number(policy.minClaimDays) || 1);
+  const maxDays = Math.max(minDays, Number(policy.maxClaimDays) || 180);
+  const requestedDays = Number(policy.defaultClaimDays) || 90;
+  const claimDays = Math.min(maxDays, Math.max(minDays, requestedDays));
+  const claimUntil = Number(now) + (claimDays * 86400);
+  const premiumMode = PREMIUM_MODE_V15;
+  const postPurchaseAction = PRIVATE_SNAPSHOT_ACTION;
+  return {
+    premiumMode,
+    softgateEpoch,
+    claimEpoch,
+    claimUntil,
+    claimDays,
+    postPurchaseAction,
+    encryptedTag: epochConfig.softgateKdf || 'artstr-softgate-v1.5',
+    tags: [
+      ['premium-mode', premiumMode],
+      ['softgate-epoch', softgateEpoch],
+      ['claim-epoch', claimEpoch],
+      ['claim-until', String(claimUntil)],
+      ['claim-policy', postPurchaseAction],
+      ['post-purchase-action', postPurchaseAction],
+    ],
+    envelopeSoftgate: {
+      claimEpoch,
+      claimUntil,
+      postPurchaseAction,
+    },
+  };
 }
 
 function bytesToBase64Url(bytes) {

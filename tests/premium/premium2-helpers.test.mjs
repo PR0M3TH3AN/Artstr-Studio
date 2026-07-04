@@ -8,6 +8,7 @@ import {
   buildPurchaseCopyEventDraft,
   buildPurchaseCopyCoordinate,
   buildPurchaseCopyPlaintext,
+  buildPremiumPublishStamp,
   buildVaultV2Item,
   claimStatus,
   normalizeReceiptEvidence,
@@ -37,6 +38,58 @@ test('validates admin policy event and rejects untrusted policy shapes', async (
 
   const wrongD = { ...valid, tags: [['d', 'attacker-policy']] };
   assert.equal(validatePremiumPolicyEvent(wrongD, { platformPubkey }).reason, 'wrong_d_tag');
+});
+
+test('builds automatic premium publish stamps from admin policy', async () => {
+  const valid = await fixture('policy-valid-active.json');
+  const { policy } = validatePremiumPolicyEvent(valid, { platformPubkey });
+  const stamp = buildPremiumPublishStamp(policy, {
+    now: 1783200000,
+    supportedSoftgateEpochs: ['2026-05', '2026-07'],
+  });
+
+  assert.equal(stamp.premiumMode, 'softgate-v1.5');
+  assert.equal(stamp.softgateEpoch, '2026-07');
+  assert.equal(stamp.claimEpoch, '2026-07');
+  assert.equal(stamp.claimUntil, 1790976000);
+  assert.deepEqual(stamp.envelopeSoftgate, {
+    claimEpoch: '2026-07',
+    claimUntil: 1790976000,
+    postPurchaseAction: 'private-snapshot-required',
+  });
+  assert.deepEqual(stamp.tags, [
+    ['premium-mode', 'softgate-v1.5'],
+    ['softgate-epoch', '2026-07'],
+    ['claim-epoch', '2026-07'],
+    ['claim-until', '1790976000'],
+    ['claim-policy', 'private-snapshot-required'],
+    ['post-purchase-action', 'private-snapshot-required'],
+  ]);
+});
+
+test('rejects premium publish stamps for unsupported or closed policy epochs', async () => {
+  const valid = await fixture('policy-valid-active.json');
+  const { policy } = validatePremiumPolicyEvent(valid, { platformPubkey });
+
+  assert.throws(
+    () => buildPremiumPublishStamp(policy, { supportedSoftgateEpochs: ['2026-05'] }),
+    /not supported/,
+  );
+
+  const closedPolicy = {
+    ...policy,
+    epochs: {
+      ...policy.epochs,
+      [policy.activeSoftgateEpoch]: {
+        ...policy.epochs[policy.activeSoftgateEpoch],
+        status: 'closed',
+      },
+    },
+  };
+  assert.throws(
+    () => buildPremiumPublishStamp(closedPolicy, { supportedSoftgateEpochs: ['2026-07'] }),
+    /closed/,
+  );
 });
 
 test('resolves vault v2 private copies before legacy inline payloads', async () => {

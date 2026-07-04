@@ -26,6 +26,28 @@ test('index page wires Premium 2.0 private-copy unlock flow', async () => {
   assert.match(html, /Private copy saved\. Syncing purchase vault/);
 });
 
+test('index page wires admin policy into premium publish stamping', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /async function _loadPremiumPublishPolicy/);
+  assert.match(html, /helpers\.validatePremiumPolicyEvent/);
+  assert.match(html, /helpers\.buildPremiumPublishStamp/);
+  assert.match(html, /NWC\.verifyEvent\(event\)/);
+  assert.match(html, /supportedSoftgateEpochs: Premium\.SUPPORTED_EPOCHS/);
+  assert.match(html, /const premiumPolicy = await _loadPremiumPublishPolicy\(\)/);
+  assert.match(html, /Premium\.encryptPayload\(payload, coord, \{ epoch: premiumPolicy\.stamp\.softgateEpoch \}\)/);
+  assert.match(html, /envelope\.premiumMode = premiumPolicy\.stamp\.premiumMode/);
+  assert.match(html, /\.\.\.premiumPolicy\.stamp\.tags/);
+  assert.match(html, /\['encrypted', premiumPolicy\.stamp\.encryptedTag\]/);
+});
+
+test('soft-gate crypto supports the active Premium 2.0 policy epoch', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /'2026-07': \[/);
+  assert.match(html, /const CURRENT_EPOCH = '2026-07'/);
+});
+
 test('vault item stubs preserve Premium 2.0 private-copy fields', async () => {
   const html = await indexHtml();
   const stubStart = html.indexOf('function _vaultItemStub(item)');

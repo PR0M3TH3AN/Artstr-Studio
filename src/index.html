@@ -6488,9 +6488,15 @@
           new Uint8Array([0xa5, 0x71, 0x4e, 0x2c, 0x9b, 0x88, 0x33, 0xd0]),  // palette seed III
           new Uint8Array([0x62, 0x09, 0xfd, 0x18, 0x4a, 0xe7, 0xc4, 0x95]),  // palette seed IV
         ],
+        '2026-07': [
+          new Uint8Array([0x3f, 0x92, 0x0d, 0xbb, 0x51, 0x7a, 0xe4, 0x26]),  // palette seed I
+          new Uint8Array([0xd6, 0x44, 0x83, 0x19, 0xac, 0x05, 0x7e, 0xf1]),  // palette seed II
+          new Uint8Array([0x28, 0xcd, 0x70, 0x5a, 0x9f, 0x31, 0xb8, 0x64]),  // palette seed III
+          new Uint8Array([0xea, 0x16, 0x4b, 0xc7, 0x02, 0xdd, 0x90, 0x38]),  // palette seed IV
+        ],
       };
       const SUPPORTED_EPOCHS = Object.freeze(Object.keys(_softGatePepperParts));
-      const CURRENT_EPOCH = '2026-05';
+      const CURRENT_EPOCH = '2026-07';
       const PREMIUM_KDF_INFO = 'artstr-softgate-v1';
 
       function pepperBytesForEpoch(epoch) {
@@ -25776,12 +25782,41 @@
     // Encrypts the payload via Premium.encryptPayload, renders the
     // watermarked preview JPEG, builds the §5.1 tag set including the
     // platform-fee zap split, and publishes a single kind-30078 event.
+    async function _loadPremiumPublishPolicy() {
+      const helpers = window.ArtstrPremium2;
+      if (!helpers?.validatePremiumPolicyEvent || !helpers?.buildPremiumPublishStamp) {
+        throw new Error('Premium 2.0 policy helper module did not load.');
+      }
+      const platformPubkey = platform.getPubkeyHex();
+      const relays = getActiveRelays(splitRelayList(state.community?.relays || ''), { includeCoolingDown: true });
+      const events = await queryRelays(relays, {
+        kinds: [30078],
+        authors: [platformPubkey],
+        '#d': [helpers.PREMIUM_POLICY_D_TAG || 'artstr:premium-policy:v1'],
+        limit: 5,
+      }, { timeoutMs: 4500 });
+      const latest = (events || [])
+        .filter((event) => event?.content)
+        .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      for (const event of latest) {
+        if (!NWC.verifyEvent(event)) continue;
+        const validated = helpers.validatePremiumPolicyEvent(event, { platformPubkey });
+        if (!validated.ok) continue;
+        const stamp = helpers.buildPremiumPublishStamp(validated.policy, {
+          supportedSoftgateEpochs: Premium.SUPPORTED_EPOCHS,
+        });
+        return { event, policy: validated.policy, stamp };
+      }
+      throw new Error('No valid Artstr premium policy was found on your relays. Ask the Artstr admin to publish the Premium 2.0 policy event, then try publishing again.');
+    }
+
     async function _publishPremiumDesign(payload, mode, typeTag, attributionTags = []) {
       // Pre-flight: lud16 on creator (already enforced at the modal level),
       // and resolve the platform lud16 so the split-zap actually works for
       // buyers later.
       const myPubkey = state.community?.myPubkey;
       if (!myPubkey) throw new Error('Sign in with Nostr before publishing premium.');
+      const premiumPolicy = await _loadPremiumPublishPolicy();
       // Generate the preview FIRST so a too-large artboard bails before we
       // build any event. Decks get one watermarked JPEG per slide (capped)
       // so buyers can flip through what they'd unlock; everything else gets
@@ -25809,9 +25844,18 @@
       const coord = { creatorPubkey: myPubkey, dTag, schemaVersion: 5 };
       // Encrypt the payload. The decrypted shape is the existing
       // loadProjectFromText-compatible JSON.
-      const envelope = await Premium.encryptPayload(payload, coord);
+      const envelope = await Premium.encryptPayload(payload, coord, { epoch: premiumPolicy.stamp.softgateEpoch });
       envelope.payloadSchemaVersion = 5;
-      envelope.premiumMode = 'softgate-v1';
+      envelope.premiumMode = premiumPolicy.stamp.premiumMode;
+      envelope.policy = {
+        eventId: premiumPolicy.event.id || '',
+        pubkey: premiumPolicy.event.pubkey || '',
+        d: window.ArtstrPremium2?.PREMIUM_POLICY_D_TAG || 'artstr:premium-policy:v1',
+      };
+      envelope.softgate = {
+        ...(envelope.softgate || {}),
+        ...(premiumPolicy.stamp.envelopeSoftgate || {}),
+      };
       // Single-image envelope for non-decks; multi-slide envelope for
       // decks. Buyers detect via `kind` and either render a paginated
       // viewer (decks) or the single watermarked JPEG (everything else).
@@ -25840,7 +25884,6 @@
       const zapMin = Math.max(10, Math.floor(Number(state.publish?.zapMin) || 100));
       const platformPubkey = platform.getPubkeyHex();
       const relayHint = (splitRelayList(state.community?.relays || '')[0]) || '';
-      const epoch = envelope.softgate?.epoch || Premium.CURRENT_EPOCH;
       const tags = [
         ['d', dTag],
         ['t', 'casewrap'],
@@ -25851,9 +25894,8 @@
         ['language', state.meta?.language || 'en'],
         ['client', 'Artstr Studio'],
         ['premium', 'true'],
-        ['premium-mode', 'softgate-v1'],
-        ['softgate-epoch', epoch],
-        ['encrypted', 'artstr-softgate-v1'],
+        ...premiumPolicy.stamp.tags,
+        ['encrypted', premiumPolicy.stamp.encryptedTag],
         ['zap-gate', 'true'],
         ['zap-min', String(zapMin)],
         ['zap-split', 'required'],
