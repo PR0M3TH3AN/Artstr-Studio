@@ -3921,6 +3921,10 @@
       cp noble-bundle.min.js <repo>/src/
   -->
   <script src="noble-bundle.min.js"></script>
+  <script type="module">
+    import * as Premium2 from './premium2-helpers.mjs';
+    window.ArtstrPremium2 = Premium2;
+  </script>
 </head>
 <body>
   <div class="nostrWidget" id="nostrWidget">
@@ -7685,17 +7689,19 @@
         let vaultErr = null;
         if (row.premium && decryptedPayload) {
           if (statusToast?.dismiss) statusToast.dismiss();
-          statusToast = toast('Unlocked. Syncing to your purchase vault…', { duration: 30000 });
-          const vaultItem = _buildVaultItemForUnlock({
-            row,
-            totalSats: min,
-            creatorSats: result.creatorSats,
-            platformSats: result.platformSats,
-            creatorPreimage: result.creatorPreimage,
-            platformPreimage: result.platformPreimage,
-            payload: decryptedPayload,
-          });
+          statusToast = toast('Unlocked. Saving your private purchased copy…', { duration: 30000 });
           try {
+            const vaultItem = await _publishPurchaseCopyAndBuildVaultItem({
+              row,
+              totalSats: min,
+              creatorSats: result.creatorSats,
+              platformSats: result.platformSats,
+              creatorPreimage: result.creatorPreimage,
+              platformPreimage: result.platformPreimage,
+              payload: decryptedPayload,
+            });
+            if (statusToast?.dismiss) statusToast.dismiss();
+            statusToast = toast('Private copy saved. Syncing purchase vault…', { duration: 30000 });
             await upsertPurchaseVaultItem(vaultItem);
             vaultSynced = true;
           } catch (err) {
@@ -7824,13 +7830,20 @@
     // fields — the per-item event carries those.
     function _vaultItemStub(item) {
       return {
+        schema: item.schema,
         a: item.a,
         eventId: item.eventId,
+        privateCopy: item.privateCopy,
+        privateCopyEventId: item.privateCopyEventId,
         creatorPubkey: item.creatorPubkey,
         title: item.title,
         mode: item.mode,
         unlockedAt: item.unlockedAt,
         amountSats: item.amountSats,
+        claimEpoch: item.claimEpoch,
+        softgateEpoch: item.softgateEpoch,
+        licenseType: item.licenseType,
+        receiptSummary: item.receiptSummary,
       };
     }
 
@@ -8013,6 +8026,93 @@
       return await _publishVault(next);
     }
 
+    function _parseAddressCoord(coord) {
+      if (typeof coord !== 'string') return null;
+      const parts = coord.split(':');
+      if (parts.length < 3) return null;
+      const kind = Number(parts[0]);
+      const pubkey = parts[1] || '';
+      const dTag = parts.slice(2).join(':');
+      if (!Number.isFinite(kind) || !pubkey || !dTag) return null;
+      return { kind, pubkey, dTag };
+    }
+
+    async function _loadPurchaseCopyPayload(privateCopyCoord) {
+      const parsed = _parseAddressCoord(privateCopyCoord);
+      if (!parsed) throw new Error('Purchase copy pointer is malformed.');
+      const events = await queryRelays(_vaultRelayUnion(), {
+        kinds: [parsed.kind],
+        authors: [parsed.pubkey],
+        '#d': [parsed.dTag],
+        limit: 5,
+      }, { timeoutMs: 4500 });
+      const latest = (events || []).filter((e) => e?.content)
+        .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))[0];
+      if (!latest) throw new Error('Private purchase copy was not found on relays.');
+      const plaintext = await _selfDecrypt(latest.content);
+      const content = JSON.parse(plaintext);
+      if (content?.kind !== 'artstr-purchase-copy' || !content?.payload) {
+        throw new Error('Private purchase copy content was not valid.');
+      }
+      return { copy: content, event: latest };
+    }
+
+    async function _publishPurchaseCopyAndBuildVaultItem({ row, totalSats, creatorSats, platformSats, creatorPreimage, platformPreimage, payload }) {
+      const helpers = window.ArtstrPremium2;
+      if (!helpers?.buildPurchaseCopyPlaintext || !helpers?.buildPurchaseCopyEventDraft || !helpers?.buildVaultV2Item || !helpers?.buildPurchaseCopyCoordinate) {
+        throw new Error('Premium 2.0 helper module did not load.');
+      }
+      const source = {
+        a: row.premium?.address || '',
+        eventId: row.e?.id || '',
+        creatorPubkey: row.e?.pubkey || '',
+        title: row.title || '',
+        premiumMode: row.premium?.envelope?.premiumMode || premiumEventTagValue(row.e, 'premium-mode') || 'softgate-v1',
+        softgateEpoch: row.premium?.envelope?.softgate?.epoch || premiumEventTagValue(row.e, 'softgate-epoch') || '',
+        claimEpoch: row.premium?.envelope?.softgate?.claimEpoch || premiumEventTagValue(row.e, 'claim-epoch') || '',
+      };
+      const purchase = {
+        buyerPubkey: state.community?.myPubkey || '',
+        amountSats: totalSats,
+        unlockedAt: Math.floor(Date.now() / 1000),
+        receipts: [
+          { role: 'creator', recipientPubkey: row.e?.pubkey || '', amountSats: creatorSats, preimage: creatorPreimage || '' },
+          { role: 'platform', recipientPubkey: platform.getPubkeyHex(), amountSats: platformSats, preimage: platformPreimage || '' },
+        ],
+      };
+      const license = {
+        type: row.premium?.envelope?.license?.type || 'personal-use-template',
+        snapshot: true,
+        sourceCanChange: true,
+      };
+      const copyPlaintext = helpers.buildPurchaseCopyPlaintext({
+        source,
+        purchase,
+        license,
+        payload,
+        payloadSchemaVersion: row.premium?.envelope?.payloadSchemaVersion || payload?.version || 5,
+      });
+      const encryptedContent = await _selfEncrypt(JSON.stringify(copyPlaintext));
+      const copyDraft = await helpers.buildPurchaseCopyEventDraft({
+        sourceAddress: source.a,
+        encryptedContent,
+      });
+      const signedCopy = await signNostrEvent(copyDraft);
+      await publishToRelays(signedCopy, _vaultRelayUnion());
+      const privateCopy = await helpers.buildPurchaseCopyCoordinate({
+        buyerPubkey: state.community?.myPubkey || '',
+        sourceAddress: source.a,
+      });
+      return helpers.buildVaultV2Item({
+        source,
+        privateCopy,
+        privateCopyEventId: signedCopy.id || '',
+        purchase,
+        mode: row.mode || payload?.templateMode || '',
+        licenseType: license.type,
+      });
+    }
+
     function _buildVaultItemForUnlock({ row, totalSats, creatorSats, platformSats, creatorPreimage, platformPreimage, payload }) {
       return {
         a: row.premium?.address || '',
@@ -8044,15 +8144,26 @@
         let unavailable = 0;
         for (const it of items) {
           if (!it?.eventId) continue;
-          if (!it?.payload) { unavailable++; continue; }
+          let payload = it.payload || null;
+          let previewJpegDataUrl = it.previewJpegDataUrl || undefined;
+          if (!payload && it.privateCopy) {
+            try {
+              const restored = await _loadPurchaseCopyPayload(it.privateCopy);
+              payload = restored.copy?.payload || null;
+              previewJpegDataUrl = restored.copy?.previewJpegDataUrl || previewJpegDataUrl;
+            } catch (err) {
+              console.warn('[vault] private purchase-copy restore failed', it.privateCopy, err);
+            }
+          }
+          if (!payload) { unavailable++; continue; }
           if (isUnlockedLocally(it.eventId, it.a)) continue;
           // Store under the LATEST event id from the vault, but include
           // the address so a future edit-in-place still picks this up.
           markUnlocked(it.eventId, {
-            source: 'vault',
+            source: it.privateCopy ? 'vault-private-copy' : 'vault',
             address: it.a || '',
-            payload: it.payload || undefined,
-            previewJpegDataUrl: it.previewJpegDataUrl || undefined,
+            payload,
+            previewJpegDataUrl,
             amountSats: it.amountSats,
             unlockedAt: it.unlockedAt,
           });
