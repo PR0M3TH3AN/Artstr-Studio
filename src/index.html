@@ -5633,11 +5633,11 @@
       </details>
       <details id="premiumPolicyAdminDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px;display:none">
         <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">Premium policy admin</summary>
-        <p class="hint" style="margin:8px 0 6px">Publish the signed Premium 2.0 policy event used for epoch and claim-window stamping.</p>
+        <p class="hint" style="margin:8px 0 6px">Publish the signed Premium 2.0 policy event used for epoch and claim-window stamping. Leave claim days blank/0 to keep listings claimable until you manually close the epoch.</p>
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
           <div><label for="premiumPolicySoftgateEpoch">Softgate epoch</label><input id="premiumPolicySoftgateEpoch" type="text" value="2026-07" /></div>
           <div><label for="premiumPolicyClaimEpoch">Claim epoch</label><input id="premiumPolicyClaimEpoch" type="text" value="2026-07" /></div>
-          <div><label for="premiumPolicyDefaultDays">Claim days</label><input id="premiumPolicyDefaultDays" type="number" min="7" max="180" step="1" value="90" /></div>
+          <div><label for="premiumPolicyDefaultDays">Claim days</label><input id="premiumPolicyDefaultDays" type="number" min="0" max="3650" step="1" value="0" placeholder="0 = manual close" /></div>
           <div><label for="premiumPolicyEpochStatus">Epoch status</label><select id="premiumPolicyEpochStatus"><option value="active">Active</option><option value="legacy">Legacy</option><option value="closed">Closed</option></select></div>
         </div>
         <div class="buttonRow" style="margin:8px 0 0">
@@ -26300,15 +26300,20 @@
     function buildPremiumPolicyFromAdminForm() {
       const softgateEpoch = ($('premiumPolicySoftgateEpoch')?.value || '2026-07').trim();
       const claimEpoch = ($('premiumPolicyClaimEpoch')?.value || softgateEpoch).trim();
-      const defaultClaimDays = Math.max(7, Math.min(180, Number($('premiumPolicyDefaultDays')?.value) || 90));
+      const rawClaimDays = ($('premiumPolicyDefaultDays')?.value || '').trim();
+      const parsedClaimDays = Number(rawClaimDays);
+      const defaultClaimDays = rawClaimDays === '' || parsedClaimDays === 0
+        ? 0
+        : Math.max(1, Math.min(3650, parsedClaimDays || 0));
       const status = ($('premiumPolicyEpochStatus')?.value || 'active').trim();
       return {
         v: 1,
         activeSoftgateEpoch: softgateEpoch,
         activeClaimEpoch: claimEpoch,
         defaultClaimDays,
-        minClaimDays: 7,
-        maxClaimDays: 180,
+        claimWindow: defaultClaimDays === 0 ? 'manual' : 'fixed-days',
+        minClaimDays: defaultClaimDays === 0 ? 0 : 1,
+        maxClaimDays: 3650,
         privateCopies: 'required',
         firstUnlockDefault: 'allowed',
         issuedAt: Math.floor(Date.now() / 1000),
@@ -26340,9 +26345,10 @@
         const policy = loaded.policy || {};
         if ($('premiumPolicySoftgateEpoch')) $('premiumPolicySoftgateEpoch').value = policy.activeSoftgateEpoch || '2026-07';
         if ($('premiumPolicyClaimEpoch')) $('premiumPolicyClaimEpoch').value = policy.activeClaimEpoch || policy.activeSoftgateEpoch || '2026-07';
-        if ($('premiumPolicyDefaultDays')) $('premiumPolicyDefaultDays').value = String(policy.defaultClaimDays || 90);
+        if ($('premiumPolicyDefaultDays')) $('premiumPolicyDefaultDays').value = Number(policy.defaultClaimDays || 0) > 0 ? String(policy.defaultClaimDays) : '0';
         if ($('premiumPolicyEpochStatus')) $('premiumPolicyEpochStatus').value = policy.epochs?.[policy.activeSoftgateEpoch]?.status || 'active';
-        statusEl.textContent = `Active policy: ${policy.activeSoftgateEpoch || 'unknown'} / claim ${policy.activeClaimEpoch || 'unknown'}.`;
+        const claimWindow = Number(policy.defaultClaimDays || 0) > 0 ? `${policy.defaultClaimDays} days` : 'manual close';
+        statusEl.textContent = `Active policy: ${policy.activeSoftgateEpoch || 'unknown'} / claim ${policy.activeClaimEpoch || 'unknown'} / ${claimWindow}.`;
       } catch (err) {
         statusEl.textContent = err?.message || 'No valid premium policy found.';
       }

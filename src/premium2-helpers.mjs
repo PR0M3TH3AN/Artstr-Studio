@@ -55,13 +55,22 @@ export function buildPremiumPublishStamp(policy, {
   if (supportedSoftgateEpochs.length && !supportedSoftgateEpochs.includes(softgateEpoch)) {
     throw new Error(`Premium policy epoch ${softgateEpoch} is not supported by this client.`);
   }
-  const minDays = Math.max(1, Number(policy.minClaimDays) || 1);
-  const maxDays = Math.max(minDays, Number(policy.maxClaimDays) || 180);
-  const requestedDays = Number(policy.defaultClaimDays) || 90;
-  const claimDays = Math.min(maxDays, Math.max(minDays, requestedDays));
-  const claimUntil = Number(now) + (claimDays * 86400);
+  const requestedDays = Number(policy.defaultClaimDays);
+  const manualClaimClose = requestedDays === 0 || policy.claimWindow === 'manual';
+  const minDays = manualClaimClose ? 0 : Math.max(1, Number(policy.minClaimDays) || 1);
+  const maxDays = manualClaimClose ? 0 : Math.max(minDays, Number(policy.maxClaimDays) || 180);
+  const claimDays = manualClaimClose ? 0 : Math.min(maxDays, Math.max(minDays, requestedDays || 90));
+  const claimUntil = claimDays > 0 ? Number(now) + (claimDays * 86400) : 0;
   const premiumMode = PREMIUM_MODE_V15;
   const postPurchaseAction = PRIVATE_SNAPSHOT_ACTION;
+  const tags = [
+    ['premium-mode', premiumMode],
+    ['softgate-epoch', softgateEpoch],
+    ['claim-epoch', claimEpoch],
+    ['claim-policy', postPurchaseAction],
+    ['post-purchase-action', postPurchaseAction],
+  ];
+  if (claimUntil) tags.splice(3, 0, ['claim-until', String(claimUntil)]);
   return {
     premiumMode,
     softgateEpoch,
@@ -70,14 +79,7 @@ export function buildPremiumPublishStamp(policy, {
     claimDays,
     postPurchaseAction,
     encryptedTag: epochConfig.softgateKdf || 'artstr-softgate-v1.5',
-    tags: [
-      ['premium-mode', premiumMode],
-      ['softgate-epoch', softgateEpoch],
-      ['claim-epoch', claimEpoch],
-      ['claim-until', String(claimUntil)],
-      ['claim-policy', postPurchaseAction],
-      ['post-purchase-action', postPurchaseAction],
-    ],
+    tags,
     envelopeSoftgate: {
       claimEpoch,
       claimUntil,

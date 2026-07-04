@@ -68,6 +68,35 @@ test('builds automatic premium publish stamps from admin policy', async () => {
   ]);
 });
 
+test('builds unlimited premium publish stamps for manual-close policies', async () => {
+  const valid = await fixture('policy-valid-active.json');
+  const { policy } = validatePremiumPolicyEvent(valid, { platformPubkey });
+  const stamp = buildPremiumPublishStamp({
+    ...policy,
+    defaultClaimDays: 0,
+    claimWindow: 'manual',
+    minClaimDays: 0,
+  }, {
+    now: 1783200000,
+    supportedSoftgateEpochs: ['2026-05', '2026-07'],
+  });
+
+  assert.equal(stamp.claimDays, 0);
+  assert.equal(stamp.claimUntil, 0);
+  assert.deepEqual(stamp.envelopeSoftgate, {
+    claimEpoch: '2026-07',
+    claimUntil: 0,
+    postPurchaseAction: 'private-snapshot-required',
+  });
+  assert.deepEqual(stamp.tags, [
+    ['premium-mode', 'softgate-v1.5'],
+    ['softgate-epoch', '2026-07'],
+    ['claim-epoch', '2026-07'],
+    ['claim-policy', 'private-snapshot-required'],
+    ['post-purchase-action', 'private-snapshot-required'],
+  ]);
+});
+
 test('rejects premium publish stamps for unsupported or closed policy epochs', async () => {
   const valid = await fixture('policy-valid-active.json');
   const { policy } = validatePremiumPolicyEvent(valid, { platformPubkey });

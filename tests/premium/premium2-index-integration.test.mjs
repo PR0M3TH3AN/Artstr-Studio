@@ -52,6 +52,9 @@ test('index page exposes admin-only premium policy publishing controls', async (
   assert.match(html, /async function publishPremiumPolicyFromSettings\(\)/);
   assert.match(html, /helpers\.buildPremiumPolicyEventDraft\(policy\)/);
   assert.match(html, /helpers\.validatePremiumPolicyEvent\(signed, \{ platformPubkey: platform\.getPubkeyHex\(\) \}\)/);
+  assert.match(html, /placeholder="0 = manual close"/);
+  assert.match(html, /claimWindow: defaultClaimDays === 0 \? 'manual' : 'fixed-days'/);
+  assert.match(html, /statusEl\.textContent = `Active policy: \$\{policy\.activeSoftgateEpoch \|\| 'unknown'\} \/ claim \$\{policy\.activeClaimEpoch \|\| 'unknown'\} \/ \$\{claimWindow\}\.`/);
   assert.match(html, /on\('premiumPolicyPublishBtn', 'click'/);
   assert.match(html, /Premium policy published/);
 });

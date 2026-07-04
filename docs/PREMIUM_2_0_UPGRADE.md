@@ -359,8 +359,8 @@ Premium 2.0 changes the post-payment path:
 
 1. Artstr fetches and verifies the signed admin premium policy event.
 2. Creator publishes a premium event as usual. Artstr automatically stamps
-   policy fields such as `softgate-epoch`, `claim-epoch`, `claim-until`,
-   and `post-purchase-action`.
+   policy fields such as `softgate-epoch`, `claim-epoch`, optional
+   `claim-until`, and `post-purchase-action`.
 3. Buyer unlocks and pays split zaps as today.
 4. Artstr verifies all required receipts.
 5. Browser decrypts the public premium payload once.
@@ -410,9 +410,10 @@ Content:
   "v": 1,
   "activeSoftgateEpoch": "2026-07",
   "activeClaimEpoch": "2026-07",
-  "defaultClaimDays": 90,
-  "minClaimDays": 7,
-  "maxClaimDays": 180,
+  "defaultClaimDays": 0,
+  "claimWindow": "manual",
+  "minClaimDays": 0,
+  "maxClaimDays": 3650,
   "privateCopies": "required",
   "firstUnlockDefault": "allowed",
   "issuedAt": 1783200000,
@@ -477,7 +478,7 @@ Artstr-controlled automatic fields:
   ["premium-mode", "softgate-v1.5"],
   ["softgate-epoch", "<policy.activeSoftgateEpoch>"],
   ["claim-epoch", "<policy.activeClaimEpoch>"],
-  ["claim-until", "<now + policy.defaultClaimDays>"],
+  ["claim-until", "<now + policy.defaultClaimDays, omitted when manual>"],
   ["claim-policy", "private-snapshot-required"],
   ["post-purchase-action", "private-snapshot-required"]
 ]
@@ -494,7 +495,7 @@ Envelope additions:
     "claimEpoch": "2026-07",
     "publicDesignSalt": "<base64-random-32-bytes>",
     "purchaseScope": "address",
-    "claimUntil": 1796083200,
+    "claimUntil": 0,
     "postPurchaseAction": "private-snapshot-required"
   },
   "license": {
@@ -507,8 +508,8 @@ Envelope additions:
 Creator UI should stay simple:
 
 ```text
-Premium purchases are claimable for 90 days. Buyers keep a private
-encrypted copy after purchase.
+Premium purchases stay claimable until Artstr closes the epoch. Buyers keep
+a private encrypted copy after purchase.
 ```
 
 Do not expose `epoch`, `KDF`, or `policy manifest` language in normal
@@ -522,9 +523,12 @@ Claim windows are honest-client policy.
 
 Rules:
 
-- `claim-until` controls first-time public-premium unlock attempts;
-- after `claim-until`, honest clients stop offering a new first-time
-  unlock from that public event;
+- `claim-until` is optional. If it is absent or `0`, the public listing stays
+  claimable until the admin manually closes the epoch;
+- when `claim-until` is present, it controls first-time public-premium
+  unlock attempts;
+- after `claim-until`, honest clients stop offering a new first-time unlock
+  from that public event;
 - already-claimed private purchase copies keep opening;
 - self-authored premium events can keep auto-unlocking for the creator;
 - expired source events remain browseable as previews;
@@ -533,7 +537,7 @@ Rules:
 
 Recommended defaults:
 
-- default claim window: 90 days;
+- default claim window: unlimited/manual close (`defaultClaimDays: 0`);
 - creator does not configure it in v2.0;
 - admin can later expose creator choice within `minClaimDays` and
   `maxClaimDays` if there is real demand;
@@ -541,6 +545,12 @@ Recommended defaults:
   the epoch.
 
 Claim windows should never be described as cryptographic expiry.
+
+If an epoch is manually closed and a creator wants an old public listing to
+be purchasable again, the creator should update/republish the listing under
+the current active policy. The new public event gets the new active epoch and
+becomes a fresh storefront. Existing buyers keep their older private purchase
+copies as snapshots of what they bought.
 
 ---
 
