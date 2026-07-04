@@ -3215,6 +3215,10 @@
       box-shadow:0 1px 3px rgba(15,23,42,.25);
       pointer-events:none;
     }
+    .feedCardPremiumRibbon.premiumOwnedRibbon,
+    #nostrPreviewPanel .premiumPreviewRibbon.premiumOwnedRibbon{
+      background:linear-gradient(135deg,#0f766e,#22c55e);
+    }
     /* Same gradient stroke + ribbon for the larger preview pane that
        opens when a feed card is clicked. Inherits the look from
        .feedCardPremium so premium designs stay visually consistent
@@ -31383,6 +31387,12 @@
       return !!my && my === author;
     }
 
+    function premiumRibbonLabel(row) {
+      if (!row?.premium) return '';
+      if (rowIsOwnedByMe(row)) return '⚡ CREATED BY ME';
+      return row.premium.decrypted ? '⚡ UNLOCKED' : '⚡ PREMIUM';
+    }
+
     function startEditFromRow(row) {
       const dTag = rowDTag(row);
       if (!dTag) { toastError('This design has no d-tag and cannot be edited in place. You can fork it instead.'); return; }
@@ -35057,7 +35067,8 @@
       if (row.premium) {
         const ribbon = document.createElement('span');
         ribbon.className = 'feedCardPremiumRibbon';
-        ribbon.textContent = row.premium.decrypted ? '⚡ UNLOCKED' : '⚡ PREMIUM';
+        if (rowIsOwnedByMe(row)) ribbon.classList.add('premiumOwnedRibbon');
+        ribbon.textContent = premiumRibbonLabel(row);
         thumb.appendChild(ribbon);
       }
 
@@ -36146,7 +36157,8 @@
         content.classList.add('premiumPreviewPane');
         const ribbon = document.createElement('span');
         ribbon.className = 'premiumPreviewRibbon';
-        ribbon.textContent = row.premium.decrypted ? '⚡ UNLOCKED' : '⚡ PREMIUM';
+        if (rowIsOwnedByMe(row)) ribbon.classList.add('premiumOwnedRibbon');
+        ribbon.textContent = premiumRibbonLabel(row);
         content.appendChild(ribbon);
       } else {
         content.classList.remove('premiumPreviewPane');

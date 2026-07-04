@@ -153,6 +153,17 @@ test('index page refreshes the Purchased tab after a successful Premium 2.0 purc
   assert.match(html, /refreshPurchasedTabIfVisible\(\{ force: false \}\)/);
 });
 
+test('index page labels authored premium rows differently from purchased unlocks', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /function premiumRibbonLabel\(row\)/);
+  assert.match(html, /if \(rowIsOwnedByMe\(row\)\) return '⚡ CREATED BY ME'/);
+  assert.match(html, /return row\.premium\.decrypted \? '⚡ UNLOCKED' : '⚡ PREMIUM'/);
+  assert.match(html, /ribbon\.textContent = premiumRibbonLabel\(row\)/);
+  assert.match(html, /premiumOwnedRibbon/);
+  assert.match(html, /pubkey: item\.creatorPubkey \|\| ''/);
+});
+
 test('index page exposes creator premium epoch refresh for existing listings', async () => {
   const html = await indexHtml();
 
