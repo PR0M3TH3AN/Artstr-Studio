@@ -141,6 +141,15 @@ test('index page migrates legacy inline vault purchases to private copies', asyn
   assert.match(html, /await migrateLegacyVaultPrivateCopies\(\{ silent: false \}\)/);
 });
 
+test('index page refreshes the Purchased tab after a successful Premium 2.0 purchase', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /function refreshPurchasedTabIfVisible\(opts = \{\}\)/);
+  assert.match(html, /if \(_feedState\.filterMine !== 'purchased'\) return/);
+  assert.match(html, /loadPurchasedDesignsIntoWall\(wall, opts\)\.catch/);
+  assert.match(html, /refreshPurchasedTabIfVisible\(\{ force: false \}\)/);
+});
+
 test('index page exposes Premium 2.0 purchase repair workflow', async () => {
   const html = await indexHtml();
 

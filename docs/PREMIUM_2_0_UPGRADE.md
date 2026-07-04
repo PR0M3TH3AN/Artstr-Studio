@@ -4,7 +4,19 @@
 
 ### Status
 
-Draft implementation plan for the next major premium-design arc.
+Implementation in progress. The core Premium 2.0 purchase path is now
+implemented in the static browser client:
+
+- admin-signed premium policy lookup and publish stamping;
+- encrypted premium public storefront events;
+- split-zap unlock through NWC;
+- buyer-private purchase-copy publication;
+- purchase-vault v2 index entries that point at private copies;
+- partial-payment resume;
+- pending private-copy retry;
+- legacy vault migration;
+- purchase repair tools;
+- claim-window enforcement for first-time public claims.
 
 Premium 1.0 already shipped the static soft-gate, split-zap unlock flow,
 watermarked previews, and NIP-44 purchase vault. This Premium 2.0 plan
@@ -21,6 +33,165 @@ Creators should not manage epochs. A creator should only choose
 `Premium encrypted`, set price/title/category/license fields, and publish.
 Artstr should automatically stamp new premium publishes with the current
 admin-controlled policy.
+
+---
+
+## 0. Current Implementation Summary
+
+Premium 2.0 now treats a paid design purchase as a multi-step browser
+transaction. Each step is independently recoverable because payment,
+decryption, private-copy publication, and vault-index publication can fail
+at different times.
+
+The happy path is:
+
+1. Buyer clicks `Unlock` or `Resume payment` on a premium card.
+2. Artstr resolves the creator's Lightning endpoint from the creator kind-0
+   profile. If the feed cache is cold after a browser refresh, Artstr
+   fetches the profile before deciding the creator lacks `lud16`/`lud06`.
+3. Artstr resolves the platform Lightning endpoint from the pinned platform
+   profile.
+4. Artstr asks the buyer's NIP-07 signer to sign creator and platform
+   NIP-57 zap requests.
+5. Artstr fetches BOLT11 invoices for both split-zap legs.
+6. Artstr pays both invoices through the buyer's NWC wallet connection.
+7. Artstr records each returned preimage in local partial-payment state.
+8. When both legs are paid, Artstr derives the soft-gate key and decrypts
+   the public premium payload locally.
+9. Artstr publishes a buyer-private encrypted purchase-copy event under the
+   buyer's pubkey.
+10. Artstr upserts the buyer's encrypted purchase-vault index with a v2 item
+    pointing at that private copy.
+11. Artstr clears pending local save state, updates the Purchased tab if it
+    is open, and shows final unlock success.
+
+The user-facing status toasts intentionally show these boundaries:
+
+```text
+Starting unlock...
+Resolving Lightning endpoints...
+Signing zap requests...
+Fetching invoices...
+Paying creator + platform fee...
+Paying creator...
+Paying platform fee...
+Unlocked
+Decrypting design...
+Unlocked. Saving your private purchased copy...
+Private copy saved. Syncing purchase vault...
+Unlocked "<title>"
+```
+
+If the last visible status is `Private copy saved. Syncing purchase vault...`,
+the payment and private-copy publication have already succeeded. The next
+state is either final success or a recoverable vault-sync error.
+
+### 0.1 Event Roles
+
+Premium 2.0 uses three separate Nostr objects:
+
+```text
+public premium event
+  kind: 30078
+  author: creator
+  role: storefront, preview, price, encrypted source payload
+
+buyer-private purchase copy
+  kind: 30078
+  author: buyer
+  d: artstr:purchase-copy:<hash>
+  role: buyer-owned encrypted snapshot of the purchased design
+
+purchase vault
+  kind: 30078
+  author: buyer
+  d: artstr:purchase-vault:v1
+  role: encrypted private index of owned premium designs
+```
+
+The public premium event remains useful as a storefront and provenance
+source. The buyer-private purchase copy is the durable usable asset. The
+purchase vault is the private inventory index that lets the Purchased tab
+find and open buyer-owned copies across browsers/devices.
+
+### 0.2 Purchased Tab Behavior
+
+The Purchased tab is backed by the buyer's encrypted purchase vault. It does
+not list a design merely because the public card is currently unlocked in
+memory. It lists designs once Artstr can load a vault item, and for v2 items
+it then fetches and decrypts the referenced private purchase copy.
+
+Current behavior:
+
+- on tab open, render cached vault items immediately if `_vaultCache` exists;
+- retry locally pending private-copy saves before rendering;
+- re-query relays for the latest vault;
+- render each vault item as a normal feed card that opens the decrypted
+  payload;
+- show `Retry saving private copy` if a payment/decrypt succeeded but relay
+  publish did not finish;
+- show `Repair purchases` to retry pending saves, migrate legacy inline
+  entries, and validate private-copy pointers;
+- after a successful new purchase, refresh the Purchased tab if it is
+  already open.
+
+Because relays are eventually consistent, a just-purchased item may be
+visible from the in-memory cache before every relay has the latest vault
+event. The `Refresh` button forces a relay re-query.
+
+### 0.3 NWC Timeout and Partial-Payment Recovery
+
+NWC responses are not the same thing as Lightning settlement. A wallet can
+settle an invoice but fail to return a `pay_invoice` response before the
+browser timeout. Premium 2.0 handles that as a recoverable state.
+
+Artstr now:
+
+- uses a longer timeout for `pay_invoice` than ordinary NWC requests;
+- stores fetched BOLT11 invoices and returned preimages per leg;
+- calls `lookup_invoice` before paying a cached invoice on retry;
+- sends BOLT11 invoices to `lookup_invoice` as `{ invoice }`, and non-invoice
+  values as `{ payment_hash }`;
+- after a `pay_invoice` timeout, immediately calls `lookup_invoice` on that
+  BOLT11 before treating the leg as failed;
+- only retries legs without a cached preimage.
+
+This matters for split zaps. If the platform fee succeeds and the creator leg
+times out, the buyer should be able to click `Resume payment`; Artstr checks
+cached invoices/preimages and should not repay the platform leg.
+
+### 0.4 Local Pending Save State
+
+Payment success does not guarantee relay persistence. If the buyer paid and
+the browser decrypted the design, but private-copy or vault publication
+fails, Artstr stores a local pending private-copy record.
+
+The pending record exists so the buyer can recover without paying again. The
+Purchased tab surfaces it with `Retry saving private copy`, and the repair
+workflow attempts the same retry automatically.
+
+Pending state should be cleared only after:
+
+```text
+private purchase copy published
+purchase vault index published
+vault cache updated
+```
+
+### 0.5 Success Criteria for a Completed Purchase
+
+A Premium 2.0 purchase is complete when all of these are true:
+
+- both split-zap legs have preimages;
+- the premium payload decrypts;
+- the buyer-private purchase-copy event publishes;
+- the purchase vault publishes with a v2 pointer to that private copy;
+- the local pending-save record is cleared;
+- the Purchased tab can render the vault item.
+
+If only the public premium card says unlocked, the buyer has local access.
+If the Purchased tab also shows the design, the buyer has the intended
+Premium 2.0 durable inventory path.
 
 ---
 

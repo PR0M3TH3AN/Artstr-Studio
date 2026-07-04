@@ -7815,6 +7815,7 @@
             await upsertPurchaseVaultItem(vaultItem);
             clearPendingPrivateCopy(row);
             vaultSynced = true;
+            refreshPurchasedTabIfVisible({ force: false });
           } catch (err) {
             vaultErr = err;
             savePendingPrivateCopy({
@@ -9558,6 +9559,17 @@
           if (typeof toastError === 'function') toastError('Vault refresh failed: ' + (err?.message || err));
         }
       }
+    }
+
+    function refreshPurchasedTabIfVisible(opts = {}) {
+      const wall = $('feedWallMine');
+      const panel = $('panelMine');
+      if (!wall || !panel) return;
+      if (_feedState.filterMine !== 'purchased') return;
+      if (panel.style.display === 'none') return;
+      loadPurchasedDesignsIntoWall(wall, opts).catch((err) => {
+        console.warn('[purchased tab] post-purchase refresh failed', err);
+      });
     }
     // ---- end Purchase vault ------------------------------------------------
 
