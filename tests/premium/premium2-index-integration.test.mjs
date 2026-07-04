@@ -48,6 +48,19 @@ test('soft-gate crypto supports the active Premium 2.0 policy epoch', async () =
   assert.match(html, /const CURRENT_EPOCH = '2026-07'/);
 });
 
+test('index page blocks expired first-time premium claims but keeps owned paths separate', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /function _premiumClaimUntil\(row\)/);
+  assert.match(html, /function _premiumClaimStatusForRow\(row\)/);
+  assert.match(html, /owned: !!\(row\?\.zapGate\?\.unlocked \|\| isUnlockedLocally\(row\?\.e\?\.id, address\)\)/);
+  assert.match(html, /const claimState = _premiumClaimStatusForRow\(row\);\n\s+if \(claimState === 'expired' \|\| claimState === 'closed'\)/);
+  assert.match(html, /This premium design is no longer claimable from the public storefront/);
+  assert.match(html, /btn\.textContent = 'Claim period ended'/);
+  assert.match(html, /forkBtn\.textContent = 'Claim period ended'/);
+  assert.match(html, /Purchased private copies still open from the vault/);
+});
+
 test('vault item stubs preserve Premium 2.0 private-copy fields', async () => {
   const html = await indexHtml();
   const stubStart = html.indexOf('function _vaultItemStub(item)');

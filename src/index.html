@@ -7422,6 +7422,22 @@
         document.querySelectorAll(`[data-event-id="${eventId}"]`).forEach((el) => el.remove());
       } catch (err) { console.warn('[zap-gated] markUnlocked failed', err); }
     }
+    function _premiumClaimUntil(row) {
+      return Number(
+        row?.premium?.envelope?.softgate?.claimUntil
+        || premiumEventTagValue(row?.e, 'claim-until')
+        || 0
+      ) || 0;
+    }
+    function _premiumClaimStatusForRow(row) {
+      const helpers = window.ArtstrPremium2;
+      const address = row?.premium?.address || (row?.e ? premiumAddressCoord(row.e) : '');
+      return helpers?.claimStatus?.({
+        claimUntil: _premiumClaimUntil(row),
+        owned: !!(row?.zapGate?.unlocked || isUnlockedLocally(row?.e?.id, address)),
+        selfAuthored: !!(row?.e?.pubkey && normalizePubkey(row.e.pubkey) === normalizePubkey(state.community?.myPubkey || '')),
+      }) || 'claimable';
+    }
 
     // Relay fast-path — on feed load, query for zap receipts we've already
     // sent for gated templates. Matching receipts auto-unlock without
@@ -7607,6 +7623,11 @@
     async function openUnlockConfirm(row) {
       const eventId = row?.e?.id;
       if (!eventId) return;
+      const claimState = _premiumClaimStatusForRow(row);
+      if (claimState === 'expired' || claimState === 'closed') {
+        toastError('This premium design is no longer claimable from the public storefront. Already-purchased private copies still open from your vault.');
+        return;
+      }
       if (!nwc.isConnected()) {
         toastError('Connect a Lightning wallet first (Profile → Settings → ⚡ Lightning wallet).');
         // Open Settings + expand the wallet panel so the user can act on
@@ -34611,10 +34632,17 @@
       // only on importing into the editor.
       const locked = row.zapGate?.gated && !row.zapGate?.unlocked;
       if (locked) {
-        btn.textContent = `⚡ Unlock for ${row.zapGate.min} sats`;
-        btn.className = 'primary';
-        btn.title = `Premium template — zap to unlock (creator + ${(PLATFORM_FEE_BPS / 100).toFixed(0)}% Artstr platform fee).`;
-        btn.addEventListener('click', e => { e.stopPropagation(); openUnlockConfirm(row); });
+        const claimState = _premiumClaimStatusForRow(row);
+        if (claimState === 'expired' || claimState === 'closed') {
+          btn.textContent = 'Claim period ended';
+          btn.disabled = true;
+          btn.title = 'This public premium storefront is no longer claimable. Purchased private copies still open from the vault.';
+        } else {
+          btn.textContent = `⚡ Unlock for ${row.zapGate.min} sats`;
+          btn.className = 'primary';
+          btn.title = `Premium template — zap to unlock (creator + ${(PLATFORM_FEE_BPS / 100).toFixed(0)}% Artstr platform fee).`;
+          btn.addEventListener('click', e => { e.stopPropagation(); openUnlockConfirm(row); });
+        }
       } else {
         btn.textContent = 'Use/Fork';
         btn.title = 'Fork this design — opens it in the editor so you can save your own version';
@@ -35605,13 +35633,20 @@
       const forkBtn = document.createElement('button');
       forkBtn.type = 'button';
       if (lockedPremium) {
-        forkBtn.textContent = `⚡ Unlock for ${row.zapGate?.min || 100} sats`;
-        forkBtn.className = 'primary';
-        forkBtn.title = `Premium template — zap to unlock (creator + ${(PLATFORM_FEE_BPS / 100).toFixed(0)}% Artstr platform fee).`;
-        forkBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          openUnlockConfirm(row);
-        });
+        const claimState = _premiumClaimStatusForRow(row);
+        if (claimState === 'expired' || claimState === 'closed') {
+          forkBtn.textContent = 'Claim period ended';
+          forkBtn.disabled = true;
+          forkBtn.title = 'This public premium storefront is no longer claimable. Purchased private copies still open from the vault.';
+        } else {
+          forkBtn.textContent = `⚡ Unlock for ${row.zapGate?.min || 100} sats`;
+          forkBtn.className = 'primary';
+          forkBtn.title = `Premium template — zap to unlock (creator + ${(PLATFORM_FEE_BPS / 100).toFixed(0)}% Artstr platform fee).`;
+          forkBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openUnlockConfirm(row);
+          });
+        }
       } else {
         forkBtn.textContent = 'Use/Fork';
         forkBtn.title = 'Fork this design — opens it in the editor so you can save your own version';
