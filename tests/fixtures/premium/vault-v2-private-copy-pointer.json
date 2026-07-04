@@ -1,0 +1,11 @@
+{
+  "schema": "purchase-vault-v2",
+  "a": "30078:creatorpubkey:premium:customart:poster",
+  "eventId": "event-v2",
+  "privateCopy": "30078:buyerpubkey:artstr:purchase-copy:abc123",
+  "privateCopyEventId": "copy-event-v2",
+  "title": "Poster Template",
+  "mode": "customart",
+  "unlockedAt": 1783200000000,
+  "amountSats": 1000
+}

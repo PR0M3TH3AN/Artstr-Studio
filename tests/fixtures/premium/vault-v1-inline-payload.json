@@ -1,0 +1,14 @@
+{
+  "a": "30078:creatorpubkey:premium:customart:poster",
+  "eventId": "event-v1",
+  "title": "Poster Template",
+  "mode": "customart",
+  "unlockedAt": 1783200000000,
+  "amountSats": 1000,
+  "payload": {
+    "version": 5,
+    "layers": [
+      { "id": "layer-1", "type": "text", "text": "Legacy purchase" }
+    ]
+  }
+}

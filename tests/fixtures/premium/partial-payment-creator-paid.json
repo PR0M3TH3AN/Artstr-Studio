@@ -1,0 +1,24 @@
+{
+  "source": "30078:creatorpubkey:premium:customart:poster",
+  "eventId": "event-v2",
+  "buyerPubkey": "buyerpubkey",
+  "status": "payment_partial",
+  "requiredPayments": [
+    {
+      "role": "creator",
+      "recipientPubkey": "creatorpubkey",
+      "amountSats": 700,
+      "invoice": "lnbc700",
+      "paid": true,
+      "receiptId": "receipt-creator"
+    },
+    {
+      "role": "platform",
+      "recipientPubkey": "platformpubkey",
+      "amountSats": 300,
+      "invoice": "lnbc300",
+      "paid": false,
+      "receiptId": ""
+    }
+  ]
+}

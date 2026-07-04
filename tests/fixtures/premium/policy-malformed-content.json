@@ -1,0 +1,9 @@
+{
+  "kind": 30078,
+  "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tags": [
+    ["d", "artstr:premium-policy:v1"],
+    ["client", "Artstr Studio"]
+  ],
+  "content": "{not-json"
+}

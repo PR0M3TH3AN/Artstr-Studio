@@ -41,9 +41,15 @@ Phases 0–3 of `ZAP_GATED_PREMIUM_FEATURE.md` (the noble bundle, NWC
 client, platform-fee plumbing, and the original tag-only UI) shipped
 earlier on the same branch and were reused for the encrypted version.
 
-Phase 4 (the real-money E2E test matrix from §19 item 4) is the only
-open work and now lives under "Premium-templates polish" in
-`TODO.md`.
+Phase 4 (the real-money E2E test matrix from §19 item 4) remains open
+under "Premium-templates polish" in `TODO.md`.
+
+The next recommended design upgrade is specified in
+`PREMIUM_2_0_UPGRADE.md`: admin-controlled premium policy, buyer-private
+purchase-copy events, claim windows, purchase repair/migration, and
+partial-payment recovery. That Premium 2.0 plan keeps this document's
+static soft-gate honesty while moving the durable post-purchase asset out
+of the public premium event and into the buyer's encrypted Nostr storage.
 
 ### Goal
 

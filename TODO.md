@@ -250,6 +250,15 @@ The premium-encrypted-designs arc shipped in 2026-05; see
 `docs/PREMIUM_DESIGNS_FEATURE.md` for the canonical spec. Open
 follow-ups worth their own work:
 
+- **Premium 2.0 upgrade** — `docs/PREMIUM_2_0_UPGRADE.md`.
+  Add admin-controlled premium policy, automatic epoch stamping,
+  buyer-private NIP-44 purchase copies, purchase-vault v2 pointers,
+  claim windows, partial-payment recovery, receipt normalization,
+  repair/migration tools, and a future unlock-bot-compatible storage
+  model. Must preserve Premium 1.0 vault/softgate compatibility at
+  every phase and ship with fixtures, fake-relay tests, browser smoke
+  coverage, and a final real-money smoke test. This is durable
+  ownership and operational rotation, not DRM.
 - **Phase 4 E2E test matrix** — real-money round-trip through CoinOS:
   publish premium → unlock from another browser → vault sync. Plus
   the edge-case matrix from §19 item 4 of the spec (wallet budget

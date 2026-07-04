@@ -1,0 +1,10 @@
+{
+  "kind": 30078,
+  "pubkey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "tags": [
+    ["d", "artstr:premium-policy:v1"],
+    ["client", "Artstr Studio"],
+    ["policy", "premium-policy-v1"]
+  ],
+  "content": "{\"v\":1,\"activeSoftgateEpoch\":\"2026-07\",\"activeClaimEpoch\":\"2026-07\",\"defaultClaimDays\":90,\"privateCopies\":\"required\",\"epochs\":{\"2026-07\":{\"status\":\"active\",\"firstUnlock\":\"allowed\",\"privateCopies\":\"required\",\"softgateKdf\":\"artstr-softgate-v1.5\"}}}"
+}

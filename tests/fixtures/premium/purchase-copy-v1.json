@@ -1,0 +1,47 @@
+{
+  "v": 1,
+  "kind": "artstr-purchase-copy",
+  "createdAt": 1783200000,
+  "source": {
+    "a": "30078:creatorpubkey:premium:customart:poster",
+    "eventId": "event-v2",
+    "creatorPubkey": "creatorpubkey",
+    "title": "Poster Template",
+    "premiumMode": "softgate-v1.5",
+    "softgateEpoch": "2026-07",
+    "claimEpoch": "2026-07"
+  },
+  "purchase": {
+    "buyerPubkey": "buyerpubkey",
+    "amountSats": 1000,
+    "unlockedAt": 1783200000,
+    "receipts": [
+      {
+        "role": "creator",
+        "recipientPubkey": "creatorpubkey",
+        "amountSats": 700,
+        "receiptId": "receipt-creator",
+        "preimage": "preimage-creator"
+      },
+      {
+        "role": "platform",
+        "recipientPubkey": "platformpubkey",
+        "amountSats": 300,
+        "receiptId": "receipt-platform",
+        "preimage": "preimage-platform"
+      }
+    ]
+  },
+  "license": {
+    "type": "personal-use-template",
+    "snapshot": true,
+    "sourceCanChange": true
+  },
+  "payloadSchemaVersion": 5,
+  "payload": {
+    "version": 5,
+    "layers": [
+      { "id": "layer-1", "type": "text", "text": "Purchased copy" }
+    ]
+  }
+}
