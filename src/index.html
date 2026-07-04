@@ -6660,6 +6660,7 @@
     // localStorage so the user only pastes the connection string once.
     const NWC_STORAGE_KEY = 'casewrap-nwc-connection';
     const NWC_DEFAULT_TIMEOUT_MS = 25000;
+    const NWC_PAY_INVOICE_TIMEOUT_MS = 60000;
     const nwc = (() => {
       let _conn = null;         // { servicePubkey, relays, secret, clientPubkey, lud16 } once connected
       let _ws = null;           // active WebSocket
@@ -6886,12 +6887,14 @@
         _emit();
       }
 
-      async function payInvoice(bolt11) {
-        return _request('pay_invoice', { invoice: bolt11 });
+      async function payInvoice(bolt11, opts = {}) {
+        return _request('pay_invoice', { invoice: bolt11 }, { timeoutMs: opts.timeoutMs || NWC_PAY_INVOICE_TIMEOUT_MS });
       }
 
-      async function lookupInvoice(paymentHash) {
-        return _request('lookup_invoice', { payment_hash: paymentHash });
+      async function lookupInvoice(invoiceOrHash) {
+        const value = String(invoiceOrHash || '').trim();
+        const params = /^ln/i.test(value) ? { invoice: value } : { payment_hash: value };
+        return _request('lookup_invoice', params);
       }
 
       async function getInfoFresh() {
@@ -7314,10 +7317,27 @@
           }
         }
         onStatus(`Paying ${label}…`);
-        const result = await nwc.payInvoice(leg.bolt11);
-        if (!result?.preimage) throw new Error(`${label} payment returned no preimage`);
-        partial[side] = { ...leg, preimage: result.preimage };
-        savePartialUnlock(eventId, partial);
+        try {
+          const result = await nwc.payInvoice(leg.bolt11);
+          if (!result?.preimage) throw new Error(`${label} payment returned no preimage`);
+          partial[side] = { ...leg, preimage: result.preimage };
+          savePartialUnlock(eventId, partial);
+        } catch (err) {
+          if (err?.code === 'TIMEOUT' && leg?.bolt11) {
+            onStatus(`Checking whether ${label} settled…`);
+            try {
+              const postTimeoutLookup = await nwc.lookupInvoice(leg.bolt11);
+              if (postTimeoutLookup?.preimage) {
+                partial[side] = { ...leg, preimage: postTimeoutLookup.preimage };
+                savePartialUnlock(eventId, partial);
+                return;
+              }
+            } catch (lookupErr) {
+              console.warn('[nwc] post-timeout lookup_invoice failed', lookupErr);
+            }
+          }
+          throw err;
+        }
       }
 
       try {
@@ -7699,11 +7719,6 @@
       const resumeNote = partialSummary.status !== 'none'
         ? `\n\nResume detected: ${partialSummary.confirmed} payment leg${partialSummary.confirmed === 1 ? '' : 's'} confirmed, ${partialSummary.missing} left. Artstr will reuse cached invoices/preimages and only pay missing legs.`
         : '';
-      const authorProfile = _feedCache.profiles?.[row.e?.pubkey] || null;
-      const creatorMeta = {
-        lud16: authorProfile?.lud16,
-        lud06: authorProfile?.lud06,
-      };
       const ok = confirm(
         `${partialSummary.status === 'none' ? 'Unlock' : 'Resume unlock for'} "${row.title || '(untitled)'}" for ${min} sats?\n\n` +
         `• Creator (${shortPubkey(row.e.pubkey)}): ${creatorSats} sats\n` +
@@ -7718,6 +7733,17 @@
         statusToast = toast(msg, { duration: 60000 });
       };
       try {
+        let authorProfile = _feedCache.profiles?.[row.e?.pubkey]
+          || state.community?.profiles?.[row.e?.pubkey]
+          || null;
+        if (!resolveLnurlPayUrl(authorProfile)) {
+          onStatus('Checking creator Lightning address…');
+          authorProfile = await ensureProfilePageData(row.e.pubkey, row.e.tags?.filter(t => t[0] === 'r' && t[1]).map(t => t[1]) || []);
+        }
+        const creatorMeta = {
+          lud16: authorProfile?.lud16,
+          lud06: authorProfile?.lud06,
+        };
         const result = await payZapSplit({
           creatorPubkey: row.e.pubkey,
           creatorMetadata: creatorMeta,
@@ -7843,7 +7869,10 @@
         }
       } catch (err) {
         if (statusToast?.dismiss) statusToast.dismiss();
-        const msg = err?.message || 'Unlock failed.';
+        let msg = err?.message || 'Unlock failed.';
+        if (err?.code === 'TIMEOUT') {
+          msg += ' If one payment leg completed, click Resume payment; Artstr will check cached invoices before paying again.';
+        }
         const stage = err?.stage ? ` (${err.stage} leg)` : '';
         toastError(`${msg}${stage}`);
       }

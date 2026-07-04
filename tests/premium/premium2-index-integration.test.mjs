@@ -105,6 +105,29 @@ test('index page exposes partial-payment resume state without discarding paid le
   assert.match(html, /const stalePartialCleared = clearStalePartialUnlocks\(\)/);
 });
 
+test('index page recovers NWC split-zap legs after wallet timeouts', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /const NWC_PAY_INVOICE_TIMEOUT_MS = 60000/);
+  assert.match(html, /return _request\('pay_invoice', \{ invoice: bolt11 \}, \{ timeoutMs: opts\.timeoutMs \|\| NWC_PAY_INVOICE_TIMEOUT_MS \}\)/);
+  assert.ok(html.includes('const params = /^ln/i.test(value) ? { invoice: value } : { payment_hash: value };'));
+  assert.match(html, /const postTimeoutLookup = await nwc\.lookupInvoice\(leg\.bolt11\)/);
+  assert.match(html, /if \(postTimeoutLookup\?\.preimage\)/);
+  assert.match(html, /preimage: postTimeoutLookup\.preimage/);
+  assert.match(html, /If one payment leg completed, click Resume payment/);
+});
+
+test('index page refreshes creator Lightning metadata before premium unlock payment', async () => {
+  const html = await indexHtml();
+
+  assert.ok(html.includes('let authorProfile = _feedCache.profiles?.[row.e?.pubkey]'));
+  assert.ok(html.includes('|| state.community?.profiles?.[row.e?.pubkey]'));
+  assert.match(html, /if \(!resolveLnurlPayUrl\(authorProfile\)\)/);
+  assert.match(html, /authorProfile = await ensureProfilePageData\(row\.e\.pubkey/);
+  assert.match(html, /Checking creator Lightning address/);
+  assert.match(html, /lud06: authorProfile\?\.lud06/);
+});
+
 test('index page migrates legacy inline vault purchases to private copies', async () => {
   const html = await indexHtml();
 
