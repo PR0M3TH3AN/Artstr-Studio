@@ -7157,6 +7157,44 @@
         localStorage.setItem(PARTIAL_UNLOCK_KEY, JSON.stringify(all));
       } catch (err) { console.warn('[platform] clearPartialUnlock failed', err); }
     }
+    function partialUnlockSummary(eventId) {
+      const partial = getPartialUnlock(eventId);
+      if (!partial) return { status: 'none', confirmed: 0, missing: 2, partial: null };
+      const creatorDone = !!partial.creator?.preimage;
+      const platformDone = !!partial.platform?.preimage;
+      const prepared = !!(partial.creator?.bolt11 || partial.platform?.bolt11 || partial.creator?.signedReq || partial.platform?.signedReq);
+      const confirmed = (creatorDone ? 1 : 0) + (platformDone ? 1 : 0);
+      return {
+        status: confirmed === 2 ? 'complete' : confirmed > 0 ? 'partial' : prepared ? 'prepared' : 'started',
+        confirmed,
+        missing: 2 - confirmed,
+        creatorDone,
+        platformDone,
+        partial,
+      };
+    }
+    function partialUnlockActionLabel(eventId, amountSats) {
+      const summary = partialUnlockSummary(eventId);
+      if (summary.status === 'none') return `⚡ Unlock for ${amountSats} sats`;
+      if (summary.status === 'partial') return `Resume payment (${summary.missing} left)`;
+      return 'Resume payment';
+    }
+    function clearStalePartialUnlocks(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+      const all = getAllPartialUnlocks();
+      const now = Date.now();
+      let cleared = 0;
+      for (const [eventId, partial] of Object.entries(all)) {
+        const startedAt = Number(partial?.startedAt || 0);
+        if (startedAt && now - startedAt <= maxAgeMs) continue;
+        if (partial?.creator?.preimage || partial?.platform?.preimage) continue;
+        delete all[eventId];
+        cleared++;
+      }
+      if (cleared) {
+        try { localStorage.setItem(PARTIAL_UNLOCK_KEY, JSON.stringify(all)); } catch {}
+      }
+      return cleared;
+    }
 
     // payZapSplit — the dual-zap orchestrator. Parallel where possible:
     //   1. resolve creator + platform LNURL metadata (parallel)
@@ -7657,16 +7695,20 @@
       }
       const min = getZapMin(row.e) || 100;
       const { creatorSats, platformSats } = platform.splitZapAmount(min);
+      const partialSummary = partialUnlockSummary(eventId);
+      const resumeNote = partialSummary.status !== 'none'
+        ? `\n\nResume detected: ${partialSummary.confirmed} payment leg${partialSummary.confirmed === 1 ? '' : 's'} confirmed, ${partialSummary.missing} left. Artstr will reuse cached invoices/preimages and only pay missing legs.`
+        : '';
       const authorProfile = _feedCache.profiles?.[row.e?.pubkey] || null;
       const creatorMeta = {
         lud16: authorProfile?.lud16,
         lud06: authorProfile?.lud06,
       };
       const ok = confirm(
-        `Unlock "${row.title || '(untitled)'}" for ${min} sats?\n\n` +
+        `${partialSummary.status === 'none' ? 'Unlock' : 'Resume unlock for'} "${row.title || '(untitled)'}" for ${min} sats?\n\n` +
         `• Creator (${shortPubkey(row.e.pubkey)}): ${creatorSats} sats\n` +
         `• Artstr platform fee: ${platformSats} sats (${(PLATFORM_FEE_BPS / 100).toFixed(0)}%)\n\n` +
-        `Soft-gate, not strong DRM — once unlocked you can save / export / share the design like any other Artstr file.`
+        `Soft-gate, not strong DRM — once unlocked you can save / export / share the design like any other Artstr file.${resumeNote}`
       );
       if (!ok) return;
       // Live status line; reuses the toast system for simplicity.
@@ -8406,8 +8448,9 @@
 
     async function repairPremiumPurchases({ silent = false } = {}) {
       if (!_supportsVault() || !state.community?.myPubkey) {
-        return { status: 'unavailable', pending: null, migrated: null, checked: 0, ok: 0, missing: 0, unrecoverable: 0 };
+        return { status: 'unavailable', pending: null, migrated: null, stalePartialCleared: 0, checked: 0, ok: 0, missing: 0, unrecoverable: 0 };
       }
+      const stalePartialCleared = clearStalePartialUnlocks();
       const pending = await retryPendingVaultWrites({ silent: true });
       const migrated = await migrateLegacyVaultPrivateCopies({ silent: true });
       const vault = await loadPurchaseVault({ force: true });
@@ -8433,7 +8476,7 @@
         }
       }
       const status = pending.failed || migrated.failed || unrecoverable ? 'needs_attention' : missing ? 'repairable' : 'clean';
-      const result = { status, pending, migrated, checked, ok, missing, unrecoverable };
+      const result = { status, pending, migrated, stalePartialCleared, checked, ok, missing, unrecoverable };
       if (!silent) {
         if (status === 'clean') {
           toastSuccess('Purchase repair found everything clean ✓');
@@ -35085,7 +35128,7 @@
           btn.disabled = true;
           btn.title = 'This public premium storefront is no longer claimable. Purchased private copies still open from the vault.';
         } else {
-          btn.textContent = `⚡ Unlock for ${row.zapGate.min} sats`;
+          btn.textContent = partialUnlockActionLabel(row.e?.id, row.zapGate.min);
           btn.className = 'primary';
           btn.title = `Premium template — zap to unlock (creator + ${(PLATFORM_FEE_BPS / 100).toFixed(0)}% Artstr platform fee).`;
           btn.addEventListener('click', e => { e.stopPropagation(); openUnlockConfirm(row); });
@@ -36087,7 +36130,7 @@
           forkBtn.disabled = true;
           forkBtn.title = 'This public premium storefront is no longer claimable. Purchased private copies still open from the vault.';
         } else {
-          forkBtn.textContent = `⚡ Unlock for ${row.zapGate?.min || 100} sats`;
+          forkBtn.textContent = partialUnlockActionLabel(row.e?.id, row.zapGate?.min || 100);
           forkBtn.className = 'primary';
           forkBtn.title = `Premium template — zap to unlock (creator + ${(PLATFORM_FEE_BPS / 100).toFixed(0)}% Artstr platform fee).`;
           forkBtn.addEventListener('click', (e) => {

@@ -91,6 +91,20 @@ test('index page persists and retries failed Premium 2.0 private-copy saves', as
   assert.match(html, /Use Purchased → Retry saving private copy when relay sync recovers/);
 });
 
+test('index page exposes partial-payment resume state without discarding paid legs', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /function partialUnlockSummary\(eventId\)/);
+  assert.match(html, /function partialUnlockActionLabel\(eventId, amountSats\)/);
+  assert.match(html, /Resume payment \(\$\{summary\.missing\} left\)/);
+  assert.match(html, /Artstr will reuse cached invoices\/preimages and only pay missing legs/);
+  assert.match(html, /btn\.textContent = partialUnlockActionLabel\(row\.e\?\.id, row\.zapGate\.min\)/);
+  assert.match(html, /forkBtn\.textContent = partialUnlockActionLabel\(row\.e\?\.id, row\.zapGate\?\.min \|\| 100\)/);
+  assert.match(html, /function clearStalePartialUnlocks/);
+  assert.match(html, /if \(partial\?\.creator\?\.preimage \|\| partial\?\.platform\?\.preimage\) continue/);
+  assert.match(html, /const stalePartialCleared = clearStalePartialUnlocks\(\)/);
+});
+
 test('index page migrates legacy inline vault purchases to private copies', async () => {
   const html = await indexHtml();
 
