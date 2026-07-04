@@ -9,6 +9,7 @@ import {
   buildPurchaseCopyCoordinate,
   buildPurchaseCopyPlaintext,
   buildPremiumPublishStamp,
+  buildPremiumPolicyEventDraft,
   buildVaultV2Item,
   claimStatus,
   normalizeReceiptEvidence,
@@ -90,6 +91,27 @@ test('rejects premium publish stamps for unsupported or closed policy epochs', a
     () => buildPremiumPublishStamp(closedPolicy, { supportedSoftgateEpochs: ['2026-07'] }),
     /closed/,
   );
+});
+
+test('builds admin premium policy event drafts with signed-data-only content', async () => {
+  const valid = await fixture('policy-valid-active.json');
+  const { policy } = validatePremiumPolicyEvent(valid, { platformPubkey });
+  const draft = buildPremiumPolicyEventDraft(policy, { createdAt: 1783200000 });
+
+  assert.equal(draft.kind, 30078);
+  assert.equal(draft.created_at, 1783200000);
+  assert.deepEqual(draft.tags, [
+    ['d', 'artstr:premium-policy:v1'],
+    ['client', 'Artstr Studio'],
+    ['policy', 'premium-policy-v1'],
+  ]);
+
+  const content = JSON.parse(draft.content);
+  assert.equal(content.v, 1);
+  assert.equal(content.activeSoftgateEpoch, '2026-07');
+  assert.equal(content.activeClaimEpoch, '2026-07');
+  assert.equal(content.issuedAt, 1783200000);
+  assert.doesNotMatch(draft.content, /function|eval|script|wasm/i);
 });
 
 test('resolves vault v2 private copies before legacy inline payloads', async () => {

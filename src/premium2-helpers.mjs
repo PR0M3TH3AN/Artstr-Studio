@@ -86,6 +86,30 @@ export function buildPremiumPublishStamp(policy, {
   };
 }
 
+export function buildPremiumPolicyEventDraft(policy, {
+  createdAt = Math.floor(Date.now() / 1000),
+} = {}) {
+  if (!policy || typeof policy !== 'object' || policy.v !== 1) {
+    throw new TypeError('Premium policy v1 is required.');
+  }
+  if (!policy.activeSoftgateEpoch || !policy.activeClaimEpoch || !policy.epochs?.[policy.activeSoftgateEpoch]) {
+    throw new Error('Premium policy is missing active epoch fields.');
+  }
+  return {
+    kind: 30078,
+    created_at: createdAt,
+    tags: [
+      ['d', PREMIUM_POLICY_D_TAG],
+      ['client', 'Artstr Studio'],
+      ['policy', 'premium-policy-v1'],
+    ],
+    content: JSON.stringify({
+      ...policy,
+      issuedAt: Number(policy.issuedAt) || createdAt,
+    }),
+  };
+}
+
 function bytesToBase64Url(bytes) {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);

@@ -41,6 +41,21 @@ test('index page wires admin policy into premium publish stamping', async () => 
   assert.match(html, /\['encrypted', premiumPolicy\.stamp\.encryptedTag\]/);
 });
 
+test('index page exposes admin-only premium policy publishing controls', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /id="premiumPolicyAdminDetails"/);
+  assert.match(html, /id="premiumPolicyPublishBtn"/);
+  assert.match(html, /function isPremiumPolicyAdmin\(\)/);
+  assert.match(html, /normalizePubkey\(state\.community\.myPubkey\) === normalizePubkey\(platform\.getPubkeyHex\(\)\)/);
+  assert.match(html, /function buildPremiumPolicyFromAdminForm\(\)/);
+  assert.match(html, /async function publishPremiumPolicyFromSettings\(\)/);
+  assert.match(html, /helpers\.buildPremiumPolicyEventDraft\(policy\)/);
+  assert.match(html, /helpers\.validatePremiumPolicyEvent\(signed, \{ platformPubkey: platform\.getPubkeyHex\(\) \}\)/);
+  assert.match(html, /on\('premiumPolicyPublishBtn', 'click'/);
+  assert.match(html, /Premium policy published/);
+});
+
 test('soft-gate crypto supports the active Premium 2.0 policy epoch', async () => {
   const html = await indexHtml();
 

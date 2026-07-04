@@ -5631,6 +5631,21 @@
         <p class="hint">Blocked authors are hidden in all community feed views.</p>
         <div id="blockListContainer" class="hint">No blocked authors yet.</div>
       </details>
+      <details id="premiumPolicyAdminDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px;display:none">
+        <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">Premium policy admin</summary>
+        <p class="hint" style="margin:8px 0 6px">Publish the signed Premium 2.0 policy event used for epoch and claim-window stamping.</p>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+          <div><label for="premiumPolicySoftgateEpoch">Softgate epoch</label><input id="premiumPolicySoftgateEpoch" type="text" value="2026-07" /></div>
+          <div><label for="premiumPolicyClaimEpoch">Claim epoch</label><input id="premiumPolicyClaimEpoch" type="text" value="2026-07" /></div>
+          <div><label for="premiumPolicyDefaultDays">Claim days</label><input id="premiumPolicyDefaultDays" type="number" min="7" max="180" step="1" value="90" /></div>
+          <div><label for="premiumPolicyEpochStatus">Epoch status</label><select id="premiumPolicyEpochStatus"><option value="active">Active</option><option value="legacy">Legacy</option><option value="closed">Closed</option></select></div>
+        </div>
+        <div class="buttonRow" style="margin:8px 0 0">
+          <button type="button" id="premiumPolicyRefreshBtn">Refresh policy</button>
+          <button type="button" id="premiumPolicyPublishBtn" class="primary">Publish policy</button>
+        </div>
+        <p class="hint" id="premiumPolicyStatus" style="margin:8px 0 0;min-height:1.2em;color:var(--muted)"></p>
+      </details>
       <details id="walletDetails" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
         <summary style="font-weight:700;font-size:.82rem;cursor:pointer;color:var(--muted)">⚡ Lightning wallet <span class="docsHelpIcon" data-help="nwc" role="button" aria-label="Open help: NWC wallet setup" title="Open help: NWC setup">ⓘ</span><span id="walletStatusBadge" style="font-weight:500;color:var(--muted);font-size:.74rem;margin-left:6px"></span></summary>
         <div id="walletDisconnectedView">
@@ -26183,6 +26198,86 @@
       throw new Error('No valid Artstr premium policy was found on your relays. Ask the Artstr admin to publish the Premium 2.0 policy event, then try publishing again.');
     }
 
+    function isPremiumPolicyAdmin() {
+      return !!state.community?.myPubkey && normalizePubkey(state.community.myPubkey) === normalizePubkey(platform.getPubkeyHex());
+    }
+
+    function updatePremiumPolicyAdminVisibility() {
+      const details = $('premiumPolicyAdminDetails');
+      if (!details) return;
+      const visible = isPremiumPolicyAdmin();
+      details.style.display = visible ? '' : 'none';
+      if (visible && !details.dataset.initialized) {
+        details.dataset.initialized = 'true';
+        refreshPremiumPolicyAdminStatus().catch(() => {});
+      }
+    }
+
+    function buildPremiumPolicyFromAdminForm() {
+      const softgateEpoch = ($('premiumPolicySoftgateEpoch')?.value || '2026-07').trim();
+      const claimEpoch = ($('premiumPolicyClaimEpoch')?.value || softgateEpoch).trim();
+      const defaultClaimDays = Math.max(7, Math.min(180, Number($('premiumPolicyDefaultDays')?.value) || 90));
+      const status = ($('premiumPolicyEpochStatus')?.value || 'active').trim();
+      return {
+        v: 1,
+        activeSoftgateEpoch: softgateEpoch,
+        activeClaimEpoch: claimEpoch,
+        defaultClaimDays,
+        minClaimDays: 7,
+        maxClaimDays: 180,
+        privateCopies: 'required',
+        firstUnlockDefault: 'allowed',
+        issuedAt: Math.floor(Date.now() / 1000),
+        epochs: {
+          '2026-05': {
+            status: softgateEpoch === '2026-05' ? status : 'legacy',
+            firstUnlock: 'allowed',
+            privateCopies: 'allowed',
+            softgateKdf: 'artstr-softgate-v1',
+            minClientPolicy: 1,
+          },
+          [softgateEpoch]: {
+            status,
+            firstUnlock: status === 'closed' ? 'closed' : 'allowed',
+            privateCopies: 'required',
+            softgateKdf: softgateEpoch === '2026-05' ? 'artstr-softgate-v1' : 'artstr-softgate-v1.5',
+            workFactor: 1,
+          },
+        },
+      };
+    }
+
+    async function refreshPremiumPolicyAdminStatus() {
+      const statusEl = $('premiumPolicyStatus');
+      if (!statusEl || !isPremiumPolicyAdmin()) return;
+      statusEl.textContent = 'Checking relays…';
+      try {
+        const loaded = await _loadPremiumPublishPolicy();
+        const policy = loaded.policy || {};
+        if ($('premiumPolicySoftgateEpoch')) $('premiumPolicySoftgateEpoch').value = policy.activeSoftgateEpoch || '2026-07';
+        if ($('premiumPolicyClaimEpoch')) $('premiumPolicyClaimEpoch').value = policy.activeClaimEpoch || policy.activeSoftgateEpoch || '2026-07';
+        if ($('premiumPolicyDefaultDays')) $('premiumPolicyDefaultDays').value = String(policy.defaultClaimDays || 90);
+        if ($('premiumPolicyEpochStatus')) $('premiumPolicyEpochStatus').value = policy.epochs?.[policy.activeSoftgateEpoch]?.status || 'active';
+        statusEl.textContent = `Active policy: ${policy.activeSoftgateEpoch || 'unknown'} / claim ${policy.activeClaimEpoch || 'unknown'}.`;
+      } catch (err) {
+        statusEl.textContent = err?.message || 'No valid premium policy found.';
+      }
+    }
+
+    async function publishPremiumPolicyFromSettings() {
+      if (!isPremiumPolicyAdmin()) throw new Error('Only the Artstr platform admin key can publish premium policy.');
+      const helpers = window.ArtstrPremium2;
+      if (!helpers?.buildPremiumPolicyEventDraft || !helpers?.validatePremiumPolicyEvent) {
+        throw new Error('Premium 2.0 policy helper module did not load.');
+      }
+      const policy = buildPremiumPolicyFromAdminForm();
+      const draft = helpers.buildPremiumPolicyEventDraft(policy);
+      const signed = await publishCommunityEvent(draft);
+      const validated = helpers.validatePremiumPolicyEvent(signed, { platformPubkey: platform.getPubkeyHex() });
+      if (!validated.ok) throw new Error(`Published policy did not validate: ${validated.reason}`);
+      return signed;
+    }
+
     async function _publishPremiumDesign(payload, mode, typeTag, attributionTags = []) {
       // Pre-flight: lud16 on creator (already enforced at the modal level),
       // and resolve the platform lud16 so the split-zap actually works for
@@ -35090,6 +35185,7 @@
         profileBtn.style.display = 'none';
       }
       updateTrustToggles();
+      if (typeof updatePremiumPolicyAdminVisibility === 'function') updatePremiumPolicyAdminVisibility();
       requestAnimationFrame(updateNostrWidgetSpace);
     }
 
@@ -39108,6 +39204,26 @@
       on('profileMenuSettings', 'click', openSettingsModal);
       on('profileMenuLogout', 'click', nostrLogout);
       on('settingsCloseBtn', 'click', closeSettingsModal);
+      on('premiumPolicyRefreshBtn', 'click', () => refreshPremiumPolicyAdminStatus().catch((err) => {
+        const el = $('premiumPolicyStatus');
+        if (el) el.textContent = err?.message || 'Policy refresh failed.';
+      }));
+      on('premiumPolicyPublishBtn', 'click', async () => {
+        const btn = $('premiumPolicyPublishBtn');
+        const statusEl = $('premiumPolicyStatus');
+        if (btn) btn.disabled = true;
+        if (statusEl) statusEl.textContent = 'Publishing premium policy…';
+        try {
+          const signed = await publishPremiumPolicyFromSettings();
+          if (statusEl) statusEl.textContent = `Published policy ${shortPubkey(signed.id)}.`;
+          toastSuccess('Premium policy published ✓');
+        } catch (err) {
+          if (statusEl) statusEl.textContent = err?.message || 'Policy publish failed.';
+          toastError(err?.message || 'Policy publish failed.');
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      });
       const settingsModalEl = $('settingsModal');
       if (settingsModalEl) settingsModalEl.addEventListener('click', (e) => { if (e.target === settingsModalEl) closeSettingsModal(); });
       // Escape key closes both the menu and the settings modal.
