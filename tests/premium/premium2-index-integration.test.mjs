@@ -76,6 +76,19 @@ test('index page persists and retries failed Premium 2.0 private-copy saves', as
   assert.match(html, /Use Purchased → Retry saving private copy when relay sync recovers/);
 });
 
+test('index page migrates legacy inline vault purchases to private copies', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /function _rowFromLegacyVaultItem\(item\)/);
+  assert.match(html, /async function migrateLegacyVaultPrivateCopies/);
+  assert.match(html, /item\?\.payload && !item\.privateCopy && item\.a && item\.eventId/);
+  assert.match(html, /migratedFrom: item\.schema \|\| 'purchase-vault-v1-inline-payload'/);
+  assert.match(html, /source: 'vault-legacy-migrated-private-copy'/);
+  assert.match(html, /const legacyCount = \(items \|\| \[\]\)\.filter\(\(item\) => item\?\.payload && !item\.privateCopy\)\.length/);
+  assert.match(html, /migrateBtn\.textContent = 'Save private copies'/);
+  assert.match(html, /await migrateLegacyVaultPrivateCopies\(\{ silent: false \}\)/);
+});
+
 test('vault item stubs preserve Premium 2.0 private-copy fields', async () => {
   const html = await indexHtml();
   const stubStart = html.indexOf('function _vaultItemStub(item)');

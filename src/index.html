@@ -7973,6 +7973,40 @@
         },
       };
     }
+    function _rowFromLegacyVaultItem(item) {
+      const dTag = (item?.a || '').split(':').slice(2).join(':') || 'vault';
+      return {
+        title: item?.title || '',
+        mode: item?.mode || item?.payload?.templateMode || '',
+        e: {
+          id: item?.eventId || '',
+          pubkey: item?.creatorPubkey || '',
+          kind: 30078,
+          created_at: Math.floor((item?.unlockedAt || Date.now()) / 1000),
+          tags: [
+            ['d', dTag],
+            ['title', item?.title || ''],
+            ['premium-mode', item?.premiumMode || 'softgate-v1'],
+            ['softgate-epoch', item?.softgateEpoch || item?.payment?.epoch || ''],
+            ['claim-epoch', item?.claimEpoch || ''],
+          ],
+        },
+        premium: {
+          address: item?.a || '',
+          dTag,
+          previewJpegDataUrl: item?.previewJpegDataUrl || '',
+          envelope: {
+            premiumMode: item?.premiumMode || 'softgate-v1',
+            payloadSchemaVersion: item?.payloadSchemaVersion || item?.payload?.version || 5,
+            softgate: {
+              epoch: item?.softgateEpoch || item?.payment?.epoch || '',
+              claimEpoch: item?.claimEpoch || '',
+            },
+            license: item?.license ? { type: item.license.type || item.licenseType || 'personal-use-template' } : { type: item?.licenseType || 'personal-use-template' },
+          },
+        },
+      };
+    }
 
     async function loadPurchaseVault({ force = false } = {}) {
       if (!force && _vaultCache) return _vaultCache;
@@ -8294,6 +8328,65 @@
         else if (failed) toastError(`${failed} pending private cop${failed === 1 ? 'y' : 'ies'} still could not be saved. Try again from Purchased.`);
       }
       return { attempted: entries.length, succeeded, failed };
+    }
+
+    async function migrateLegacyVaultPrivateCopies({ silent = false } = {}) {
+      if (!_supportsVault() || !state.community?.myPubkey) return { attempted: 0, migrated: 0, failed: 0 };
+      const current = await loadPurchaseVault({ force: true });
+      const legacyItems = (current.items || []).filter((item) => item?.payload && !item.privateCopy && item.a && item.eventId);
+      if (!legacyItems.length) return { attempted: 0, migrated: 0, failed: 0 };
+      const migratedItems = [];
+      let failed = 0;
+      for (const item of legacyItems) {
+        try {
+          const row = _rowFromLegacyVaultItem(item);
+          const receipts = item.payment?.receipts || [];
+          const creatorReceipt = receipts.find((r) => r.role === 'creator' || r.recipientPubkey === item.creatorPubkey) || receipts[0] || {};
+          const platformReceipt = receipts.find((r) => r.role === 'platform' || r.recipientPubkey === platform.getPubkeyHex()) || receipts[1] || {};
+          const creatorSats = Number(creatorReceipt.amountSats) || Math.max(0, Number(item.amountSats || 0) - Number(platformReceipt.amountSats || 0));
+          const platformSats = Number(platformReceipt.amountSats) || Math.max(0, Number(item.amountSats || 0) - creatorSats);
+          const vaultItem = await _publishPurchaseCopyAndBuildVaultItem({
+            row,
+            totalSats: item.amountSats,
+            creatorSats,
+            platformSats,
+            creatorPreimage: creatorReceipt.preimage || '',
+            platformPreimage: platformReceipt.preimage || '',
+            payload: item.payload,
+          });
+          migratedItems.push({
+            ...item,
+            ...vaultItem,
+            migratedFrom: item.schema || 'purchase-vault-v1-inline-payload',
+            migratedAt: Date.now(),
+          });
+        } catch (err) {
+          failed++;
+          console.warn('[vault] legacy private-copy migration failed', item?.a, err);
+        }
+      }
+      if (migratedItems.length) {
+        const mergedItems = _vaultMerge(current.items || [], migratedItems);
+        await _publishVault({ v: 1, updatedAt: Date.now(), items: mergedItems });
+        for (const item of migratedItems) {
+          if (item.eventId) {
+            markUnlocked(item.eventId, {
+              source: 'vault-legacy-migrated-private-copy',
+              address: item.a || '',
+              payload: item.payload,
+              previewJpegDataUrl: item.previewJpegDataUrl || undefined,
+              amountSats: item.amountSats,
+              unlockedAt: item.unlockedAt,
+            });
+          }
+        }
+      }
+      if (!silent) {
+        if (migratedItems.length && !failed) toastSuccess(`Saved private cop${migratedItems.length === 1 ? 'y' : 'ies'} for ${migratedItems.length} legacy purchase${migratedItems.length === 1 ? '' : 's'} ✓`);
+        else if (migratedItems.length && failed) toastError(`Saved ${migratedItems.length} legacy private cop${migratedItems.length === 1 ? 'y' : 'ies'}, but ${failed} failed.`);
+        else if (failed) toastError(`${failed} legacy purchase${failed === 1 ? '' : 's'} could not be migrated yet.`);
+      }
+      return { attempted: legacyItems.length, migrated: migratedItems.length, failed };
     }
 
     function _buildVaultItemForUnlock({ row, totalSats, creatorSats, platformSats, creatorPreimage, platformPreimage, payload }) {
@@ -9211,8 +9304,9 @@
       topBar.style.cssText = 'grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;font-size:.78rem;color:var(--muted)';
       const count = document.createElement('span');
       const pendingCount = _pendingPrivateCopyCount();
+      const legacyCount = (items || []).filter((item) => item?.payload && !item.privateCopy).length;
       count.textContent = items.length
-        ? `${items.length} unlocked design${items.length === 1 ? '' : 's'}${pendingCount ? ` · ${pendingCount} pending save${pendingCount === 1 ? '' : 's'}` : ''}`
+        ? `${items.length} unlocked design${items.length === 1 ? '' : 's'}${pendingCount ? ` · ${pendingCount} pending save${pendingCount === 1 ? '' : 's'}` : ''}${legacyCount ? ` · ${legacyCount} legacy cop${legacyCount === 1 ? 'y' : 'ies'}` : ''}`
         : (hadError ? 'Vault load failed' : 'No premium designs unlocked yet');
       if (!items.length && pendingCount) {
         count.textContent = `${pendingCount} pending private cop${pendingCount === 1 ? 'y' : 'ies'} need${pendingCount === 1 ? 's' : ''} saving`;
@@ -9236,6 +9330,24 @@
           }
         });
         actions.appendChild(retryBtn);
+      }
+      if (legacyCount) {
+        const migrateBtn = document.createElement('button');
+        migrateBtn.type = 'button';
+        migrateBtn.textContent = 'Save private copies';
+        migrateBtn.title = 'Convert legacy inline vault purchases into buyer-private Premium 2.0 copies.';
+        migrateBtn.addEventListener('click', async () => {
+          migrateBtn.disabled = true;
+          migrateBtn.textContent = 'Saving…';
+          try {
+            await migrateLegacyVaultPrivateCopies({ silent: false });
+            await loadPurchasedDesignsIntoWall(wall, { force: true });
+          } finally {
+            migrateBtn.disabled = false;
+            migrateBtn.textContent = 'Save private copies';
+          }
+        });
+        actions.appendChild(migrateBtn);
       }
       const refreshBtn = document.createElement('button');
       refreshBtn.type = 'button';
