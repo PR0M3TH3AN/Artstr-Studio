@@ -61,6 +61,21 @@ test('index page blocks expired first-time premium claims but keeps owned paths 
   assert.match(html, /Purchased private copies still open from the vault/);
 });
 
+test('index page persists and retries failed Premium 2.0 private-copy saves', async () => {
+  const html = await indexHtml();
+
+  assert.match(html, /const PENDING_PRIVATE_COPY_KEY = 'casewrap-pending-private-copies-v1'/);
+  assert.match(html, /function savePendingPrivateCopy/);
+  assert.match(html, /function clearPendingPrivateCopy/);
+  assert.match(html, /async function retryPendingVaultWrites/);
+  assert.match(html, /savePendingPrivateCopy\(\{\n\s+row,/);
+  assert.match(html, /clearPendingPrivateCopy\(row\)/);
+  assert.match(html, /source: 'pending-private-copy-retry'/);
+  assert.match(html, /Retry saving private copy/);
+  assert.match(html, /await retryPendingVaultWrites\(\{ silent: false \}\)/);
+  assert.match(html, /Use Purchased → Retry saving private copy when relay sync recovers/);
+});
+
 test('vault item stubs preserve Premium 2.0 private-copy fields', async () => {
   const html = await indexHtml();
   const stubStart = html.indexOf('function _vaultItemStub(item)');

@@ -7730,9 +7730,20 @@
             if (statusToast?.dismiss) statusToast.dismiss();
             statusToast = toast('Private copy saved. Syncing purchase vault…', { duration: 30000 });
             await upsertPurchaseVaultItem(vaultItem);
+            clearPendingPrivateCopy(row);
             vaultSynced = true;
           } catch (err) {
             vaultErr = err;
+            savePendingPrivateCopy({
+              row,
+              totalSats: min,
+              creatorSats: result.creatorSats,
+              platformSats: result.platformSats,
+              creatorPreimage: result.creatorPreimage,
+              platformPreimage: result.platformPreimage,
+              payload: decryptedPayload,
+              lastError: err?.message || String(err),
+            });
             console.warn('[vault] upsert failed', err);
           }
         }
@@ -7741,7 +7752,7 @@
           toastSuccess(`Unlocked "${row.title || 'template'}" ✓`);
         } else {
           toastError(
-            `Unlocked "${row.title || 'template'}" on this device, but vault sync failed (${vaultErr?.message || 'no relay accepted the event'}). Your purchase is saved locally; other devices won’t see it until sync recovers.`,
+            `Unlocked "${row.title || 'template'}" on this device, but vault sync failed (${vaultErr?.message || 'no relay accepted the event'}). Your purchase is saved locally. Use Purchased → Retry saving private copy when relay sync recovers.`,
             { duration: 12000 }
           );
         }
@@ -7794,6 +7805,7 @@
     const VAULT_D_TAG = 'artstr:purchase-vault:v1';
     const NWC_SYNC_D_TAG = 'artstr:nwc-connection:v1';
     const NWC_SYNC_PREF_KEY = 'casewrap-nwc-sync-pref';  // 'on' | 'off'
+    const PENDING_PRIVATE_COPY_KEY = 'casewrap-pending-private-copies-v1';
     let _vaultLoadPromise = null;
     let _vaultCache = null;   // { v, updatedAt, items: [...] } once hydrated
 
@@ -7871,6 +7883,94 @@
         softgateEpoch: item.softgateEpoch,
         licenseType: item.licenseType,
         receiptSummary: item.receiptSummary,
+      };
+    }
+
+    function _pendingPrivateCopyKey(row) {
+      return row?.premium?.address || row?.e?.id || '';
+    }
+    function getPendingPrivateCopies() {
+      try { return JSON.parse(localStorage.getItem(PENDING_PRIVATE_COPY_KEY) || '{}') || {}; }
+      catch { return {}; }
+    }
+    function _pendingPrivateCopyCount() {
+      return Object.keys(getPendingPrivateCopies()).length;
+    }
+    function _rowSnapshotForPendingPrivateCopy(row) {
+      return {
+        title: row?.title || '',
+        mode: row?.mode || '',
+        e: {
+          id: row?.e?.id || '',
+          pubkey: row?.e?.pubkey || '',
+          kind: row?.e?.kind || 30078,
+          created_at: row?.e?.created_at || Math.floor(Date.now() / 1000),
+          tags: row?.e?.tags || [],
+        },
+        premium: {
+          address: row?.premium?.address || '',
+          dTag: row?.premium?.dTag || '',
+          previewJpegDataUrl: row?.premium?.previewJpegDataUrl || '',
+          envelope: row?.premium?.envelope || null,
+        },
+      };
+    }
+    function savePendingPrivateCopy({ row, totalSats, creatorSats, platformSats, creatorPreimage, platformPreimage, payload, lastError = '' } = {}) {
+      const key = _pendingPrivateCopyKey(row);
+      if (!key || !payload) return;
+      try {
+        const all = getPendingPrivateCopies();
+        all[key] = {
+          schema: 'pending-private-copy-v1',
+          savedAt: Date.now(),
+          attempts: Number(all[key]?.attempts || 0),
+          lastError,
+          row: _rowSnapshotForPendingPrivateCopy(row),
+          payment: {
+            totalSats,
+            creatorSats,
+            platformSats,
+            creatorPreimage: creatorPreimage || '',
+            platformPreimage: platformPreimage || '',
+          },
+          payload,
+        };
+        localStorage.setItem(PENDING_PRIVATE_COPY_KEY, JSON.stringify(all));
+      } catch (err) {
+        console.warn('[vault] savePendingPrivateCopy failed', err);
+      }
+    }
+    function clearPendingPrivateCopy(keyOrRow) {
+      const key = typeof keyOrRow === 'string' ? keyOrRow : _pendingPrivateCopyKey(keyOrRow);
+      if (!key) return;
+      try {
+        const all = getPendingPrivateCopies();
+        if (!(key in all)) return;
+        delete all[key];
+        localStorage.setItem(PENDING_PRIVATE_COPY_KEY, JSON.stringify(all));
+      } catch (err) {
+        console.warn('[vault] clearPendingPrivateCopy failed', err);
+      }
+    }
+    function _rowFromPendingPrivateCopy(record) {
+      const row = record?.row || {};
+      const event = row.e || {};
+      return {
+        title: row.title || '',
+        mode: row.mode || record?.payload?.templateMode || '',
+        e: {
+          id: event.id || '',
+          pubkey: event.pubkey || '',
+          kind: event.kind || 30078,
+          created_at: event.created_at || Math.floor(Date.now() / 1000),
+          tags: event.tags || [],
+        },
+        premium: {
+          address: row.premium?.address || '',
+          dTag: row.premium?.dTag || '',
+          previewJpegDataUrl: row.premium?.previewJpegDataUrl || '',
+          envelope: row.premium?.envelope || null,
+        },
       };
     }
 
@@ -8138,6 +8238,62 @@
         mode: row.mode || payload?.templateMode || '',
         licenseType: license.type,
       });
+    }
+
+    async function retryPendingVaultWrites({ silent = false } = {}) {
+      if (!_supportsVault() || !state.community?.myPubkey) return { attempted: 0, succeeded: 0, failed: 0 };
+      const pending = getPendingPrivateCopies();
+      const entries = Object.entries(pending);
+      if (!entries.length) return { attempted: 0, succeeded: 0, failed: 0 };
+      let succeeded = 0;
+      let failed = 0;
+      for (const [key, record] of entries) {
+        try {
+          const row = _rowFromPendingPrivateCopy(record);
+          const payment = record.payment || {};
+          const vaultItem = await _publishPurchaseCopyAndBuildVaultItem({
+            row,
+            totalSats: payment.totalSats,
+            creatorSats: payment.creatorSats,
+            platformSats: payment.platformSats,
+            creatorPreimage: payment.creatorPreimage,
+            platformPreimage: payment.platformPreimage,
+            payload: record.payload,
+          });
+          await upsertPurchaseVaultItem(vaultItem);
+          if (row.e?.id) {
+            markUnlocked(row.e.id, {
+              source: 'pending-private-copy-retry',
+              address: row.premium?.address || '',
+              payload: record.payload,
+              previewJpegDataUrl: row.premium?.previewJpegDataUrl || undefined,
+              amountSats: payment.totalSats,
+              unlockedAt: record.savedAt || Date.now(),
+            });
+          }
+          clearPendingPrivateCopy(key);
+          succeeded++;
+        } catch (err) {
+          failed++;
+          const all = getPendingPrivateCopies();
+          if (all[key]) {
+            all[key] = {
+              ...all[key],
+              attempts: Number(all[key].attempts || 0) + 1,
+              lastAttemptAt: Date.now(),
+              lastError: err?.message || String(err),
+            };
+            try { localStorage.setItem(PENDING_PRIVATE_COPY_KEY, JSON.stringify(all)); } catch {}
+          }
+          console.warn('[vault] pending private-copy retry failed', key, err);
+        }
+      }
+      if (!silent) {
+        if (succeeded && !failed) toastSuccess(`Saved ${succeeded} pending private cop${succeeded === 1 ? 'y' : 'ies'} to your vault ✓`);
+        else if (succeeded && failed) toastError(`Saved ${succeeded} pending private cop${succeeded === 1 ? 'y' : 'ies'}, but ${failed} still need retry.`);
+        else if (failed) toastError(`${failed} pending private cop${failed === 1 ? 'y' : 'ies'} still could not be saved. Try again from Purchased.`);
+      }
+      return { attempted: entries.length, succeeded, failed };
     }
 
     function _buildVaultItemForUnlock({ row, totalSats, creatorSats, platformSats, creatorPreimage, platformPreimage, payload }) {
@@ -9054,15 +9210,40 @@
       const topBar = document.createElement('div');
       topBar.style.cssText = 'grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;font-size:.78rem;color:var(--muted)';
       const count = document.createElement('span');
+      const pendingCount = _pendingPrivateCopyCount();
       count.textContent = items.length
-        ? `${items.length} unlocked design${items.length === 1 ? '' : 's'}`
+        ? `${items.length} unlocked design${items.length === 1 ? '' : 's'}${pendingCount ? ` · ${pendingCount} pending save${pendingCount === 1 ? '' : 's'}` : ''}`
         : (hadError ? 'Vault load failed' : 'No premium designs unlocked yet');
+      if (!items.length && pendingCount) {
+        count.textContent = `${pendingCount} pending private cop${pendingCount === 1 ? 'y' : 'ies'} need${pendingCount === 1 ? 's' : ''} saving`;
+      }
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end';
+      if (pendingCount) {
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.textContent = 'Retry saving private copy';
+        retryBtn.title = 'Finish saving paid designs that unlocked locally but did not sync to your encrypted purchase vault.';
+        retryBtn.addEventListener('click', async () => {
+          retryBtn.disabled = true;
+          retryBtn.textContent = 'Retrying…';
+          try {
+            await retryPendingVaultWrites({ silent: false });
+            await loadPurchasedDesignsIntoWall(wall, { force: true });
+          } finally {
+            retryBtn.disabled = false;
+            retryBtn.textContent = 'Retry saving private copy';
+          }
+        });
+        actions.appendChild(retryBtn);
+      }
       const refreshBtn = document.createElement('button');
       refreshBtn.type = 'button';
       refreshBtn.textContent = '↻ Refresh';
       refreshBtn.title = 'Re-query relays for the latest vault';
       refreshBtn.addEventListener('click', () => loadPurchasedDesignsIntoWall(wall, { force: true }));
-      topBar.append(count, refreshBtn);
+      actions.appendChild(refreshBtn);
+      topBar.append(count, actions);
       wall.appendChild(topBar);
       if (!items.length) {
         const empty = document.createElement('div');
