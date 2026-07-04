@@ -35185,6 +35185,16 @@
         lockBadge.textContent = '🔒 Private';
         thumb.appendChild(lockBadge);
       }
+      if (rowIsOwnedByMe(row) && row.premium) {
+        const claimState = _premiumClaimStatusForRow(row);
+        if (claimState === 'expired' || claimState === 'closed') {
+          const epochBadge = document.createElement('span');
+          epochBadge.className = 'feedCardPrivateBadge';
+          epochBadge.textContent = 'Epoch refresh needed';
+          epochBadge.title = 'This premium storefront is no longer claimable. Refresh the epoch to make it purchasable again.';
+          thumb.appendChild(epochBadge);
+        }
+      }
       if (showBlur) {
         const overlay = document.createElement('div');
         overlay.className = 'feedCardSoftModOverlay';
@@ -35300,10 +35310,14 @@
 
     function makeFeedCardRefreshEpochButton(row) {
       if (!rowIsOwnedByMe(row) || !rowDTag(row) || !row?.premium) return null;
+      const claimState = _premiumClaimStatusForRow(row);
+      const needsRefresh = claimState === 'expired' || claimState === 'closed';
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = 'Refresh epoch';
-      btn.title = 'Republish this premium listing under the current Artstr premium policy without changing the design';
+      btn.textContent = needsRefresh ? 'Refresh epoch to sell' : 'Refresh epoch';
+      btn.title = needsRefresh
+        ? 'This premium listing is no longer claimable. Republish it under the current Artstr premium policy to make it purchasable again.'
+        : 'Republish this premium listing under the current Artstr premium policy without changing the design';
       btn.addEventListener('click', e => {
         e.stopPropagation();
         republishPremiumUnderCurrentEpoch(row);
@@ -36165,10 +36179,14 @@
         actionsDiv.insertBefore(editBtn, saveJsonBtn);
 
         if (row.premium) {
+          const claimState = _premiumClaimStatusForRow(row);
+          const needsRefresh = claimState === 'expired' || claimState === 'closed';
           const refreshEpochBtn = document.createElement('button');
           refreshEpochBtn.type = 'button';
-          refreshEpochBtn.textContent = 'Refresh epoch';
-          refreshEpochBtn.title = 'Republish this premium listing under the current Artstr premium policy without changing the design';
+          refreshEpochBtn.textContent = needsRefresh ? 'Refresh epoch to sell' : 'Refresh epoch';
+          refreshEpochBtn.title = needsRefresh
+            ? 'This premium listing is no longer claimable. Republish it under the current Artstr premium policy to make it purchasable again.'
+            : 'Republish this premium listing under the current Artstr premium policy without changing the design';
           refreshEpochBtn.addEventListener('click', () => republishPremiumUnderCurrentEpoch(row));
           actionsDiv.insertBefore(refreshEpochBtn, saveJsonBtn);
         }

@@ -159,7 +159,10 @@ test('index page exposes creator premium epoch refresh for existing listings', a
   assert.match(html, /async function republishPremiumUnderCurrentEpoch\(row\)/);
   assert.match(html, /async function resolvePremiumPayloadForRepublish\(row\)/);
   assert.match(html, /makeFeedCardRefreshEpochButton\(row\)/);
-  assert.match(html, /btn\.textContent = 'Refresh epoch'/);
+  assert.match(html, /btn\.textContent = needsRefresh \? 'Refresh epoch to sell' : 'Refresh epoch'/);
+  assert.match(html, /Epoch refresh needed/);
+  assert.match(html, /Refresh epoch to sell/);
+  assert.match(html, /This premium storefront is no longer claimable\. Refresh the epoch to make it purchasable again\./);
   assert.match(html, /state\.publish = \{\n\s+\.\.\.\(state\.publish \|\| \{\}\),\n\s+zapGate: true,/);
   assert.match(html, /publishBtn\?\.click\(\)/);
   assert.match(html, /Existing buyers keep their private purchased snapshots/);
